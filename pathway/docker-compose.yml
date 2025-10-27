@@ -1,0 +1,15 @@
+networks:
+  stock-network:
+    external: true
+    name: kafka_stock-network 
+
+services: 
+  pathway-processor:
+    build: .
+    networks:
+      - stock-network
+    environment:
+      KAFKA_BROKER: kafka:29092
+    volumes:
+      - .:/app
+    restart: unless-stopped
