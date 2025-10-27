@@ -2,7 +2,7 @@ import os
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
-from streaming.producers.base_producer import BaseProducer
+from producers.base_producer import BaseProducer
 
 load_dotenv()
 
@@ -37,7 +37,7 @@ class NewsProducer(BaseProducer):
         try:
             # NewsAPI parameters
             params = {
-                'q': f'{stock_symbol} stock OR {self._get_company_name(stock_symbol)}',
+                'q': f'{stock_symbol}',
                 'apiKey': self.api_key,
                 'language': 'en',
                 'sortBy': 'publishedAt',
@@ -76,19 +76,6 @@ class NewsProducer(BaseProducer):
         except Exception as e:
             print(f"Error fetching news for {stock_symbol}: {e}")
             return None
-    
-    def _get_company_name(self, symbol):
-        """Get company name from stock symbol"""
-        company_map = {
-            'AAPL': 'Apple',
-            'GOOGL': 'Google',
-            'MSFT': 'Microsoft',
-            'TSLA': 'Tesla',
-            'AMZN': 'Amazon',
-            'META': 'Meta',
-            'NVDA': 'NVIDIA'
-        }
-        return company_map.get(symbol, symbol)
 
 
 def main():

@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-from streaming.producers.base_producer import BaseProducer
+from producers.base_producer import BaseProducer
 
 
 def discover_producers():
@@ -21,7 +21,7 @@ def discover_producers():
             continue
         
         # Import the module
-        module_name = f"streaming.producers.{file.stem}"
+        module_name = f"producers.{file.stem}"
         try:
             module = importlib.import_module(module_name)
             
@@ -117,8 +117,8 @@ def main():
     try:
         while True:
             import time
-            time.sleep(1)  # Check every 30 seconds
-            
+            time.sleep(45)  # Check every 45 seconds
+
             # Print scheduler status
             jobs = scheduler.get_jobs()
             print(f"\n[Status Check] Active jobs: {len(jobs)}")
