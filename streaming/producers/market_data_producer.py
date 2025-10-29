@@ -2,7 +2,7 @@ import os
 import finnhub
 from datetime import datetime
 from dotenv import load_dotenv
-from producers.base_producer import BaseProducer
+from base_producer import BaseProducer
 
 load_dotenv()
 

@@ -16,6 +16,10 @@ def main():
     # Consume data and get tables
     news_table = news_consumer.consume()
     market_table = market_consumer.consume()
+    
+    # For sentiment, use flattened mode to get individual posts as rows
+    sentiment_table = sentiment_consumer.consume_flattened()
+    # Alternative: sentiment_table = sentiment_consumer.consume()  # Keeps posts grouped
 
     # For sentiment, use flattened mode to get individual posts as rows
     sentiment_table = sentiment_consumer.consume_flattened()
