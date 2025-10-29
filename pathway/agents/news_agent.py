@@ -5,7 +5,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 import json
 
-load_dotenv(dotenv_path="Pathway_InterIIT/streaming/.env")
+# Load .env from relative path
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", "..", "streaming", ".env"))
 
 class NewsReportUpdater:
     """
