@@ -2,7 +2,7 @@
 import time
 from datetime import datetime
 from abc import ABC, abstractmethod
-from streaming.utils.kafka_utils import get_kafka_producer, send_to_kafka
+from utils.kafka_utils import get_kafka_producer, send_to_kafka
 
 class BaseProducer(ABC):
     """Base class for all Kafka producers"""

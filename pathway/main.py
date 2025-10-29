@@ -21,10 +21,6 @@ def main():
     sentiment_table = sentiment_consumer.consume_flattened()
     # Alternative: sentiment_table = sentiment_consumer.consume()  # Keeps posts grouped
 
-    # For sentiment, use flattened mode to get individual posts as rows
-    sentiment_table = sentiment_consumer.consume_flattened()
-    # Alternative: sentiment_table = sentiment_consumer.consume()  # Keeps posts grouped
-
     print("\n✅ All consumers initialized. Starting stream processing...")
     pw.run()
 
