@@ -6,17 +6,11 @@ from agents.sentiment_report_producer import create_report_reducer
 
 def main():
     print("Pathway Kafka Consumer System")
-    
-    news_consumer = NewsConsumer()
-    market_consumer = MarketDataConsumer()
+
     sentiment_consumer = SentimentConsumer()
-    
-    news_table = news_consumer.consume()
-    market_table = market_consumer.consume()
+
     sentiment_table = sentiment_consumer.consume_flattened()
 
-    pw.io.csv.write(market_table, "/app/output/market_data.csv")
-    pw.io.csv.write(news_table, "/app/output/news_data.csv")
     pw.io.csv.write(sentiment_table, "/app/output/sentiment_data.csv")
     
     # Generate sentiment reports using OpenAI if enabled

@@ -4,8 +4,9 @@ networks:
     name: kafka_stock-network 
 
 services: 
-  pathway-processor:
+  sentiment-agent:
     build: .
+    command: python main_sentiment.py
     networks:
       - stock-network
     env_file:
