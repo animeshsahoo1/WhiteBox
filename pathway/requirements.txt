@@ -1,0 +1,3 @@
+pathway[xpack-llm-docs]
+python-dotenv
+openai

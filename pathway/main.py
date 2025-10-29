@@ -1,7 +1,9 @@
 import pathway as pw
 from consumers.news_consumer import NewsConsumer
+from agents.news_agent import NewsReportUpdater
 from consumers.market_data_consumer import MarketDataConsumer
 from consumers.sentiment_consumer import SentimentConsumer
+from agents.news_agent import process_news_stream
 
 def main():
     print("=" * 70)
@@ -20,6 +22,9 @@ def main():
     # For sentiment, use flattened mode to get individual posts as rows
     sentiment_table = sentiment_consumer.consume_flattened()
     # Alternative: sentiment_table = sentiment_consumer.consume()  # Keeps posts grouped
+    reports_directory = "Pathway_InterIIT/pathway/reports"
+    updated_news_reports = process_news_stream(news_table, reports_directory=reports_directory)
+    pw.debug.compute_and_print(updated_news_reports)
 
     print("\n✅ All consumers initialized. Starting stream processing...")
     pw.run()

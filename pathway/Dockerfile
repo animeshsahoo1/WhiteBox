@@ -1,4 +1,4 @@
-FROM pathwaycom/pathway:slim-latest
+FROM pathwaycom/pathway:latest
 
 # Set working directory
 WORKDIR /app
