@@ -226,7 +226,7 @@ class SentimentProducer(BaseProducer):
                     # Create post data
                     post_data = {
                         'post_id': post.id,
-                        'ticker_symbol': stock_symbol,
+                        'symbol': stock_symbol,
                         'company_name': company_name,
                         'subreddit': subreddit_name,
                         'sentiment_post_title': round(sentiment_title, 4),
@@ -248,12 +248,7 @@ class SentimentProducer(BaseProducer):
             
             # Return aggregated data if any posts found
             if all_posts_data:
-                return {
-                    'symbol': stock_symbol,
-                    'timestamp': datetime.now().isoformat(),
-                    'posts_count': len(all_posts_data),
-                    'posts': all_posts_data
-                }
+                return all_posts_data
             
             return None
             

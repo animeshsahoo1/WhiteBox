@@ -31,6 +31,9 @@ Thumbs.db
 # Docker
 *.log
 
+# News cache (runtime data)
+streaming/producers/news_cache.json
+
 # Jupyter Notebook
 .ipynb_checkpoints
 

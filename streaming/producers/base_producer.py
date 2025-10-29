@@ -55,7 +55,12 @@ class BaseProducer(ABC):
             try:
                 data = self.fetch_data(stock)
                 if data:
-                    send_to_kafka(self.producer, self.kafka_topic, data)
+                    if isinstance(data, list):
+                        for item in data:
+                            send_to_kafka(self.producer, self.kafka_topic, item)
+                            time.sleep(0.5)  # Small delay between items
+                    else:
+                        send_to_kafka(self.producer, self.kafka_topic, data)
                 time.sleep(0.5)  # Small delay between stocks (API rate limiting)
             except Exception as e:
                 print(f"[{self.name}] Error processing {stock}: {e}")
