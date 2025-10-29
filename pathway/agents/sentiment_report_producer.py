@@ -3,6 +3,8 @@ from pathlib import Path
 from openai import OpenAI
 from dotenv import load_dotenv
 import pathway as pw
+import pathway as pw
+from pathway.xpacks.llm import llms
 
 load_dotenv('/app/.env')
 
@@ -25,15 +27,52 @@ class SentimentReportProducer:
         else:
             return f"Create {symbol} ({company}) sentiment report:\n{new_post}\n\nFormat: # {symbol} Report\n## Sentiment\n## Signal\n## Key Points"
     
+    # def call_openai(self, prompt):
+    #     try:
+    #         response = self.client.chat.completions.create(
+    #             model=self.model,
+    #             messages=[{"role": "user", "content": prompt}],
+    #             temperature=0.0,
+    #             max_tokens=1500
+    #         )
+    #         return response.choices[0].message.content
+    #     except Exception as e:
+    #         print(f"OpenAI error: {e}")
+    #         return None
+
+
     def call_openai(self, prompt):
         try:
-            response = self.client.chat.completions.create(
+            # Create OpenAI chat instance
+            chat_model = llms.OpenAIChat(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
-                max_tokens=1500
+                max_tokens=100,
+                api_key=self.client.api_key if hasattr(self.client, 'api_key') else None
             )
-            return response.choices[0].message.content
+            
+            # Create a table with the prompt
+            prompt_table = pw.debug.table_from_rows(
+                pw.schema_from_types(prompt=str),
+                rows=[(prompt,)]
+            )
+            
+            # Apply chat model with proper message formatting
+            result_table = prompt_table.select(
+                response=chat_model(llms.prompt_chat_single_qa(pw.this.prompt))
+            )
+            
+            # Compute and extract the response
+            result = pw.debug.compute_and_print_update_stream(result_table)
+            
+            # Extract the actual response value
+            response_value = None
+            for row in result_table:
+                response_value = row.response
+                break
+                
+            return response_value
+            
         except Exception as e:
             print(f"OpenAI error: {e}")
             return None
