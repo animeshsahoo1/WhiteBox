@@ -237,6 +237,8 @@ def process_news_stream(news_table: pw.Table, reports_directory: str = "./report
         Table with updated reports per company
     """
     
+    # Ensure the reports directory exists
+    os.makedirs(reports_directory, exist_ok=True)
     # Initialize the updater
     report_updater = NewsReportUpdater(reports_directory=reports_directory)
     

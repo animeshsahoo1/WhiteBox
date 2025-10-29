@@ -39,7 +39,6 @@ services:
       - stock-network
     depends_on:
       - kafka
-      - pathway-processor
     environment:
       KAFKA_BROKER: kafka:29092
     volumes:
