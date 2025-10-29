@@ -32,6 +32,7 @@ def main():
         )
     )
     
+    pw.io.csv.write(reports_table, "/app/output/reports_status.csv")
     pw.run()
 
 if __name__ == '__main__':
