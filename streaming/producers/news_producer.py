@@ -2,7 +2,7 @@ import os
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
-from base_producer import BaseProducer
+from producers.base_producer import BaseProducer
 
 load_dotenv()
 
