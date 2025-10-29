@@ -8,8 +8,12 @@ services:
     build: .
     networks:
       - stock-network
+    env_file:
+      - .env
     environment:
       KAFKA_BROKER: kafka:29092
+      PYTHONUNBUFFERED: 1
     volumes:
       - .:/app
+      - ./output:/app/output
     restart: unless-stopped
