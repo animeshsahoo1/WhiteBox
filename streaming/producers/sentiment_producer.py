@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Set, List, Dict
 from dotenv import load_dotenv
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from base_producer import BaseProducer
+from producers.base_producer import BaseProducer
 
 load_dotenv()
 
