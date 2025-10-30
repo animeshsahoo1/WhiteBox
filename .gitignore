@@ -34,3 +34,6 @@ Thumbs.db
 # Jupyter Notebook
 .ipynb_checkpoints
 
+# Pathway Output
+pathway/output/*.csv
+pathway/reports/*/
