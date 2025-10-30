@@ -34,6 +34,6 @@ Thumbs.db
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# Custom folders - work in progress
-daksh/
-agents/
+# Pathway Output
+pathway/output/*.csv
+pathway/reports/*/

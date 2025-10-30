@@ -4,12 +4,17 @@ networks:
     name: kafka_stock-network 
 
 services: 
-  pathway-processor:
+  sentiment-agent:
     build: .
+    command: python main_sentiment.py
     networks:
       - stock-network
+    env_file:
+      - .env
     environment:
       KAFKA_BROKER: kafka:29092
+      PYTHONUNBUFFERED: 1
     volumes:
       - .:/app
+      - ./output:/app/output
     restart: unless-stopped
