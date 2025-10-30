@@ -18,6 +18,8 @@ class BaseConsumer(ABC):
             "bootstrap.servers": "kafka:29092",
             "group.id": self.consumer_group_id,
             "auto.offset.reset": "earliest",
+            "enable.auto.commit": "true",
+            "auto.commit.interval.ms": "60000",
         }
         self.table = None
     

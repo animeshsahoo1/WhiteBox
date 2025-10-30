@@ -39,29 +39,15 @@ class SentimentProducer(BaseProducer):
         self.subreddits = os.getenv('REDDIT_SUBREDDITS', 'wallstreetbets,stocks').split(',')
         self.reddit_search_limit = int(os.getenv('REDDIT_SEARCH_LIMIT', '20'))  # Default to 20
         
-        # Ticker to company name mapping
-        self.ticker_to_company = {
-            'AAPL': 'Apple',
-            'TSLA': 'Tesla',
-            'NVDA': 'Nvidia',
-            'GME': 'GameStop',
-            'AMC': 'AMC Entertainment',
-            'MSFT': 'Microsoft',
-            'GOOGL': 'Google',
-            'AMZN': 'Amazon',
-            'META': 'Meta',
-            'NFLX': 'Netflix',
-            'AMD': 'AMD',
-            'INTC': 'Intel',
-            'PLTR': 'Palantir',
-            'BABA': 'Alibaba',
-            'BB': 'BlackBerry',
-            'NIO': 'Nio',
-            'COIN': 'Coinbase',
-            'RIVN': 'Rivian',
-            'LCID': 'Lucid',
-            'SOFI': 'SoFi'
-        }
+        # Ticker to company name mapping from environment variables
+        company_names = os.getenv('COMPANY_NAMES', '').split(',')
+        self.ticker_to_company = {}
+        if len(stocks) == len(company_names) and company_names[0]:
+            self.ticker_to_company = dict(zip(stocks, company_names))
+        else:
+            # Fallback: use ticker as company name if lists don't match
+            self.ticker_to_company = {ticker: ticker for ticker in stocks}
+            print("⚠️  Warning: STOCKS and COMPANY_NAMES don't match. Using tickers as company names.")
         
         # Track seen posts to avoid duplicates, with LRU eviction
         from collections import OrderedDict
@@ -182,8 +168,6 @@ class SentimentProducer(BaseProducer):
                     # Skip if already seen
                     if post.id in self.seen_posts:
                         continue
-                    if post.id in self.seen_posts:
-                        continue
 
                     # Mark as seen with LRU eviction
                     self.seen_posts[post.id] = datetime.now().timestamp()
@@ -229,12 +213,12 @@ class SentimentProducer(BaseProducer):
                         'symbol': stock_symbol,
                         'company_name': company_name,
                         'subreddit': subreddit_name,
+                        'post_title': post.title,
+                        'post_content': post.selftext,
+                        'post_comments': combined_comments,
                         'sentiment_post_title': round(sentiment_title, 4),
                         'sentiment_post_content': round(sentiment_content, 4),
                         'sentiment_comments': round(sentiment_comments, 4),
-                        # 'sentiment_news_title': round(sentiment_title, 4),
-                        # 'sentiment_news_content': round(sentiment_content, 4),
-                        # 'sentiment_news_top_comments': round(sentiment_comments, 4),
                         'post_url': f"https://reddit.com{post.permalink}",
                         'num_comments': post.num_comments,
                         'score': post.score,

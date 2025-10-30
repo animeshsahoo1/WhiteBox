@@ -40,3 +40,6 @@ streaming/producers/news_cache.json
 # Custom folders - work in progress
 daksh/
 reports/
+# Pathway Output
+pathway/output/*.csv
+pathway/reports/*/
