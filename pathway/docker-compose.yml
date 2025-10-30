@@ -1,7 +1,9 @@
+version: "3.9"
+
 networks:
   stock-network:
     external: true
-    name: kafka_stock-network 
+    name: kafka_stock-network
 
 services: 
   sentiment-agent:
@@ -16,5 +18,17 @@ services:
       PYTHONUNBUFFERED: 1
     volumes:
       - .:/app
-      - ./output:/app/output
+    restart: unless-stopped
+
+  market-agent:
+    build: .
+    command: python agents/main_market.py      # 👈 run only this file
+    networks:
+      - stock-network
+    environment:
+      KAFKA_BROKER: kafka:29092
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    volumes:
+      - .:/app
+      - ./reports:/app/reports
     restart: unless-stopped
