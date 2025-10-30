@@ -50,6 +50,7 @@ services:
     build:
       context: ./pathway
       dockerfile: Dockerfile
+    command: python main_news.py
     networks:
       - stock-network
     depends_on:

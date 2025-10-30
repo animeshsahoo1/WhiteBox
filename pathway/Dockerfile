@@ -11,4 +11,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Command to run the Pathway script
-CMD ["python", "main.py"]
+CMD ["python", "main_news.py"]
