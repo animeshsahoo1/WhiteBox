@@ -12,7 +12,10 @@ class NewsConsumer(BaseConsumer):
         return {
             "symbol": pw.this.data["symbol"].as_str(),
             "timestamp": pw.this.data["timestamp"].as_str(),
-            "total_results": pw.this.data["total_results"].as_int(),
-            "articles": pw.this.data["articles"],
+            "title": pw.this.data["title"].as_str(),
+            "description": pw.this.data["description"].as_str(),
+            "source": pw.this.data["source"].as_str(),
+            "url": pw.this.data["url"].as_str(),
+            "published_at":  pw.this.data["published_at"].as_str(),
             "sent_at": pw.this.sent_at
         }

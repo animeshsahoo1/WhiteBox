@@ -1,3 +1,6 @@
+pathway[xpack-llm-docs]
+python-dotenv
+openai
 pathway
 openai>=1.0.0
 langgraph>=0.0.1

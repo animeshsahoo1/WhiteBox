@@ -31,9 +31,15 @@ Thumbs.db
 # Docker
 *.log
 
+# News cache (runtime data)
+streaming/producers/news_cache.json
+
 # Jupyter Notebook
 .ipynb_checkpoints
 
+# Custom folders - work in progress
+daksh/
+reports/
 # Pathway Output
 pathway/output/*.csv
 pathway/reports/*/
