@@ -41,7 +41,30 @@ class NewsReportUpdater:
         
         # Create reports directory if it doesn't exist
         os.makedirs(self.reports_directory, exist_ok=True)
+<<<<<<< Updated upstream
     
+=======
+
+    # def _get_llm_response_sync(self, messages: list[dict]) -> str:
+    #     """Synchronously get LLM response using direct API call."""
+    #     import openai
+        
+    #     client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        
+    #     try:
+    #         response = client.chat.completions.create(
+    #             model="gpt-4o-mini",
+    #             messages=messages,
+    #             temperature=0.0,
+    #             max_tokens=500,
+    #         )
+    #         return response.choices[0].message.content
+    #     except Exception as e:
+    #         print(f"Error calling OpenAI API: {e}")
+    #         raise
+
+
+>>>>>>> Stashed changes
     def _get_report_path(self, symbol: str) -> str:
         """Get the file path for a company's report."""
         company_dir = os.path.join(self.reports_directory, symbol)
@@ -84,6 +107,7 @@ No news analyzed yet for {company_name}.
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write(initial_report)
             return initial_report
+<<<<<<< Updated upstream
     
     def _save_report(self, symbol: str, report_content: str) -> None:
         """Save the updated report to file for a specific company."""
@@ -92,6 +116,11 @@ No news analyzed yet for {company_name}.
             f.write(report_content)
         print(f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] Saved report for {symbol} to {report_path}")
     
+=======
+        
+    
+
+>>>>>>> Stashed changes
     def _format_news_batch(self, symbol: str, news_items: list) -> str:
         """Format a batch of news items for the LLM prompt."""
         company = self.symbol_mapping.get(symbol, symbol)
@@ -242,12 +271,79 @@ def process_news_stream(news_table: pw.Table, reports_directory: str = "./report
     os.makedirs(reports_directory, exist_ok=True)
     # Initialize the updater
     report_updater = NewsReportUpdater(reports_directory=reports_directory)
+<<<<<<< Updated upstream
     
     # Group by symbol and create reducer for each
     # This will create separate reports for each company
     updated_reports = news_table.groupby(pw.this.symbol).reduce(
         symbol=pw.this.symbol,
         report=report_updater.create_reducer_for_symbol(pw.this.symbol)(
+=======
+
+    @pw.reducers.stateful_many
+    def universal_update_report_reducer(
+        current_state: tuple[str, str] | None, news_batch: list[tuple[list, int]]
+    ) -> str:
+
+        news_items = []
+        symbol = None
+
+        for row_values, count in news_batch:
+            if count > 0:
+                if symbol is None:
+                    symbol = row_values[0]
+                for _ in range(count):
+                    news_items.append(row_values[1:])
+
+        if current_state is None:
+            if symbol is None:
+                return None
+            current_report = report_updater._load_report(symbol)
+        else:
+            symbol, current_report = current_state
+
+        if not news_items:
+            return current_report
+
+        formatted_news = report_updater._format_news_batch(symbol, news_items)
+
+        messages = report_updater._create_update_prompt(
+            symbol, current_report, formatted_news
+        )
+        return messages
+        # try:
+        #     updated_report = report_updater._get_llm_response_sync(messages)
+
+        #     report_updater._save_report(symbol, updated_report)
+
+        #     print(
+        #         f"✅ [{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] Report updated for {symbol} with {len(news_items)} news items"
+        #     )
+
+        #     return updated_report
+
+        # except Exception as e:
+        #     print(f"❌ Error updating report for {symbol}: {e}")
+        #     import traceback
+
+        #     traceback.print_exc()
+        #     return current_report
+
+    @pw.udf
+    def _save_report(symbol: str, report_content: str) -> str:
+        report_path = report_updater._get_report_path(symbol)
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write(report_content)
+        print(
+            f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] Saved report for {symbol} to {report_path}"
+        )
+        return report_content
+
+    prompts_table = news_table.groupby(pw.this.symbol).reduce(
+        symbol=pw.this.symbol,
+        prompts=universal_update_report_reducer(
+            pw.this.symbol,
+>>>>>>> Stashed changes
             pw.this.timestamp,
             pw.this.title,
             pw.this.description,
@@ -257,6 +353,7 @@ def process_news_stream(news_table: pw.Table, reports_directory: str = "./report
             pw.this.sent_at
         )
     )
+<<<<<<< Updated upstream
     
     return updated_reports
 
@@ -289,3 +386,13 @@ def process_news_stream(news_table: pw.Table, reports_directory: str = "./report
 #     print("└── MSFT/")
 #     print("    └── news_report.md")
 #     print("="*80)
+=======
+
+    respones_table = prompts_table.select(
+        symbol = pw.this.symbol,
+        respones = _save_report(pw.this.symbol, report_updater.llm(pw.this.prompts))
+    )
+
+
+    return respones_table
+>>>>>>> Stashed changes
