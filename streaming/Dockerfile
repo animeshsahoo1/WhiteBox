@@ -9,5 +9,3 @@ COPY . .
 
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
-
-CMD ["python", "main.py"]
