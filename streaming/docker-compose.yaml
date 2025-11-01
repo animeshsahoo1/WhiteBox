@@ -4,12 +4,35 @@ networks:
     name: kafka_stock-network
 
 services:
-  stock-producer:
+  market-data-producer:
     build: .
+    command: ["python", "producers/market_data_producer.py"]
     networks:
       - stock-network
     environment:
       KAFKA_BROKER: kafka:29092
-    volumes:
-      - .:/app
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  news-producer:
+    build: .
+    command: ["python", "producers/news_producer.py"]
+    networks:
+      - stock-network
+    environment:
+      KAFKA_BROKER: kafka:29092
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  sentiment-producer:
+    build: .
+    command: ["python", "producers/sentiment_producer.py"]
+    networks:
+      - stock-network
+    environment:
+      KAFKA_BROKER: kafka:29092
+    env_file:
+      - .env
     restart: unless-stopped
