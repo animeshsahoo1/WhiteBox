@@ -223,10 +223,10 @@ def process_news_stream(
         ),
     )
 
-    respones_table = prompts_table.select(
+    response_table = prompts_table.select(
         symbol = pw.this.symbol,
-        respones = _save_report(pw.this.symbol, report_updater.llm(pw.this.prompts))
+        response = _save_report(pw.this.symbol, report_updater.llm(pw.this.prompts))
     )
 
 
-    return respones_table
+    return response_table

@@ -22,13 +22,22 @@ services:
 
   market-agent:
     build: .
-    command: python agents/main_market.py      # 👈 run only this file
+    command: python main_market.py
     networks:
       - stock-network
     environment:
       KAFKA_BROKER: kafka:29092
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
     volumes:
       - .:/app
-      - ./reports:/app/reports
+    restart: unless-stopped
+
+  news-agent:
+    build: .
+    command: python main_news.py
+    networks:
+      - stock-network
+    environment:
+      KAFKA_BROKER: kafka:29092
+    volumes:
+      - .:/app
     restart: unless-stopped

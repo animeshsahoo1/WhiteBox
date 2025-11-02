@@ -1,9 +1,6 @@
 import pathway as pw
 import os
 from consumers.news_consumer import NewsConsumer
-from agents.news_agent import NewsReportUpdater
-from consumers.market_data_consumer import MarketDataConsumer
-from consumers.sentiment_consumer import SentimentConsumer
 from agents.news_agent import process_news_stream
 
 
@@ -18,7 +15,7 @@ def main():
     # Consume data and get tables
     news_table = news_consumer.consume()
 
-    reports_directory = os.path.join(os.path.dirname(__file__), "reports")
+    reports_directory = os.path.join(os.path.dirname(__file__), "reports/news")
     updated_news_reports = process_news_stream(
         news_table, reports_directory=reports_directory
     )
