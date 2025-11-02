@@ -1,33 +1,32 @@
 import pathway as pw
-from consumers.news_consumer import NewsConsumer
-from consumers.market_data_consumer import MarketDataConsumer
+import os
 from consumers.sentiment_consumer import SentimentConsumer
-from agents.sentiment_report_producer import create_report_reducer
+from agents.sentiment_agent import process_sentiment_stream
+
 
 def main():
-    print("Pathway Kafka Consumer System")
+    print("=" * 70)
+    print("Pathway Sentiment Analysis System")
+    print("=" * 70)
 
+    # Initialize consumer
     sentiment_consumer = SentimentConsumer()
 
+    # Consume data and get flattened table
     sentiment_table = sentiment_consumer.consume_flattened()
 
-    pw.io.csv.write(sentiment_table, "/app/output/sentiment_data.csv")
-    
-    # Generate sentiment reports using OpenAI if enabled
-    report_reducer = create_report_reducer(output_dir="/app/reports")
-    
-    reports_table = sentiment_table.groupby(pw.this.symbol).reduce(
-        symbol=pw.this.symbol,
-        report_content=report_reducer(
-            pw.this.symbol, pw.this.post_id, pw.this.ticker_symbol, pw.this.company_name,
-            pw.this.subreddit, pw.this.post_title, pw.this.post_content, pw.this.post_comments,
-            pw.this.sentiment_post_title, pw.this.sentiment_post_content, pw.this.sentiment_comments,
-            pw.this.post_url, pw.this.num_comments, pw.this.score, pw.this.created_utc, pw.this.match_type
-        )
+    reports_directory = os.path.join(os.path.dirname(__file__), "reports/sentiment")
+    updated_sentiment_reports = process_sentiment_stream(
+        sentiment_table, reports_directory=reports_directory
     )
-    
-    pw.io.csv.write(reports_table, "/app/output/reports_status.csv")
+
+    output_path = os.path.join(reports_directory, "reports_stream.csv")
+    pw.io.csv.write(updated_sentiment_reports, output_path)
+    print(f"📝 Writing reports stream to: {output_path}")
+
+    print("\n✅ Sentiment consumer initialized. Starting stream processing...")
     pw.run()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

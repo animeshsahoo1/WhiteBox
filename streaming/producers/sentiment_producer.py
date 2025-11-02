@@ -8,6 +8,7 @@ import os
 import json
 import requests
 import praw
+import time
 import tweepy
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
@@ -17,6 +18,7 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from textblob import TextBlob
 from bs4 import BeautifulSoup
 from producers.base_producer import BaseProducer
+from utils.kafka_utils import get_kafka_producer, send_to_kafka
 
 load_dotenv()
 
@@ -168,13 +170,75 @@ class SentimentProducer(BaseProducer):
             return 'bearish'
         else:
             return 'neutral'
+
+    def fetch_and_send(self):
+        """Override to group posts by symbol before sending"""
+        print(f"\n[{self.name}] [{datetime.now().strftime('%H:%M:%S')}] Starting fetch cycle...")
+        
+        self._print_source_status()
+        
+        # Collect all posts from all stocks
+        all_posts = []
+        
+        for stock in self.stocks:
+            try:
+                data = self.fetch_data_with_fallback(stock)
+                
+                if data:
+                    if isinstance(data, list):
+                        all_posts.extend(data)
+                    else:
+                        all_posts.append(data)
+                
+                time.sleep(0.5)
+            except Exception as e:
+                print(f"  ❌ [{stock}] Processing error: {e}")
+        
+        # Group posts by symbol
+        if all_posts:
+            grouped_data = self._group_posts_by_symbol(all_posts)
+            
+            # Send grouped messages
+            for symbol, grouped_message in grouped_data.items():
+                send_to_kafka(self.producer, self.kafka_topic, grouped_message)
+                print(f"  ✅ [{symbol}] Sent {grouped_message['posts_count']} posts to Kafka")
+        
+        self._print_fetch_summary()
     
     # ========== REDDIT SOURCE ==========
+
+    def _group_posts_by_symbol(self, all_posts: List[Dict]) -> Dict[str, Dict]:
+        """Group individual posts by symbol into the expected Kafka message format"""
+        grouped = {}
+        
+        for post in all_posts:
+            # Support both 'ticker_symbol' (consumer schema) and 'symbol' (old format)
+            symbol = post.get('ticker_symbol') or post.get('symbol')
+            if not symbol:
+                print(f"  ⚠️ Skipping post without symbol/ticker_symbol")
+                continue
+            
+            if symbol not in grouped:
+                grouped[symbol] = {
+                    'symbol': symbol,
+                    'timestamp': datetime.now().isoformat(),
+                    'posts_count': 0,
+                    'posts': []
+                }
+            
+            # Add this post to the symbol's posts array
+            grouped[symbol]['posts'].append(post)
+            grouped[symbol]['posts_count'] += 1
+        
+        print(f"  📦 Grouped {len(all_posts)} posts into {len(grouped)} symbol(s)")
+        return grouped
     
     def _fetch_from_reddit(self, stock_symbol: str) -> Optional[List[Dict]]:
         """Fetch sentiment data from Reddit"""
         company_name = self.ticker_to_company.get(stock_symbol, stock_symbol)
         all_posts_data = []
+        
+        print(f"  🔍 [{stock_symbol}] Searching Reddit for: {stock_symbol} OR {company_name}")
         
         for subreddit_name in self.subreddits:
             try:
@@ -188,11 +252,17 @@ class SentimentProducer(BaseProducer):
                     sort='new'
                 )
                 
+                posts_found = 0
+                posts_skipped_seen = 0
+                posts_skipped_nomatch = 0
+                
                 for post in posts:
+                    posts_found += 1
                     post_id = f"reddit_{post.id}"
                     
                     # Skip if already seen
                     if post_id in self.seen_posts:
+                        posts_skipped_seen += 1
                         continue
                     
                     # Mark as seen (LRU cache)
@@ -208,6 +278,7 @@ class SentimentProducer(BaseProducer):
                     )
                     
                     if not matches:
+                        posts_skipped_nomatch += 1
                         continue
                     
                     # Get comments
@@ -215,7 +286,7 @@ class SentimentProducer(BaseProducer):
                     
                     # Perform sentiment analysis
                     title_sentiment = self.analyze_sentiment_vader(post.title)
-                    content_sentiment = self.analyze_sentiment_vader(post.selftext)
+                    content_sentiment = self.analyze_sentiment_vader(post.selftext if post.selftext else "")
                     
                     # Analyze comments
                     comment_sentiments = [self.analyze_sentiment_vader(c) for c in comments]
@@ -224,47 +295,51 @@ class SentimentProducer(BaseProducer):
                         if comment_sentiments else 0.0
                     )
                     
-                    # Overall sentiment (weighted average)
-                    overall_sentiment = (
-                        title_sentiment * 0.4 + 
-                        content_sentiment * 0.3 + 
-                        avg_comment_sentiment * 0.3
-                    )
+                    # Determine match type
+                    title_text = post.title.upper()
+                    content_text = post.selftext.upper() if post.selftext else ""
+                    ticker_in_title = stock_symbol.upper() in title_text or company_name.upper() in title_text
+                    ticker_in_content = stock_symbol.upper() in content_text or company_name.upper() in content_text
                     
+                    if ticker_in_title and ticker_in_content:
+                        match_type = 'title_and_content'
+                    elif ticker_in_title:
+                        match_type = 'title_only'
+                    elif ticker_in_content:
+                        match_type = 'content_only'
+                    else:
+                        match_type = 'unknown'
+                    
+                    # Format data to match consumer schema EXACTLY
                     post_data = {
-                        'id': post_id,
-                        'symbol': stock_symbol,
+                        'post_id': post_id,
+                        'ticker_symbol': stock_symbol,
                         'company_name': company_name,
-                        'source': 'Reddit',
-                        'platform': f'r/{subreddit_name}',
-                        'content_type': 'post',
-                        'title': post.title,
-                        'content': post.selftext[:500],
-                        'url': f"https://reddit.com{post.permalink}",
-                        'author': str(post.author) if post.author else '[deleted]',
-                        'created_at': datetime.fromtimestamp(post.created_utc).isoformat(),
+                        'subreddit': subreddit_name,
+                        'post_title': post.title,
+                        'post_content': post.selftext[:500] if post.selftext else "",
+                        'post_comments': " | ".join(comments[:3]) if comments else "",
+                        'sentiment_post_title': round(title_sentiment, 4),
+                        'sentiment_post_content': round(content_sentiment, 4),
+                        'sentiment_comments': round(avg_comment_sentiment, 4),
+                        'post_url': f"https://reddit.com{post.permalink}",
+                        'num_comments': post.num_comments,
+                        'score': post.score,
+                        'created_utc': datetime.fromtimestamp(post.created_utc).isoformat(),
+                        'match_type': match_type,
                         'timestamp': datetime.now().isoformat(),
-                        'engagement': {
-                            'score': post.score,
-                            'num_comments': post.num_comments,
-                            'upvote_ratio': getattr(post, 'upvote_ratio', 0)
-                        },
-                        'sentiment': {
-                            'title': round(title_sentiment, 4),
-                            'content': round(content_sentiment, 4),
-                            'comments': round(avg_comment_sentiment, 4),
-                            'overall': round(overall_sentiment, 4),
-                            'classification': self.classify_sentiment(overall_sentiment)
-                        },
-                        'data_source': 'Reddit'
                     }
                     
                     all_posts_data.append(post_data)
+                    print(f"    ✅ Added post: {post.title[:50]}...")
+                
+                print(f"  📊 r/{subreddit_name}: Found {posts_found}, Skipped (seen): {posts_skipped_seen}, Skipped (no match): {posts_skipped_nomatch}, Added: {len(all_posts_data)}")
             
             except Exception as e:
                 print(f"  ⚠️  Error in r/{subreddit_name}: {e}")
                 continue
         
+        print(f"  📦 [{stock_symbol}] Total posts collected: {len(all_posts_data)}")
         return all_posts_data if all_posts_data else None
     
     def _get_post_comments(self, post, limit=10) -> List[str]:
