@@ -18,28 +18,12 @@ chat_model = llms.OpenAIChat(
 
 def create_safe_debator(llm):
     def safe_node(state, name):
-        # ---------------------------------------------------------
-        # Extract existing debate state and all relevant inputs
-        # ---------------------------------------------------------
-        risk_debate_state = state.get("risk_debate_state", {}) or {}
-        history = (risk_debate_state.get("history", "") or "")
-        safe_history = risk_debate_state.get("safe_history", "") or ""
-        current_risky_response = risk_debate_state.get("current_risky_response", "") or ""
-        current_neutral_response = risk_debate_state.get("current_neutral_response", "") or ""
-
-        # Extract supporting reports and trader’s proposed decision
+        
         market_research_report = str(state.get("market_report", ""))
         sentiment_report = str(state.get("sentiment_report", ""))
         news_report = str(state.get("news_report", ""))
         fundamentals_report = str(state.get("fundamentals_report", ""))
         trader_decision = str(state.get("trader_investment_plan", ""))
-
-        # ---------------------------------------------------------
-        # Truncate excessive conversation history if needed
-        # ---------------------------------------------------------
-        MAX_HISTORY_CHARS = 4000
-        if len(history) > MAX_HISTORY_CHARS:
-            history = history[-MAX_HISTORY_CHARS:]
 
         # ---------------------------------------------------------
         # Construct the Safe/Conservative Analyst prompt
@@ -59,21 +43,12 @@ Social Media Sentiment Report: {sentiment_report}
 Latest World Affairs Report: {news_report}
 Company Fundamentals Report: {fundamentals_report}
 
-Here is the ongoing conversation history for context:
-{history}
-
-Here is the last response from the Risky Analyst:
-{current_risky_response}
-
-Here is the last response from the Neutral Analyst:
-{current_neutral_response}
-
 If there are no prior responses from other participants, avoid speculation and focus on presenting your independent viewpoint. Provide concise yet persuasive arguments that appeal to rational judgment and disciplined strategy.
 
 Specifically:
 - Identify any overextensions, speculative assumptions, or weak justifications in the Risky and Neutral perspectives.
 - Highlight potential external threats such as interest rate fluctuations, liquidity risks, market overvaluation, or geopolitical instability.
-- Recommend defensive adjustments, hedging opportunities, and capital protection measures that can still align with the trader’s objectives.
+- Recommend defensive adjustments, hedging opportunities, and capital protection measures that can still align with the trader's objectives.
 
 Your communication style should be confident, analytical, and grounded in financial logic—avoiding hype or fear-mongering. The goal is to demonstrate that a cautious, well-managed approach can yield more consistent results in volatile markets.
 
@@ -118,87 +93,22 @@ Ensure these metrics appear on separate lines and at the very end of your respon
         # Step 4: Construct the next dialogue state update
         # ---------------------------------------------------------
         argument = f"Safe Analyst: {safe_reply}"
-        old_count = int(risk_debate_state.get("count", 0) or 0)
 
-        new_risk_debate_state = {
-            "history": (history + "\n" + argument).strip(),
-            "safe_history": (safe_history + "\n" + argument).strip(),
-            "risky_history": risk_debate_state.get("risky_history", ""),
-            "neutral_history": risk_debate_state.get("neutral_history", ""),
-            "latest_speaker": "Safe",
-            "current_safe_response": argument,
-            "current_risky_response": current_risky_response,
-            "current_neutral_response": current_neutral_response,
-            "count": old_count + 1,
-        }
-
-        # ---------------------------------------------------------
-        # Step 5: Add detailed, timestamped analysis report
-        # ---------------------------------------------------------
         timestamp = datetime.now(timezone.utc).strftime("%A, %B %d, %Y at %I:%M %p UTC")
         full_report = f"""Safe/Conservative Analyst Report
 Generated: {timestamp}
 
 {argument}
 
-This report represents the Safe Analyst’s rebuttal emphasizing portfolio preservation, disciplined allocation, and the long-term view. It builds upon prior discussion and introduces a conservative adjustment path that integrates market intelligence, sentiment analysis, and risk control."""
+This report represents the Safe Analyst's rebuttal emphasizing portfolio preservation, disciplined allocation, and the long-term view. It builds upon prior discussion and introduces a conservative adjustment path that integrates market intelligence, sentiment analysis, and risk control."""
 
         # ---------------------------------------------------------
         # Step 6: Return final state and structured output
         # ---------------------------------------------------------
         return {
-            "risk_debate_state": new_risk_debate_state,
-            "report": full_report,
+            "safe_analysis": full_report,
             "sender": name,
         }
 
     # Return partial function with pre-defined analyst identity
     return functools.partial(safe_node, name="Safe")
-
-
-# Example test run for the Safe/Conservative debator (uses your existing create_safe_debator)
-# Assumes create_safe_debator(llm) and chat_model are already defined and imported in the current module.
-
-# ---------------------------------------------------------
-# Example initial state with pre-existing history
-# ---------------------------------------------------------
-initial_state_safe = {
-    "market_report": "Tech stocks are rebounding as investors rotate back into growth sectors.",
-    "sentiment_report": "Social media sentiment is bullish on innovation-driven companies.",
-    "news_report": "A major hedge fund increased exposure to emerging AI companies.",
-    "fundamentals_report": "Company shows improving profit margins and aggressive R&D expansion.",
-    "trader_investment_plan": "Trader plans to allocate 15% more capital into high-growth AI startups.",
-    "risk_debate_state": {
-        "history": (
-            "Risky Analyst: Previous opportunities like this have yielded outsized gains when timed correctly.\n"
-            "Neutral Analyst: A phased approach would reduce downside exposure.\n"
-            "Safe Analyst: We should be cautious and prioritize downside protection."
-        ),
-        "risky_history": (
-            "Risky Analyst: Investing in innovation often requires bold conviction, "
-            "and waiting too long could forfeit first-mover advantage."
-        ),
-        "safe_history": (
-            "Safe Analyst: I recommend a smaller allocation to mitigate potential drawdowns."
-        ),
-        "neutral_history": (
-            "Neutral Analyst: It may be prudent to monitor macroeconomic conditions before scaling up exposure."
-        ),
-        "current_risky_response": "Risky view: Move fast; capture first-mover gains in AI startups.",
-        "current_neutral_response": "Neutral view: Staggered buys over 3 months to average in.",
-        "count": 3,
-    },
-}
-
-# ---------------------------------------------------------
-# Run the Safe node once and print outputs
-# ---------------------------------------------------------
-safe_agent = create_safe_debator(chat_model)
-output_safe = safe_agent(initial_state_safe)
-
-print("\n=== Safe Agent Report ===")
-print(output_safe.get("report", ""))
-
-print("\n=== Updated Debate State ===")
-print(output_safe.get("risk_debate_state", {}))
-
