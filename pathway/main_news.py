@@ -6,7 +6,7 @@ from agents.news_agent import process_news_stream
 
 def main():
     print("=" * 70)
-    print("Pathway Kafka Consumer System")
+    print("Pathway News Analysis System")
     print("=" * 70)
 
     # Initialize consumers

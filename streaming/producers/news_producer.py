@@ -36,11 +36,6 @@ class NewsProducer(BaseProducer):
         # Cache for deduplication
         self.cache_file = os.path.join(os.path.dirname(__file__), 'news_cache.json')
         self.seen_articles = self._load_cache()
-        
-        # User agent for web scraping
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
     
     def _load_cache(self):
         """Load previously seen articles from cache file"""
@@ -75,23 +70,19 @@ class NewsProducer(BaseProducer):
     def setup_sources(self):
         """Setup all news sources"""
         
-        # Priority 0: NewsAPI (primary)
+        # Priority 0: NewsAPI
         if self.newsapi_key:
             self.register_source("NewsAPI", self._fetch_from_newsapi, priority=0)
-        
-        # Priority 1: Financial Modeling Prep
-        if self.fmp_key:
-            self.register_source("FMP", self._fetch_from_fmp, priority=1)
-        
-        # Priority 2: Alpha Vantage
+
+        # Priority 1: Alpha Vantage
         if self.alpha_vantage_key:
-            self.register_source("AlphaVantage", self._fetch_from_alpha_vantage, priority=2)
+            self.register_source("AlphaVantage", self._fetch_from_alpha_vantage, priority=1)
         
-        # Priority 3: Yahoo Finance Web Scraping (fallback)
-        self.register_source("YahooScraper", self._fetch_from_yahoo_scraper, priority=3)
+        # Priority 2: Financial Modeling Prep
+        if self.fmp_key:
+            self.register_source("FMP", self._fetch_from_fmp, priority=2)
         
-        # Priority 4: Google News Web Scraping (final fallback)
-        self.register_source("GoogleScraper", self._fetch_from_google_scraper, priority=4)
+
     
     def _fetch_from_newsapi(self, stock_symbol: str) -> Optional[List[Dict]]:
         """Fetch news from NewsAPI"""
@@ -132,25 +123,29 @@ class NewsProducer(BaseProducer):
     
     def _fetch_from_fmp(self, stock_symbol: str) -> Optional[List[Dict]]:
         """Fetch news from Financial Modeling Prep API"""
-        url = f"https://financialmodelingprep.com/api/v3/stock_news"
+        url = "https://financialmodelingprep.com/stable/news/stock"
+        
+        # Note: The stable API uses 'symbols' instead of the legacy 'tickers'
         params = {
-            'tickers': stock_symbol,
+            'symbols': stock_symbol,
             'limit': 5,
             'apikey': self.fmp_key
         }
         
+        articles = []
+
         response = requests.get(url, params=params, timeout=10)
         response.raise_for_status()
         
         data = response.json()
         
-        if not data:
+        if not data or not isinstance(data, list):
             return None
         
-        articles = []
-        for item in data[:5]:
+        for item in data:
             url = item.get('url', '')
-            if self._is_article_new(url):
+            
+            if url and self._is_article_new(url):
                 articles.append({
                     'symbol': stock_symbol,
                     'timestamp': datetime.now().isoformat(),
@@ -204,92 +199,6 @@ class NewsProducer(BaseProducer):
                 self._mark_article_seen(url)
         
         return articles if articles else None
-    
-    def _fetch_from_yahoo_scraper(self, stock_symbol: str) -> Optional[List[Dict]]:
-        """Web scrape news from Yahoo Finance"""
-        url = f"https://finance.yahoo.com/quote/{stock_symbol}/news"
-        
-        try:
-            response = requests.get(url, headers=self.headers, timeout=10)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            articles = []
-            news_items = soup.find_all('h3', class_='Mb(5px)')[:5]
-            
-            for item in news_items:
-                link = item.find('a')
-                if link:
-                    title = link.get_text(strip=True)
-                    href = link.get('href', '')
-                    
-                    # Make absolute URL
-                    if href.startswith('/'):
-                        href = f"https://finance.yahoo.com{href}"
-                    
-                    if self._is_article_new(href):
-                        articles.append({
-                            'symbol': stock_symbol,
-                            'timestamp': datetime.now().isoformat(),
-                            'title': title,
-                            'description': '',
-                            'url': href,
-                            'source': 'Yahoo Finance',
-                            'published_at': datetime.now().isoformat(),
-                            'data_source': 'YahooScraper'
-                        })
-                        self._mark_article_seen(href)
-            
-            return articles if articles else None
-            
-        except Exception as e:
-            raise Exception(f"Yahoo scraping error: {e}")
-    
-    def _fetch_from_google_scraper(self, stock_symbol: str) -> Optional[List[Dict]]:
-        """Web scrape news from Google News (final fallback)"""
-        query = f"{stock_symbol} stock news"
-        url = f"https://news.google.com/search?q={query.replace(' ', '+')}"
-        
-        try:
-            response = requests.get(url, headers=self.headers, timeout=10)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            articles = []
-            news_items = soup.find_all('article')[:5]
-            
-            for item in news_items:
-                try:
-                    link_elem = item.find('a', class_='DY5T1d')
-                    if link_elem:
-                        title = link_elem.get_text(strip=True)
-                        href = link_elem.get('href', '')
-                        
-                        # Google News uses relative URLs
-                        if href.startswith('./'):
-                            href = f"https://news.google.com{href[1:]}"
-                        
-                        if self._is_article_new(href):
-                            articles.append({
-                                'symbol': stock_symbol,
-                                'timestamp': datetime.now().isoformat(),
-                                'title': title,
-                                'description': '',
-                                'url': href,
-                                'source': 'Google News',
-                                'published_at': datetime.now().isoformat(),
-                                'data_source': 'GoogleScraper'
-                            })
-                            self._mark_article_seen(href)
-                except:
-                    continue
-            
-            return articles if articles else None
-            
-        except Exception as e:
-            raise Exception(f"Google News scraping error: {e}")
 
 
 def main():

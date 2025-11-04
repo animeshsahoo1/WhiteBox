@@ -31,20 +31,14 @@ class MarketDataProducer(BaseProducer):
         self.finnhub_key = os.getenv('FINNHUB_API_KEY')
         self.alpha_vantage_key = os.getenv('ALPHA_VANTAGE_API_KEY')
         self.fmp_key = os.getenv('FMP_API_KEY')
-        self.coincap_key = os.getenv('COINCAP_API_KEY')  # Optional
         
         # Clients
         self.finnhub_client = None
-        
-        # Headers for scraping
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
     
     def setup_sources(self):
         """Setup all market data sources"""
         
-        # Priority 0: Finnhub (primary)
+        # Priority 0: Finnhub
         if self.finnhub_key:
             self.finnhub_client = finnhub.Client(api_key=self.finnhub_key)
             self.register_source("Finnhub", self._fetch_from_finnhub, priority=0)
@@ -56,12 +50,6 @@ class MarketDataProducer(BaseProducer):
         # Priority 2: Alpha Vantage
         if self.alpha_vantage_key:
             self.register_source("AlphaVantage", self._fetch_from_alpha_vantage, priority=2)
-        
-        # Priority 3: CoinCap (for crypto symbols)
-        self.register_source("CoinCap", self._fetch_from_coincap, priority=3)
-        
-        # Priority 4: Yahoo Finance Scraper (fallback)
-        self.register_source("YahooScraper", self._fetch_from_yahoo_scraper, priority=4)
     
     def _fetch_from_finnhub(self, stock_symbol: str) -> Optional[Dict]:
         """Fetch from Finnhub API"""
@@ -84,31 +72,37 @@ class MarketDataProducer(BaseProducer):
         }
     
     def _fetch_from_fmp(self, stock_symbol: str) -> Optional[Dict]:
-        """Fetch from Financial Modeling Prep"""
-        url = f"https://financialmodelingprep.com/api/v3/quote/{stock_symbol}"
-        params = {'apikey': self.fmp_key}
-        
+        url = "https://financialmodelingprep.com/stable/quote"
+        params = {
+            "symbol": stock_symbol,
+            "apikey": self.fmp_key
+        }
+
         response = requests.get(url, params=params, timeout=10)
         response.raise_for_status()
-        
+
         data = response.json()
         
-        if not data or len(data) == 0:
+        # The Stock Quote API returns a list, even for a single symbol.
+        if not data or not isinstance(data, list) or len(data) == 0:
+            print(f"FMP returned no data for symbol: {stock_symbol}")
             return None
         
         quote = data[0]
         
+        # Extract and standardize the data fields
         return {
             'symbol': stock_symbol,
+            # Capture the time the data was successfully fetched
             'timestamp': datetime.now().isoformat(),
-            'current_price': quote.get('price', 0),
-            'high': quote.get('dayHigh', 0),
-            'low': quote.get('dayLow', 0),
-            'open': quote.get('open', 0),
-            'previous_close': quote.get('previousClose', 0),
-            'change': quote.get('change', 0),
-            'change_percent': quote.get('changesPercentage', 0),
-            'volume': quote.get('volume', 0),
+            'current_price': quote.get('price'),  # FMP returns floats, 0.0 might be better default if expecting numerical ops later
+            'high': quote.get('dayHigh'),
+            'low': quote.get('dayLow'),
+            'open': quote.get('open'),
+            'previous_close': quote.get('previousClose'),
+            'change': quote.get('change'),
+            'change_percent': quote.get('changesPercentage'),
+            'volume': quote.get('volume'),
             'data_source': 'FMP'
         }
     
@@ -147,87 +141,6 @@ class MarketDataProducer(BaseProducer):
             'volume': int(quote.get('06. volume', 0)),
             'data_source': 'AlphaVantage'
         }
-    
-    def _fetch_from_coincap(self, stock_symbol: str) -> Optional[Dict]:
-        """Fetch from CoinCap API (for crypto)"""
-        # CoinCap uses different symbols (e.g., 'bitcoin' not 'BTC')
-        # This is a simplified mapping - you may want to expand this
-        crypto_map = {
-            'BTC': 'bitcoin',
-            'ETH': 'ethereum',
-            'DOGE': 'dogecoin'
-        }
-        
-        asset_id = crypto_map.get(stock_symbol.upper())
-        if not asset_id:
-            # Try using the symbol directly
-            asset_id = stock_symbol.lower()
-        
-        url = f"https://api.coincap.io/v2/assets/{asset_id}"
-        headers = {}
-        if self.coincap_key:
-            headers['Authorization'] = f'Bearer {self.coincap_key}'
-        
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        
-        data = response.json()
-        
-        if 'data' not in data:
-            return None
-        
-        asset = data['data']
-        current_price = float(asset.get('priceUsd', 0))
-        change_percent = float(asset.get('changePercent24Hr', 0))
-        
-        return {
-            'symbol': stock_symbol,
-            'timestamp': datetime.now().isoformat(),
-            'current_price': current_price,
-            'change_percent': change_percent,
-            'volume_24h': float(asset.get('volumeUsd24Hr', 0)),
-            'market_cap': float(asset.get('marketCapUsd', 0)),
-            'data_source': 'CoinCap'
-        }
-    
-    def _fetch_from_yahoo_scraper(self, stock_symbol: str) -> Optional[Dict]:
-        """Web scrape from Yahoo Finance (final fallback)"""
-        url = f"https://finance.yahoo.com/quote/{stock_symbol}"
-        
-        response = requests.get(url, headers=self.headers, timeout=10)
-        response.raise_for_status()
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Extract price data (Yahoo Finance structure - may need updates)
-        try:
-            # Current price
-            price_elem = soup.find('fin-streamer', {'data-symbol': stock_symbol, 'data-field': 'regularMarketPrice'})
-            current_price = float(price_elem.get('value', 0)) if price_elem else 0
-            
-            # Change
-            change_elem = soup.find('fin-streamer', {'data-symbol': stock_symbol, 'data-field': 'regularMarketChange'})
-            change = float(change_elem.get('value', 0)) if change_elem else 0
-            
-            # Change percent
-            change_pct_elem = soup.find('fin-streamer', {'data-symbol': stock_symbol, 'data-field': 'regularMarketChangePercent'})
-            change_percent = float(change_pct_elem.get('value', 0)) if change_pct_elem else 0
-            
-            if current_price == 0:
-                return None
-            
-            return {
-                'symbol': stock_symbol,
-                'timestamp': datetime.now().isoformat(),
-                'current_price': current_price,
-                'change': change,
-                'change_percent': change_percent,
-                'data_source': 'YahooScraper'
-            }
-            
-        except Exception as e:
-            raise Exception(f"Yahoo scraping parse error: {e}")
-
 
 def main():
     """For standalone testing"""
