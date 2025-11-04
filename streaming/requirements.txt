@@ -14,7 +14,7 @@ tweepy==4.14.0
 httpx
 aiohttp
 textblob
-pandoc
-ddgs>=9.7.0
+pandoc 
 newspaper3k==0.2.8
 lxml_html_clean
+openai

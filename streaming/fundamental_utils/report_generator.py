@@ -108,31 +108,39 @@ class ReportGenerator:
         else:
             content += "No recent filings available.\n"
         
-        # Add web-scraped articles if available
+        # Add web-scraped articles with FULL CONTENT if available
         if web_intelligence and web_intelligence.get('articles'):
-            content += "\n### 4.3 Web Intelligence - Scraped Articles\n\n"
-            content += f"*Found {web_intelligence.get('total_articles', 0)} articles from {len(web_intelligence.get('sources', []))} sources*\n\n"
+            content += "\n### 4.3 Web Intelligence - Comprehensive Article Analysis\n\n"
+            content += f"*Analyzed {web_intelligence.get('total_articles', 0)} articles from {len(web_intelligence.get('sources', []))} sources*\n"
+            content += f"*Total Content Extracted: {web_intelligence.get('total_words_scraped', 0):,} words*\n\n"
             
             articles = web_intelligence.get('articles', [])
-            for i, article in enumerate(articles[:10], 1):  # Limit to top 10
+            for i, article in enumerate(articles[:10], 1):  # Top 10 articles
                 title = article.get('title', 'No Title')
                 url = article.get('url', '#')
                 source = article.get('source', 'Unknown')
                 word_count = article.get('word_count', 0)
+                published_date = article.get('publish_date') or article.get('published_date', 'N/A')
                 
-                content += f"#### {i}. {title}\n"
-                content += f"**Source:** {source} | **URL:** [{url}]({url})\n\n"
+                content += f"#### Article {i}: {title}\n\n"
+                content += f"**Source:** {source}\n"
+                content += f"**Published:** {published_date}\n"
+                content += f"**URL:** [{url}]({url})\n"
+                content += f"**Word Count:** {word_count:,}\n\n"
                 
-                # Add article text or snippet
-                if article.get('text') and len(article['text']) > 200:
-                    # Use first 500 words as summary
-                    text = article['text'][:2000]
-                    content += f"{text}...\n\n"
-                    content += f"*({word_count} words total)*\n\n"
+                # Include FULL article text
+                if article.get('text') and len(article['text']) > 100:
+                    full_text = article['text']
+                    content += f"**Full Article Content:**\n\n{full_text}\n\n"
                 elif article.get('snippet'):
-                    content += f"{article['snippet']}\n\n"
+                    content += f"**Summary:** {article['snippet']}\n\n"
                 else:
                     content += "*Article content not available*\n\n"
+                
+                # Add authors if available
+                if article.get('authors'):
+                    authors = ', '.join(article['authors'])
+                    content += f"*Authors: {authors}*\n\n"
                 
                 content += "---\n\n"
             
@@ -140,14 +148,15 @@ class ReportGenerator:
 
     def generate_report(self, data: Dict[str, Any], ai_summary: Optional[str] = None, 
                        web_intelligence: Optional[Dict] = None) -> str:
-        """Assembles the full Markdown report."""
+        """Assembles the full Markdown report with RAW data (not AI-enhanced)."""
         symbol = data.get('symbol', 'UNKNOWN').upper()
         profile = data.get('profile') or {}
         company_name = profile.get('companyName', symbol)
         
-        report_content = f"# Comprehensive Fundamental Analysis: {company_name} ({symbol})\n"
+        report_content = f"# Comprehensive Fundamental Analysis (Raw Data): {company_name} ({symbol})\n"
         report_content += f"**Report Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        report_content += f"**Data Sources:** FMP API + Web Intelligence\n"
+        report_content += f"**Data Sources:** FMP API + Serpex Web Intelligence\n"
+        report_content += f"**Report Type:** Raw Data Report (All Extracted Content)\n"
         report_content += "---\n\n"
         
         # Add metadata about web intelligence if available
@@ -155,9 +164,7 @@ class ReportGenerator:
             report_content += f"*This report includes {web_intelligence.get('total_articles', 0)} web-scraped articles "
             report_content += f"({web_intelligence.get('total_words_scraped', 0):,} words) from "
             report_content += f"{len(web_intelligence.get('sources', []))} sources.*\n\n"
-        
-        if ai_summary:
-            report_content += self._generate_section("Executive Summary", ai_summary)
+            report_content += f"*Sources: {', '.join(web_intelligence.get('sources', [])[:10])}*\n\n"
         
         report_content += self._generate_overview(data)
         report_content += self._generate_financial_health(data)
@@ -167,9 +174,9 @@ class ReportGenerator:
         # Save to file
         output_dir = "reports"
         os.makedirs(output_dir, exist_ok=True)
-        filename = os.path.join(output_dir, f"Comprehensive_Report_{symbol}.md")
+        filename = os.path.join(output_dir, f"Raw_Data_Report_{symbol}.md")
         with open(filename, 'w', encoding='utf-8') as f:
             f.write(report_content)
-        print(f"✅ Comprehensive report saved to {filename}")
+        print(f"✅ Raw data report saved to {filename}")
         
         return filename

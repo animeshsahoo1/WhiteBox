@@ -17,6 +17,7 @@ from fundamental_utils.fmp_api_client import FmpApiClient
 from fundamental_utils.data_processor import FundamentalDataProcessor
 from fundamental_utils.report_generator import ReportGenerator
 from fundamental_utils.web_scraper import WebScraper
+from fundamental_utils.ai_report_generator import AIReportGenerator
 
 load_dotenv()
 
@@ -37,15 +38,31 @@ class FundamentalDataProducer(BaseProducer):
         self.processor = FundamentalDataProcessor()
         self.report_generator = ReportGenerator()
         
-        # Initialize WebScraper with optional proxy
-        scraper_proxy = os.getenv('DDGS_PROXY', None)  # Can use "tb" for Tor browser
-        scraper_timeout = int(os.getenv('DDGS_TIMEOUT', '10'))
-        self.web_scraper = WebScraper(proxy=scraper_proxy, timeout=scraper_timeout)
+        # Initialize AI Report Generator
+        try:
+            self.ai_report_generator = AIReportGenerator()
+            self.enable_ai_reports = True
+            print("✅ AI Report Generator initialized successfully")
+        except Exception as e:
+            print(f"⚠️  AI Report Generator initialization failed: {e}")
+            print("   AI-enhanced reports will be disabled. Set OPENAI_API_KEY to enable.")
+            self.ai_report_generator = None
+            self.enable_ai_reports = False
+        
+        # Initialize WebScraper
+        self.web_scraper = None
+        try:
+            self.web_scraper = WebScraper(timeout=int(os.getenv('SCRAPER_TIMEOUT', '10')))
+            self.enable_web_scraping = True
+            print("✅ Web Scraper (Serpex) initialized successfully")
+        except Exception as e:
+            print(f"⚠️  Web Scraper initialization failed: {e}")
+            print("   Web scraping will be disabled. Set SERPEX_API_KEY to enable.")
+            self.enable_web_scraping = False
         
         # Configuration
         self.generate_reports = os.getenv('GENERATE_REPORTS', 'true').lower() == 'true'
-        self.enable_web_scraping = os.getenv('ENABLE_WEB_SCRAPING', 'true').lower() == 'true'
-        self.max_articles_per_stock = int(os.getenv('MAX_ARTICLES_PER_STOCK', '8'))
+        self.max_articles_per_stock = int(os.getenv('MAX_ARTICLES_PER_STOCK', '10'))
     
     def setup_sources(self):
         """Setup FMP as the primary data source for fundamentals."""
@@ -82,12 +99,12 @@ class FundamentalDataProducer(BaseProducer):
 
             print(f"  ✅ Successfully gathered FMP data for {stock_symbol}")
             
-            # Step 2: Optionally scrape web articles
+            # Step 2: Optionally scrape web articles using Serpex
             web_intelligence = None
-            if self.enable_web_scraping:
+            if self.enable_web_scraping and self.web_scraper:
                 try:
                     company_name = raw_data['profile'].get('companyName', stock_symbol)
-                    print(f"\n  🕷️  Scraping web articles for {stock_symbol}...")
+                    print(f"\n  🕷️  Scraping web articles for {stock_symbol} using Serpex...")
                     
                     web_intelligence = self.web_scraper.gather_stock_intelligence(
                         stock_symbol=stock_symbol, 
@@ -96,24 +113,60 @@ class FundamentalDataProducer(BaseProducer):
                         scrape_full=True
                     )
                     
-                    print(f"  ✅ Scraped {web_intelligence['total_articles']} articles")
+                    print(f"  ✅ Scraped {web_intelligence['total_articles']} articles ({web_intelligence['total_words_scraped']:,} words)")
                     
                 except Exception as e:
                     print(f"  ⚠️  Web scraping failed: {e}")
+                    import traceback
+                    traceback.print_exc()
                     web_intelligence = None
             
-            # Step 3: Generate comprehensive report
+            # Step 3: Generate RAW data report with all extracted content
+            raw_report_path = None
             if self.generate_reports:
                 try:
-                    print(f"\n  📄 Generating comprehensive report for {stock_symbol}...")
-                    report_path = self.report_generator.generate_report(
+                    print(f"\n  📄 Generating raw data report for {stock_symbol}...")
+                    raw_report_path = self.report_generator.generate_report(
                         data=raw_data,
-                        ai_summary=None,  # AI summary disabled
                         web_intelligence=web_intelligence
                     )
-                    print(f"  ✅ Report saved: {report_path}")
+                    print(f"  ✅ Raw data report saved: {raw_report_path}")
                 except Exception as e:
-                    print(f"  ⚠️  Report generation failed: {e}")
+                    print(f"  ⚠️  Raw report generation failed: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Step 4: Generate AI-enhanced summary report
+            ai_report_path = None
+            if self.enable_ai_reports and self.ai_report_generator:
+                try:
+                    print(f"\n  🤖 Generating AI-enhanced summary report for {stock_symbol}...")
+                    
+                    # Generate AI summary
+                    ai_summary = self.ai_report_generator.generate_ai_summary(
+                        symbol=stock_symbol,
+                        data=raw_data,
+                        web_intelligence=web_intelligence
+                    )
+                    
+                    # Save AI report
+                    ai_report_path = self.ai_report_generator.save_ai_report(
+                        symbol=stock_symbol,
+                        ai_summary=ai_summary
+                    )
+                    
+                    print(f"  ✅ AI-enhanced report saved: {ai_report_path}")
+                    
+                except Exception as e:
+                    print(f"  ⚠️  AI report generation failed: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Add report paths to the data for tracking
+            raw_data['_report_paths'] = {
+                'raw_report': raw_report_path,
+                'ai_report': ai_report_path
+            }
             
             return raw_data # Returning the raw dictionary for Kafka
             
