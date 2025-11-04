@@ -2,47 +2,28 @@ import functools
 import pathway as pw
 import pandas as pd
 from datetime import datetime, timezone
-
-from pathway.xpacks.llm import llms
-from dotenv import load_dotenv
-import os
-
-load_dotenv()
-
-
-chat_model = llms.OpenAIChat(
-    model="gpt-4o-mini",
-    temperature=0.7,
-    api_key=os.getenv("OPENAI_API_KEY"),
-)
+from all_agents.utils.llm import chat_model
 
 def create_trader(llm):
     def trader_node(state, name):
         company_name = state["company_of_interest"]
-        bull_report = state["bull_report"]
-        bear_report = state["bear_report"]
+        debate_history = state["investment_debate_state"]["history"]
+
         market_report = state["market_report"]
         sentiment_report = state["sentiment_report"]
         news_report = state["news_report"]
         fundamentals_report = state["fundamentals_report"]
-        investment_plan = state["investment_plan"]
+
         
         @pw.udf
         def combine_reports(market, sentiment, news, fundamentals):
             return f"{market}\n\n{sentiment}\n\n{news}\n\n{fundamentals}"
 
         curr_situation = combine_reports(market_report, sentiment_report, news_report, fundamentals_report)
-        
-        # Build investment plan text separately to avoid f-string backslash issues
-        investment_plan_text = ""
-        if investment_plan is not None and str(investment_plan).strip():
-            investment_plan_text = f"\n\nInvestment Plan:\n{investment_plan}"
-        
-        TRADER_SYSTEM_PROMPT = f"""You are a Trader Agent responsible for making the final investment plan for {company_name} after reviewing 
-detailed analyses from both the Bull and Bear Analysts, as well as market situation. Your role is to synthesize their arguments, 
-weigh the supporting evidence, and arrive at a balanced, data-driven trading decision and investment plan.{investment_plan_text}
 
-If investment plan is provided, incorporate it into your analysis and final decision-making.
+        TRADER_SYSTEM_PROMPT = f"""You are a Trader Agent responsible for making the final investment plan for {company_name} after reviewing
+detailed analyses from both the Bull and Bear Analysts, as well as market situation. Your role is to synthesize their arguments,
+weigh the supporting evidence, and arrive at a balanced, data-driven trading decision.
 
 Your decision-making process should:
 - Objectively evaluate both perspectives without bias.
@@ -59,17 +40,13 @@ Structure your analysis as follows:
 5. **Decision:** Conclude with a clear recommendation.
 6. **Investment Plan:** describe the clear investment plan for funds allocation
 
-Always end your response with:
-'FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**'
-to confirm your final investment decision."""
+"""
+
 
         trader_prompt = [
             {"role": "system", "content": TRADER_SYSTEM_PROMPT},
-            {"role": "system", "content": f"""Bull Report:
-{bull_report}
-
-Bear Report:
-{bear_report}
+            {"role": "system", "content": f"""debate history:
+{debate_history}
 
 Market Situation:
 {curr_situation}"""}
@@ -94,9 +71,10 @@ Generated: {timestamp}
 {trader_reply}"""
         
         return {
-            "report": full_report,
+            #TODO: later remove this messages key and get it sent by the final manager not here
+            "messages": [trader_reply],
+            "trader_investment_plan": full_report,
             "sender": name,
-            "trader_investment_plan": investment_plan
         }
     
     return functools.partial(trader_node, name="Trader")    
