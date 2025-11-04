@@ -3,15 +3,18 @@ from langgraph.graph import END, StateGraph, START
 
 from all_agents.researchers.bull_researcher import create_bull_researcher
 from all_agents.researchers.bear_researcher import create_bear_researcher
-from all_agents.trader import create_trader
-from all_agents.risk_mngt import create_risky_debator, create_safe_debator, create_neutral_debator
+from all_agents.trader.trader import create_trader
+from all_agents.risk_mngt.aggresive_debator import create_risky_debator
+from all_agents.risk_mngt.conservative_debator import create_safe_debator
+from all_agents.risk_mngt.neutral_debator import create_neutral_debator
+
 from all_agents.managers.risk_manager import create_risk_manager
 from all_agents.managers.final_manager import create_final_manager
 
 
 from all_agents.utils.agent_state import AgentState
 
-from conditional_logic import ConditionalLogic
+from graph.conditional_logic import ConditionalLogic
 
 class GraphSetup:
     """Handles the setup and configuration of the agent graph."""
@@ -46,42 +49,45 @@ class GraphSetup:
       
         workflow=StateGraph(AgentState)
 
-        workflow.add_node("Bull Researcher", bull_researcher_node)
-        workflow.add_node("Bear Researcher", bear_researcher_node)
-        workflow.add_node("Trader", trader_node)
-        workflow.add_node("Risky Analyst", risky_analyst)
-        workflow.add_node("Neutral Analyst", neutral_analyst)
-        workflow.add_node("Safe Analyst", safe_analyst)
-        workflow.add_node("Risk Judge", risk_manager_node)
-        workflow.add_node("Final Manager", final_manager_node)
+        workflow.add_node("bull_researcher", bull_researcher_node)
+        workflow.add_node("bear_researcher", bear_researcher_node)
+        workflow.add_node("trader", trader_node)
+        workflow.add_node("risky_analyst", risky_analyst)
+        workflow.add_node("neutral_analyst", neutral_analyst)
+        workflow.add_node("safe_analyst", safe_analyst)
+        workflow.add_node("risk_judge", risk_manager_node)
+        workflow.add_node("final_manager", final_manager_node)
 
-        workflow.add_edge(START, "Bull Researcher")
+        workflow.add_edge(START, "bull_researcher")
         workflow.add_conditional_edges(
-            "Bull Researcher",
+            "bull_researcher",
             self.conditional_logic.should_continue_debate,
             {
-                "Bear Researcher": "Bear Researcher",
-                "Trader": "Trader",
+                "bear_researcher": "bear_researcher",
+                "trader": "trader",
             },
         )
         workflow.add_conditional_edges(
-            "Bear Researcher",
+            "bear_researcher",
             self.conditional_logic.should_continue_debate,
             {
-                "Bull Researcher": "Bull Researcher",
-                "Trader": "Trader",
+                "bull_researcher": "bull_researcher",
+                "trader": "trader",
             },
         )
-        workflow.add_edge("Trader", "Risky Analyst")
-        workflow.add_edge("Trader", "Safe Analyst")
-        workflow.add_edge("Trader", "Neutral Analyst")
-        workflow.add_edge("Risky Analyst", "Risk Judge")
-        workflow.add_edge("Safe Analyst", "Risk Judge")
-        workflow.add_edge("Neutral Analyst", "Risk Judge")
+        
+        # Sequential connection instead of parallel
+        workflow.add_edge("trader", "risky_analyst")
+        workflow.add_edge("risky_analyst", "neutral_analyst")
+        workflow.add_edge("neutral_analyst", "safe_analyst")
+        workflow.add_edge("safe_analyst", "risk_judge")
 
-        workflow.add_edge("Risk Judge", "Final Manager")
-        workflow.add_edge("Final Manager", END)
+        workflow.add_edge("risk_judge", "final_manager")
+        workflow.add_edge("final_manager", END)
 
         # Compile and return
         return workflow.compile(checkpointer=self.checkpointer)
-        
+    
+    def setup_graph_with_checkpointer(self, checkpointer):
+        workflow = self.setup_graph()
+        return workflow.compile(checkpointer=checkpointer)

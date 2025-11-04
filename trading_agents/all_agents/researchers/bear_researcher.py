@@ -87,6 +87,7 @@ Your turn to argue as the Bear Analyst."""}
             "history": (investment_debate_state["history"] + "\n" + bear_reply).strip(),
             "current_response": bear_reply,
             "count": round_num,
+            "last_speaker": "bear_researcher",
         }
 
         return {

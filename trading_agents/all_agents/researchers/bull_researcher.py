@@ -86,6 +86,7 @@ Your turn to argue as the Bull Analyst."""}
             "history": (investment_debate_state["history"] + "\n" + bull_reply).strip(),
             "current_response": bull_reply,
             "count": round_num,
+            "last_speaker": "bull_researcher",
         }
 
         return {

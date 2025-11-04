@@ -18,7 +18,6 @@ chat_model = llms.OpenAIChat(
 
 def create_risky_debator(llm):
     def risky_node(state, name):
-        risk_debate_state = state["risk_debate_state"]
 
         # Get supporting reports and trader decision (ensure strings)
         market_research_report = str(state.get("market_report", ""))
@@ -27,30 +26,20 @@ def create_risky_debator(llm):
         fundamentals_report = str(state.get("fundamentals_report", ""))
         trader_decision = str(state.get("trader_investment_plan", ""))
 
-        # ---------------------------------------------------------
-        # Defensive: limit history size to avoid token limits
-        # ---------------------------------------------------------
-        # MAX_HISTORY_CHARS = 4000
-        # if len(history) > MAX_HISTORY_CHARS:
-        #     history = history[-MAX_HISTORY_CHARS:]
-
-
-        prompt = prompt = f"""As the Risky Risk Analyst, your role is to actively champion high-reward, high-risk opportunities, emphasizing bold strategies and competitive advantages. When evaluating the trader's decision or plan, focus intently on the potential upside, growth potential, and innovative benefits—even when these come with elevated risk. Use the provided market data and sentiment analysis to strengthen your arguments and challenge the opposing views. Specifically, respond directly to each point made by the conservative and neutral analysts, countering with data-driven rebuttals and persuasive reasoning. Highlight where their caution might miss critical opportunities or where their assumptions may be overly conservative.
+        prompt = f"""As the Risky Risk Analyst, your role is to actively champion high-reward, high-risk opportunities, emphasizing bold strategies and competitive advantages. When evaluating the trader's decision or plan, focus intently on the potential upside, growth potential, and innovative benefits—even when these come with elevated risk. Use the provided market data and sentiment analysis to strengthen your arguments and provide a compelling case for aggressive investment strategies.
 
 Here is the trader's decision:
 
 {trader_decision}
 
-Your task is to create a compelling case for the trader's decision by questioning and critiquing the conservative and neutral stances to demonstrate why your high-reward perspective offers the best path forward. Incorporate insights from the following sources into your arguments:
+Your task is to create a compelling case for the trader's decision by analyzing the opportunities and potential rewards. Incorporate insights from the following sources into your arguments:
 
 Market Research Report: {market_research_report}
 Social Media Sentiment Report: {sentiment_report}
 Latest World Affairs Report: {news_report}
 Company Fundamentals Report: {fundamentals_report}
 
-If there are no responses from the other viewpoints, do not hallucinate and just present your point.
-
-Engage actively by addressing any specific concerns raised, refuting the weaknesses in their logic, and asserting the benefits of risk-taking to outpace market norms. Maintain a focus on debating and persuading, not just presenting data.
+Provide an independent analysis that emphasizes growth opportunities, first-mover advantages, and the benefits of bold action in capturing market opportunities. Focus on why taking calculated risks can lead to outsized returns and competitive positioning.
 
 At the end of your response, on two separate lines, clearly state:
 
@@ -62,7 +51,7 @@ Output conversationally and naturally, but ensure these two metrics appear exact
         # Wrap as chat messages (system + user)
         system_msg = {
             "role": "system",
-            "content": "You are the Risky Risk Analyst. Advocate high-reward, high-risk opportunities and rebut conservative/neutral arguments using provided data."
+            "content": "You are the Risky Risk Analyst. Advocate for high-reward, high-risk opportunities and emphasize growth potential using provided data."
         }
         user_msg = {"role": "user", "content": prompt}
         chat_messages = [system_msg, user_msg]
@@ -102,55 +91,10 @@ Generated: {timestamp}
         # Step 6: Return the updated state and report
         # ---------------------------------------------------------
         return {
-            "risk_debate_state": {
-                **state["risk_debate_state"],
-                "risky_response": full_report,
-            },
+            "risky_analysis": full_report,
             "sender": name,
         }
 
 
     # Return a partial node with a fixed name
     return functools.partial(risky_node, name="Risky")
-
-# ---------------------------------------------------------
-# Example initial state with pre-existing history
-# ---------------------------------------------------------
-# initial_state = {
-#     "market_report": "Tech stocks are rebounding as investors rotate back into growth sectors.",
-#     "sentiment_report": "Social media sentiment is bullish on innovation-driven companies.",
-#     "news_report": "A major hedge fund increased exposure to emerging AI companies.",
-#     "fundamentals_report": "Company shows improving profit margins and aggressive R&D expansion.",
-#     "trader_investment_plan": "Trader plans to allocate 15% more capital into high-growth AI startups.",
-#     "risk_debate_state": {
-#         "history": (
-#             "Safe Analyst: The trader’s decision seems too risky given market volatility.\n"
-#             "Neutral Analyst: A phased approach would reduce downside exposure.\n"
-#             "Risky Analyst: Previous opportunities like this have yielded outsized gains when timed correctly."
-#         ),
-#         "risky_history": (
-#             "Risky Analyst: Investing in innovation often requires bold conviction, "
-#             "and waiting too long could forfeit first-mover advantage."
-#         ),
-#         "safe_history": (
-#             "Safe Analyst: I recommend a smaller allocation to mitigate potential drawdowns."
-#         ),
-#         "neutral_history": (
-#             "Neutral Analyst: It may be prudent to monitor macroeconomic conditions before scaling up exposure."
-#         ),
-#         "current_safe_response": "Conservative view: The plan is too aggressive given volatility.",
-#         "current_neutral_response": "Neutral view: Consider staged investment over time.",
-#         "count": 3,
-#     },
-# }
-
-# # ---------------------------------------------------------
-# # Run the node once and print outputs
-# # ---------------------------------------------------------
-# risky_agent = create_risky_debator(chat_model)
-# output = risky_agent(initial_state)
-
-# print("\n=== Risky Agent Report ===")
-# print(output["report"])
-# print("\n=== Updated Debate State ===")
-# print(output["risk_debate_state"])
