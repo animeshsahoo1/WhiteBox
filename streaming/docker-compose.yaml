@@ -36,3 +36,16 @@ services:
     env_file:
       - .env
     restart: unless-stopped
+
+  fundamental-data-producer:
+    build: .
+    command: ["python", "producers/fundamental_data_producer.py"]
+    volumes:
+      - ./reports:/app/reports  # Mount reports directory to host
+    networks:
+      - stock-network
+    environment:
+      KAFKA_BROKER: kafka:29092
+    env_file:
+      - .env
+    restart: unless-stopped
