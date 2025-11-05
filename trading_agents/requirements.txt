@@ -3,3 +3,4 @@ pandas
 langgraph
 langgraph-checkpoint-mongodb
 pymongo
+psycopg2
