@@ -1,4 +1,6 @@
 import functools
+import psycopg2
+import socket
 import pathway as pw
 import pandas as pd
 from datetime import datetime, timezone
@@ -20,7 +22,7 @@ chat_model = llms.OpenAIChat(
 def create_final_manager(llm):
     def final_manager_node(state, name):
         company_name = state["company_of_interest"]
-        symbol = state.get("symbol", company_name)
+        symbol = company_name
         
         # Get trading agent report
         trader_report = state.get("trader_investment_plan", "")
@@ -195,9 +197,44 @@ Symbol: {symbol}
 
 {json.dumps(final_output, indent=2)}
 
-Raw Analysis:
-{manager_reply}"""
-        
+"""
+
+        DATABASE_URL = os.getenv("DATABASE_URL")
+
+        try:
+            conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+            cur = conn.cursor()
+            
+            insert_query = """
+            INSERT INTO trade_signals (
+            symbol, signal, quantity, profit_target, stop_loss, invalidation_condition,
+            leverage, confidence, risk_usd, timestamp
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW() AT TIME ZONE 'UTC')
+            RETURNING id;
+            """
+            
+            cur.execute(insert_query, (
+                trade_signal_args["symbol"],
+                trade_signal_args["signal"],
+                trade_signal_args["quantity"],
+                trade_signal_args["profit_target"],
+                trade_signal_args["stop_loss"],
+                trade_signal_args["invalidation_condition"],
+                trade_signal_args["leverage"],
+                trade_signal_args["confidence"],
+                trade_signal_args["risk_usd"],
+            ))
+            
+            conn.commit()
+            cur.close()
+            conn.close()
+            
+        except Exception as e:
+            print(f"Database error: {e}")
+            if 'conn' in locals():
+                conn.close()
+            raise
+                
         # Return structured output for pathway table
         return {
             "final_report": full_report,
@@ -210,16 +247,15 @@ Raw Analysis:
     return functools.partial(final_manager_node, name="Final Manager")
 
 
-# Example usage with sample state (commented out - uncomment to test standalone)
+
 # if __name__ == "__main__":
 #     # Initial state dictionary for testing the final manager
 #     test_state = {
-#         "company_of_interest": "Apple Inc.",
-#         "symbol": "AAPL",
+#         "company_of_interest": "AAPL",  # Changed to symbol format
 #         "current_position_size": 0,
 #         "account_balance": 10000,
         
-#         "trader_report": """Trader agent Analysis 
+#         "trader_investment_plan": """Trader agent Analysis 
 # Generated: Monday, November 04, 2024 at 10:30 AM UTC
 
 # **Summary of Bull Position:**
@@ -242,7 +278,7 @@ Raw Analysis:
 
 # FINAL TRANSACTION PROPOSAL: **HOLD**""",
         
-#         "risk_manager_report": """Risk Manager Assessment
+#         "final_trade_decision": """Risk Manager Assessment
 
 # Position Sizing: Recommend limiting exposure to 2% of portfolio
 # Risk per trade: Maximum $200 (2% of $10,000)
@@ -263,7 +299,7 @@ Raw Analysis:
 #     final_manager_agent = create_final_manager(chat_model)
 #     final_output = final_manager_agent(test_state)
     
-#     print(final_output['report'])
+#     print(final_output['final_report'])  # Changed from 'report' to 'final_report'
 #     print("\n" + "="*80)
 #     print("Trade Signal Output:")
 #     print(json.dumps(final_output['trade_signal'], indent=2))
