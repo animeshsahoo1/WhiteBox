@@ -1,28 +1,23 @@
-# file: main.py
+# file: producers/fundamental_data_producer.py
 
 """
 Fundamental Data Producer
-Fetches comprehensive fundamental analysis data from FMP API and simulates streaming.
-This script acts as the main entry point for the data pipeline.
+Fetches comprehensive fundamental analysis data from FMP API and streams to Kafka.
+ONLY handles raw data extraction and streaming - NO report generation.
 """
 
 import os
-import time
-import json
-from typing import Optional, Dict, List
+from typing import Optional, Dict
 from dotenv import load_dotenv
 
 from producers.base_producer import BaseProducer
 from fundamental_utils.fmp_api_client import FmpApiClient
-from fundamental_utils.data_processor import FundamentalDataProcessor
-from fundamental_utils.report_generator import ReportGenerator
 from fundamental_utils.web_scraper import WebScraper
-from fundamental_utils.ai_report_generator import AIReportGenerator
 
 load_dotenv()
 
 class FundamentalDataProducer(BaseProducer):
-    """Producer for comprehensive fundamental analysis data."""
+    """Producer for comprehensive fundamental analysis data - raw streaming only."""
     
     def __init__(self):
         stocks = os.getenv('STOCKS', 'AAPL,MSFT,GOOG').split(',')
@@ -35,19 +30,6 @@ class FundamentalDataProducer(BaseProducer):
         )
         
         self.fmp_client = None
-        self.processor = FundamentalDataProcessor()
-        self.report_generator = ReportGenerator()
-        
-        # Initialize AI Report Generator
-        try:
-            self.ai_report_generator = AIReportGenerator()
-            self.enable_ai_reports = True
-            print("✅ AI Report Generator initialized successfully")
-        except Exception as e:
-            print(f"⚠️  AI Report Generator initialization failed: {e}")
-            print("   AI-enhanced reports will be disabled. Set OPENAI_API_KEY to enable.")
-            self.ai_report_generator = None
-            self.enable_ai_reports = False
         
         # Initialize WebScraper
         self.web_scraper = None
@@ -61,13 +43,12 @@ class FundamentalDataProducer(BaseProducer):
             self.enable_web_scraping = False
         
         # Configuration
-        self.generate_reports = os.getenv('GENERATE_REPORTS', 'true').lower() == 'true'
         self.max_articles_per_stock = int(os.getenv('MAX_ARTICLES_PER_STOCK', '10'))
     
     def setup_sources(self):
         """Setup FMP as the primary data source for fundamentals."""
         try:
-            # Initialize FMP client using the corrected class
+            # Initialize FMP client
             self.fmp_client = FmpApiClient()
             self.register_source("FMP", self._fetch_from_fmp, priority=0)
             
@@ -77,24 +58,24 @@ class FundamentalDataProducer(BaseProducer):
     
     def _fetch_from_fmp(self, stock_symbol: str) -> Optional[Dict]:
         """
-        Fetches and processes comprehensive fundamental data from FMP.
+        Fetches comprehensive fundamental data from FMP and prepares for Kafka streaming.
         
         Args:
             stock_symbol: The stock ticker to fetch data for.
             
         Returns:
-            A processed dictionary ready for Kafka, or None if an error occurs.
+            A dictionary with raw data ready for Kafka, or None if an error occurs.
         """
         if not self.fmp_client:
             print(f"❌ FMP client not initialized. Cannot fetch data for {stock_symbol}.")
             return None
 
         try:
-            # Step 1: Gather all raw data using the master function from the client
+            # Step 1: Gather all raw fundamental data from FMP API
             raw_data = self.fmp_client.gather_all_fundamental_data(stock_symbol)
             
             if not raw_data.get('profile'):
-                print(f"  ⚠️  Could not retrieve core profile for {stock_symbol}. Aborting fetch for this symbol.")
+                print(f"  ⚠️  Could not retrieve core profile for {stock_symbol}. Aborting fetch.")
                 return None
 
             print(f"  ✅ Successfully gathered FMP data for {stock_symbol}")
@@ -121,54 +102,14 @@ class FundamentalDataProducer(BaseProducer):
                     traceback.print_exc()
                     web_intelligence = None
             
-            # Step 3: Generate RAW data report with all extracted content
-            raw_report_path = None
-            if self.generate_reports:
-                try:
-                    print(f"\n  📄 Generating raw data report for {stock_symbol}...")
-                    raw_report_path = self.report_generator.generate_report(
-                        data=raw_data,
-                        web_intelligence=web_intelligence
-                    )
-                    print(f"  ✅ Raw data report saved: {raw_report_path}")
-                except Exception as e:
-                    print(f"  ⚠️  Raw report generation failed: {e}")
-                    import traceback
-                    traceback.print_exc()
+            # Step 3: Combine raw data and web intelligence for Kafka
+            # Add web intelligence to the data structure
+            if web_intelligence:
+                raw_data['web_intelligence'] = web_intelligence
             
-            # Step 4: Generate AI-enhanced summary report
-            ai_report_path = None
-            if self.enable_ai_reports and self.ai_report_generator:
-                try:
-                    print(f"\n  🤖 Generating AI-enhanced summary report for {stock_symbol}...")
-                    
-                    # Generate AI summary
-                    ai_summary = self.ai_report_generator.generate_ai_summary(
-                        symbol=stock_symbol,
-                        data=raw_data,
-                        web_intelligence=web_intelligence
-                    )
-                    
-                    # Save AI report
-                    ai_report_path = self.ai_report_generator.save_ai_report(
-                        symbol=stock_symbol,
-                        ai_summary=ai_summary
-                    )
-                    
-                    print(f"  ✅ AI-enhanced report saved: {ai_report_path}")
-                    
-                except Exception as e:
-                    print(f"  ⚠️  AI report generation failed: {e}")
-                    import traceback
-                    traceback.print_exc()
+            print(f"  ✅ Raw data prepared for Kafka streaming: {stock_symbol}")
             
-            # Add report paths to the data for tracking
-            raw_data['_report_paths'] = {
-                'raw_report': raw_report_path,
-                'ai_report': ai_report_path
-            }
-            
-            return raw_data # Returning the raw dictionary for Kafka
+            return raw_data  # Return raw data for Kafka streaming
             
         except Exception as e:
             print(f"❌ An unexpected error occurred during FMP fetch for {stock_symbol}: {e}")

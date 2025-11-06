@@ -40,8 +40,6 @@ services:
   fundamental-data-producer:
     build: .
     command: ["python", "producers/fundamental_data_producer.py"]
-    volumes:
-      - ./reports:/app/reports  # Mount reports directory to host
     networks:
       - stock-network
     environment:

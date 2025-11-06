@@ -41,3 +41,17 @@ services:
     volumes:
       - .:/app
     restart: unless-stopped
+
+  fundamental-agent:
+    build: .
+    command: python main_fundamental.py
+    networks:
+      - stock-network
+    env_file:
+      - .env
+    environment:
+      KAFKA_BROKER: kafka:29092
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - .:/app
+    restart: unless-stopped
