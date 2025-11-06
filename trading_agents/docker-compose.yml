@@ -1,0 +1,31 @@
+version: "3.9"
+
+networks:
+  stock-network:
+    external: true
+    name: kafka_stock-network
+
+services:
+  trading-agent:
+    build: .
+    container_name: trading-agent
+    networks:
+      - stock-network
+    env_file:
+      - .env
+    environment:
+      # Stock symbol to analyze (can be overridden)
+      STOCK_SYMBOL: ${STOCK_SYMBOL:-AAPL}
+      
+      # Pathway API configuration - using the unified service name
+      PATHWAY_API_URL: http://pathway-reports-service:8000
+      
+      # Fallback mode - use sample data if reports not available
+      USE_FALLBACK_DATA: ${USE_FALLBACK_DATA:-false}
+      
+      # Python unbuffered output
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - .:/app
+    restart: "no"  # Run once and exit
+    command: python run.py ${STOCK_SYMBOL:-AAPL}
