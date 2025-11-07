@@ -126,8 +126,9 @@ def fetch_reports_from_pathway(symbol: str, use_fallback: bool = False) -> dict:
         else:
             raise
 
-
-def run(company_name: str, trade_date: str, use_fallback: bool = False):
+#only run this while testing this fileisrun through queue system in queue/task_queue.py there you will have to enqueue jobs
+#and the worker must be running to pick up those jobs
+def execute_trading_workflow(company_name: str, trade_date: str, use_fallback: bool = False):
     """
     Run the trading graph for a given company and date.
     
@@ -194,12 +195,10 @@ if __name__ == "__main__":
     # Check if fallback mode is enabled
     use_fallback = os.getenv("USE_FALLBACK_DATA", "false").lower() == "true"
     
-    trade_date = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
-    
     print("=" * 70)
     print(f"🤖 Trading Agent for {symbol}")
     print(f"📅 Trade Date: {trade_date}")
     print(f"🔄 Fallback Mode: {'Enabled' if use_fallback else 'Disabled'}")
     print("=" * 70)
     
-    run(symbol, trade_date, use_fallback=use_fallback)
+    execute_trading_workflow(symbol, trade_date, use_fallback=use_fallback)

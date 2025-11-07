@@ -5,3 +5,5 @@ langgraph-checkpoint-mongodb
 pymongo
 psycopg2
 requests
+redis
+rq
