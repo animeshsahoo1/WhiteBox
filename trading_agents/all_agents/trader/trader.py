@@ -2,7 +2,19 @@ import functools
 import pathway as pw
 import pandas as pd
 from datetime import datetime, timezone
-from all_agents.utils.llm import chat_model
+from dotenv import load_dotenv
+import os
+import psycopg2
+
+load_dotenv()
+
+from pathway.xpacks.llm import llms
+
+chat_model = llms.OpenAIChat(
+    model="gpt-4o-mini",
+    temperature=0.7,
+    api_key=os.getenv("OPENAI_API_KEY"),
+)
 
 def create_trader(llm):
     def trader_node(state, name):
@@ -47,7 +59,6 @@ Structure your analysis as follows:
 
 """
 
-
         trader_prompt = [
             {"role": "system", "content": TRADER_SYSTEM_PROMPT},
             {"role": "system", "content": f"""debate history:
@@ -74,6 +85,40 @@ Market Situation:
 Generated: {timestamp}
 
 {trader_reply}"""
+
+        # === Database Integration ===
+        DATABASE_URL = os.getenv("DATABASE_URL")
+        
+        # Get graph_id (trade_date) from state if available
+        graph_id = state.get("graph_id") or state.get("trade_date")
+
+        try:
+            conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+            cur = conn.cursor()
+            
+            insert_query = """
+            INSERT INTO graph_reports (
+                graph_id, symbol, report_type, timestamp, report_body
+            ) VALUES (%s, %s, %s, NOW() AT TIME ZONE 'UTC', %s)
+            RETURNING id;
+            """
+            
+            cur.execute(insert_query, (
+                graph_id,
+                company_name,
+                "trader",  # report_type for trader
+                full_report,
+            ))
+            
+            conn.commit()
+            cur.close()
+            conn.close()
+            
+        except Exception as e:
+            print(f"Database error: {e}")
+            if 'conn' in locals():
+                conn.close()
+            raise
         
         return {
             #TODO: later remove this messages key and get it sent by the final manager not here
@@ -85,86 +130,83 @@ Generated: {timestamp}
     return functools.partial(trader_node, name="Trader")    
 
 
-# Initial state dictionary for the trading agent graph
-# initial_state = {
-#     "company_of_interest": "Apple Inc. (AAPL)",
+# ============================================================================
+# TESTING CODE - Uncomment to test the trader independently
+# ============================================================================
+# if __name__ == "__main__":
     
-#     "bull_report": """
-#     **Bull Analyst Report: Apple Inc. (AAPL)**
-    
-#     **Thesis:** HOLD/BUY - Apple's long-term value proposition remains unmatched, driven by its impenetrable ecosystem, accelerating services revenue, and relentless innovation.
-    
-#     **Key Drivers:**
-#     1.  **Ecosystem Lock-In:** The integration of hardware (iPhone, Mac, Watch, AirPods) and software (iOS, macOS) creates a sticky user base with high switching costs. This ecosystem is a fortress that competitors cannot breach.
-#     2.  **Services Revenue Growth:** The Services division (App Store, iCloud, Apple Music, Apple Pay) is a high-margin juggernaut. It consistently posts double-digit growth and now has over 1 billion paid subscriptions. This segment provides a stable, recurring revenue stream that smooths hardware cyclicality.
-#     3.  **Financial Fortress:** Apple's balance sheet is pristine, with over $160 billion in cash and marketable securities. This allows for massive R&D spending, strategic acquisitions, and aggressive capital return programs (buybacks and dividends) that consistently reward shareholders.
-#     4.  **Innovation Pipeline:** While the market fixates on quarterly iPhone numbers, Apple is planting seeds for its next decade of growth. The Apple Vision Pro, while nascent, signals a paradigm shift in spatial computing. Furthermore, Apple's on-device AI integration (Apple Intelligence) is poised to create a truly personalized and private user experience that competitors, reliant on cloud-based AI, cannot easily replicate.
-    
-#     **Valuation:** While the P/E multiple is elevated, it is justified by Apple's quality, profitability (net margin > 25%), and dominant market position. It should be valued as a high-end consumer luxury brand with a software-as-a-service component, not as a simple hardware manufacturer.
-#     """,
-    
-#     "bear_report": """
-#     **Bear Analyst Report: Apple Inc. (AAPL)**
-    
-#     **Thesis:** SELL/HOLD - Apple faces significant headwinds, including regulatory scrutiny, slowing hardware innovation, and an over-reliance on the iPhone, all at a historically high valuation.
-    
-#     **Key Risks:**
-#     1.  **Regulatory Assault:** Apple is in the crosshairs of regulators globally (US DOJ, EU DMA). Lawsuits targeting the App Store's 30% commission and anti-steering policies threaten to dismantle its high-margin services "walled garden." A negative outcome could materially impact profitability.
-#     2.  **iPhone Dependency:** The iPhone still accounts for nearly 50% of total revenue. The smartphone market is mature and saturated. In key growth markets like China, Apple is facing intense, state-backed competition from rivals like Huawei, leading to market share erosion and pricing pressure.
-#     3.  **Slowing Growth & High Valuation:** Revenue growth has decelerated to the low single digits. At a forward P/E of ~30x, Apple is priced for perfection. Any miss on earnings or guidance could trigger a significant price correction. The stock is "priced in" and offers limited upside.
-#     4.  **"What's Next?" Problem:** The Apple Vision Pro is a niche, ultra-expensive product with a limited market. It is not the "next iPhone." Apple's AI features are perceived as catching up rather than leading. Without a clear new mass-market category, growth will stagnate.
-#     """,
-    
-#     "market_report": """
-#     **Macroeconomic & Market Overview**
-    
-#     The current market environment is characterized by persistent uncertainty. The Federal Reserve has signaled a "higher for longer" stance on interest rates to combat sticky inflation, which remains above the 2% target. This puts pressure on growth stock valuations, particularly in the tech sector. 
-    
-#     While corporate earnings have been resilient, consumer discretionary spending is showing signs of weakness as savings rates decline and credit card debt rises. A 'soft landing' is the base case, but the risk of a mild recession in the next 6-8 months cannot be discounted.
-#     """,
-    
-#     "sentiment_report": """
-#     **Market Sentiment Analysis for AAPL**
-    
-#     -   **Social Media:** Overall sentiment on platforms like X (Twitter) and Reddit is cautiously optimistic. Retail investors remain bullish on the brand, but "value" investors are increasingly vocal, calling the stock "overpriced."
-#     -   **News Sentiment:** Financial news headlines are mixed. Positive stories focus on the upcoming M4-powered MacBooks, while negative coverage is dominated by the ongoing DOJ antitrust lawsuit and slowing sales in China.
-#     -   **Analyst Ratings:** Consensus remains a 'Buy', but the number of 'Hold' ratings has increased in the last quarter.
-#     """,
-    
-#     "news_report": """
-#     **Key News Items (Last 72 Hours)**
-    
-#     1.  **"AppleInsider" reports rumors of a new, lower-cost "iPhone SE 4" with an updated design and 5G, potentially launching next spring to target emerging markets.**
-#     2.  **EU regulators have officially opened a second investigation into Apple's App Store, focusing on its new fee structure for "sideloaded" apps, claiming it violates the Digital Markets Act (DMA).**
-#     3.  **A major hedge fund manager stated in an interview that they have "trimmed" their position in Apple, citing "valuation concerns and geopolitical risk in its supply chain."**
-#     """,
-    
-#     "fundamentals_report": """
-#     **AAPL Key Financial Metrics (TTM)**
-    
-#     -   **P/E Ratio:** 31.2x (vs. S&P 500 avg. of ~21x)
-#     -   **Revenue Growth (YoY):** +1.8%
-#     -   **Net Profit Margin:** 26.3%
-#     -   **Services Revenue Growth (YoY):** +12.5%
-#     -   **Hardware Revenue Growth (YoY):** -1.5%
-#     -   **Cash & Marketable Securities:** $162 Billion
-#     -   **Debt:** $108 Billion
-#     """,
-    
-#     "investment_plan": """
-#     **Initial Investment Plan Draft:**
-    
-#     -   **Goal:** Long-term capital appreciation with moderate risk.
-#     -   **Current Holding:** Hold 500 shares of AAPL.
-#     -   **Proposed Action:** Looking to deploy new capital. 
-#     -   **Strategy:** Consider a "buy the dip" strategy. If the stock drops 5-10% due to macro fears or regulatory news (but not fundamental weakness), add 100 shares. 
-#     -   **Risk Management:** Implement a stop-loss on new shares if the price falls 15% below the purchase price.
-#     """
-# }
+#     # Initial state dictionary for the trading agent graph
+#     test_state = {
+#         "company_of_interest": "AAPL",
+#         "graph_id": "test_trade_002",  # Or use "trade_date": "2024-11-07"
+        
+#         "investment_debate_state": {
+#             "history": """
+# **Bull Analyst Report: Apple Inc. (AAPL)**
 
-# trader_agent = create_trader(chat_model)
+# **Thesis:** HOLD/BUY - Apple's long-term value proposition remains unmatched, driven by its impenetrable ecosystem, accelerating services revenue, and relentless innovation.
 
-# # Run the trader node with the initial state
-# trader_output = trader_agent(initial_state)
+# **Key Drivers:**
+# 1.  **Ecosystem Lock-In:** The integration of hardware (iPhone, Mac, Watch, AirPods) and software (iOS, macOS) creates a sticky user base with high switching costs. This ecosystem is a fortress that competitors cannot breach.
+# 2.  **Services Revenue Growth:** The Services division (App Store, iCloud, Apple Music, Apple Pay) is a high-margin juggernaut. It consistently posts double-digit growth and now has over 1 billion paid subscriptions. This segment provides a stable, recurring revenue stream that smooths hardware cyclicality.
+# 3.  **Financial Fortress:** Apple's balance sheet is pristine, with over $160 billion in cash and marketable securities. This allows for massive R&D spending, strategic acquisitions, and aggressive capital return programs (buybacks and dividends) that consistently reward shareholders.
+# 4.  **Innovation Pipeline:** While the market fixates on quarterly iPhone numbers, Apple is planting seeds for its next decade of growth. The Apple Vision Pro, while nascent, signals a paradigm shift in spatial computing. Furthermore, Apple's on-device AI integration (Apple Intelligence) is poised to create a truly personalized and private user experience that competitors, reliant on cloud-based AI, cannot easily replicate.
 
-# print(trader_output['report'])
+# **Valuation:** While the P/E multiple is elevated, it is justified by Apple's quality, profitability (net margin > 25%), and dominant market position. It should be valued as a high-end consumer luxury brand with a software-as-a-service component, not as a simple hardware manufacturer.
+
+# ---
+
+# **Bear Analyst Report: Apple Inc. (AAPL)**
+
+# **Thesis:** SELL/HOLD - Apple faces significant headwinds, including regulatory scrutiny, slowing hardware innovation, and an over-reliance on the iPhone, all at a historically high valuation.
+
+# **Key Risks:**
+# 1.  **Regulatory Assault:** Apple is in the crosshairs of regulators globally (US DOJ, EU DMA). Lawsuits targeting the App Store's 30% commission and anti-steering policies threaten to dismantle its high-margin services "walled garden." A negative outcome could materially impact profitability.
+# 2.  **iPhone Dependency:** The iPhone still accounts for nearly 50% of total revenue. The smartphone market is mature and saturated. In key growth markets like China, Apple is facing intense, state-backed competition from rivals like Huawei, leading to market share erosion and pricing pressure.
+# 3.  **Slowing Growth & High Valuation:** Revenue growth has decelerated to the low single digits. At a forward P/E of ~30x, Apple is priced for perfection. Any miss on earnings or guidance could trigger a significant price correction. The stock is "priced in" and offers limited upside.
+# 4.  **"What's Next?" Problem:** The Apple Vision Pro is a niche, ultra-expensive product with a limited market. It is not the "next iPhone." Apple's AI features are perceived as catching up rather than leading. Without a clear new mass-market category, growth will stagnate.
+# """
+#         },
+        
+#         "market_report": """**Macroeconomic & Market Overview**
+
+# The current market environment is characterized by persistent uncertainty. The Federal Reserve has signaled a "higher for longer" stance on interest rates to combat sticky inflation, which remains above the 2% target. This puts pressure on growth stock valuations, particularly in the tech sector. 
+
+# While corporate earnings have been resilient, consumer discretionary spending is showing signs of weakness as savings rates decline and credit card debt rises. A 'soft landing' is the base case, but the risk of a mild recession in the next 6-8 months cannot be discounted.""",
+        
+#         "sentiment_report": """**Market Sentiment Analysis for AAPL**
+
+# -   **Social Media:** Overall sentiment on platforms like X (Twitter) and Reddit is cautiously optimistic. Retail investors remain bullish on the brand, but "value" investors are increasingly vocal, calling the stock "overpriced."
+# -   **News Sentiment:** Financial news headlines are mixed. Positive stories focus on the upcoming M4-powered MacBooks, while negative coverage is dominated by the ongoing DOJ antitrust lawsuit and slowing sales in China.
+# -   **Analyst Ratings:** Consensus remains a 'Buy', but the number of 'Hold' ratings has increased in the last quarter.""",
+        
+#         "news_report": """**Key News Items (Last 72 Hours)**
+
+# 1.  **"AppleInsider" reports rumors of a new, lower-cost "iPhone SE 4" with an updated design and 5G, potentially launching next spring to target emerging markets.**
+# 2.  **EU regulators have officially opened a second investigation into Apple's App Store, focusing on its new fee structure for "sideloaded" apps, claiming it violates the Digital Markets Act (DMA).**
+# 3.  **A major hedge fund manager stated in an interview that they have "trimmed" their position in Apple, citing "valuation concerns and geopolitical risk in its supply chain."**""",
+        
+#         "fundamentals_report": """**AAPL Key Financial Metrics (TTM)**
+
+# -   **P/E Ratio:** 31.2x (vs. S&P 500 avg. of ~21x)
+# -   **Revenue Growth (YoY):** +1.8%
+# -   **Net Profit Margin:** 26.3%
+# -   **Services Revenue Growth (YoY):** +12.5%
+# -   **Hardware Revenue Growth (YoY):** -1.5%
+# -   **Cash & Marketable Securities:** $162 Billion
+# -   **Debt:** $108 Billion"""
+#     }
+
+#     # Create and execute the trader
+#     print("="*80)
+#     print("TESTING TRADER WITH DATABASE INTEGRATION")
+#     print("="*80)
+    
+#     trader_agent = create_trader(chat_model)
+#     result = trader_agent(test_state)
+    
+#     print("\n" + result['trader_investment_plan'])
+#     print("\n" + "="*80)
+#     print("Test completed successfully!")
+#     print("Check your Supabase database 'graph_reports' table for the new entry.")
+#     print("="*80)
