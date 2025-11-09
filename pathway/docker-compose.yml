@@ -5,7 +5,25 @@ networks:
     external: true
     name: kafka_stock-network
 
-services: 
+services:
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: pathway-redis
+    networks:
+      - stock-network
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+ 
   # FastAPI Reports Service
   reports-api:
     build: .
@@ -17,6 +35,9 @@ services:
       - .env
     environment:
       PYTHONUNBUFFERED: 1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
     ports:
       - "8000:8000"
     volumes:
@@ -29,6 +50,9 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    depends_on:
+      redis:
+        condition: service_healthy
 
   # Pathway Consumers
   fundamental-consumer:
@@ -42,10 +66,16 @@ services:
     environment:
       KAFKA_BROKER: kafka:29092
       PYTHONUNBUFFERED: 1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
     volumes:
       - ./reports:/app/reports
       - .:/app
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
 
   market-consumer:
     build: .
@@ -58,10 +88,16 @@ services:
     environment:
       KAFKA_BROKER: kafka:29092
       PYTHONUNBUFFERED: 1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
     volumes:
       - ./reports:/app/reports
       - .:/app
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
 
   news-consumer:
     build: .
@@ -74,10 +110,16 @@ services:
     environment:
       KAFKA_BROKER: kafka:29092
       PYTHONUNBUFFERED: 1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
     volumes:
       - ./reports:/app/reports
       - .:/app
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
 
   sentiment-consumer:
     build: .
@@ -90,7 +132,16 @@ services:
     environment:
       KAFKA_BROKER: kafka:29092
       PYTHONUNBUFFERED: 1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
     volumes:
       - ./reports:/app/reports
       - .:/app
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  redis-data:

@@ -193,7 +193,7 @@ class PathwayReportsClient:
         """
         try:
             response = self.session.get(
-                f"{self.base_url}/available-symbols",
+                f"{self.base_url}/symbols",
                 timeout=10
             )
             response.raise_for_status()
