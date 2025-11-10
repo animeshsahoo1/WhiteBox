@@ -6,7 +6,7 @@ networks:
 
 services:
   # ============================================
-  # REDIS CACHE
+  # REDIS CACHE FOR INTERNAL PATHWAY API
   # ============================================
   redis:
     image: redis:7-alpine
@@ -140,7 +140,7 @@ services:
         condition: service_healthy
 
   # ============================================
-  # PATHWAY SERVICES
+  # PATHWAY CONSUMERS
   # ============================================
   reports-api:
     build:
@@ -303,12 +303,17 @@ services:
     environment:
       PYTHONUNBUFFERED: 1
       PATHWAY_API_URL: http://pathway-reports-api:8000
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 1
     ports:
       - "8001:8001"
     volumes:
       - ./trading_agents:/app
     restart: unless-stopped
     depends_on:
+      redis:
+        condition: service_healthy
       reports-api:
         condition: service_healthy
 
@@ -325,10 +330,15 @@ services:
     environment:
       PYTHONUNBUFFERED: 1
       PATHWAY_API_URL: http://pathway-reports-api:8000
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 1
     volumes:
       - ./trading_agents:/app
     restart: unless-stopped
     depends_on:
+      redis:
+        condition: service_healthy
       reports-api:
         condition: service_healthy
       trading-agents-api:
