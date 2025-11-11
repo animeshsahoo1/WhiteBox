@@ -1,14 +1,14 @@
-# Real-Time AI Stock Trading System
+# Real-Time AI Investment Assistant
 
-A sophisticated, real-time stock analysis and trading system built with microservices architecture, leveraging Pathway for stream processing, LangGraph for multi-agent decision making, and Kafka for event streaming.
+A sophisticated, real-time stock analysis and intelligence system built with microservices architecture, leveraging Pathway for stream processing, LangGraph for multi-agent reasoning, and Kafka for event streaming.
 
 ## 🎯 Project Overview
 
-This system combines real-time data streaming, AI-powered analysis, and multi-agent trading strategies to provide comprehensive stock market intelligence and automated trading signals. The architecture consists of three main components:
+This system combines real-time data streaming, AI-powered analysis, and multi-agent reasoning to provide comprehensive stock market intelligence for retail traders, small hedge funds, and independent investors. The architecture consists of three main components:
 
 1. **Streaming Layer** - Collects real-time market data from multiple sources
 2. **Pathway Analysis Layer** - Processes streams and generates AI-powered reports
-3. **Trading Agents Layer** - Multi-agent system for trading decisions
+3. **Intelligence Agents Layer** - Multi-agent system for investment analysis and hypothesis generation
 
 ## 🏗️ Architecture
 
@@ -42,8 +42,8 @@ This system combines real-time data streaming, AI-powered analysis, and multi-ag
                        │
                        ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│          TRADING AGENTS (LangGraph Multi-Agent)                  │
-│  (Bull/Bear Debate → Trading → Risk Analysis → Signal)           │
+│       INTELLIGENCE AGENTS (LangGraph Multi-Agent)                │
+│  (Bull/Bear Debate → Hypothesis Generation → Risk Assessment)    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -62,12 +62,12 @@ This system combines real-time data streaming, AI-powered analysis, and multi-ag
 - **Sentiment analysis**: VADER and TextBlob for social media
 - **Fundamental analysis**: Financial ratios, growth metrics, SEC filings
 
-### Multi-Agent Trading System
+### Multi-Agent Intelligence System
 - **Research Phase**: Bull vs Bear researcher debate (dynamic rounds)
-- **Trading Phase**: Synthesizes research into investment plan
+- **Synthesis Phase**: Integrates research into investment hypotheses
 - **Risk Analysis**: Aggressive, Neutral, Conservative perspectives
-- **Risk Management**: Evaluates all inputs for position sizing
-- **Final Decision**: Generates executable trade signals with precise parameters
+- **Risk Assessment**: Evaluates all inputs and provides risk analysis
+- **Hypothesis Generation**: Produces ranked investment hypotheses with supporting evidence and risk assessments
 
 ### Production Features
 - **Redis caching**: Fast report retrieval and job queuing
@@ -128,7 +128,7 @@ REDIS_HOST=redis
 REDIS_PORT=6379
 REDIS_DB=1
 MONGODB_URI=mongodb://mongo:27017
-DATABASE_URL=postgresql://user:pass@postgres:5432/trading_db
+DATABASE_URL=postgresql://user:pass@postgres:5432/intelligence_db
 ```
 
 ### Launch the System
@@ -150,7 +150,7 @@ curl http://localhost:8001/health  # Trading Agents API
 | Service | Port | Description |
 |---------|------|-------------|
 | Pathway Reports API | 8000 | AI-generated analysis reports |
-| Trading Agents API | 8001 | Trading workflow execution |
+| Intelligence Agents API | 8001 | Investment analysis workflow execution |
 | Kafka | 9092 | Message streaming |
 | Redis | 6379 | Caching & job queue |
 | Zookeeper | 2181 | Kafka coordination |
@@ -170,15 +170,15 @@ curl http://localhost:8001/health  # Trading Agents API
 │   ├── api/               # FastAPI server for reports
 │   └── reports/           # Generated analysis reports
 │
-├── trading_agents/        # Multi-agent trading system
+├── trading_agents/        # Multi-agent intelligence system
 │   ├── all_agents/        # Agent implementations
 │   │   ├── researchers/   # Bull/Bear researchers
 │   │   ├── risk_mngt/     # Risk analysis agents
-│   │   ├── managers/      # Risk & Final managers
-│   │   └── trader/        # Trading agent
+│   │   ├── managers/      # Risk & Hypothesis managers
+│   │   └── trader/        # Synthesis agent
 │   ├── graph/             # LangGraph workflow setup
 │   ├── redis_queue/       # Job queue system
-│   ├── api/               # Trading API endpoints
+│   ├── api/               # Intelligence API endpoints
 │   └── utils/             # Helper utilities
 │
 └── kafka/                 # Kafka standalone config (optional)
@@ -211,14 +211,14 @@ Redis Cache → FastAPI → HTTP Endpoints
 - Eliminates need to re-run analysis
 - Sub-millisecond response times
 
-### 4. Trading Decisions (Trading Agents)
+### 4. Investment Intelligence (Intelligence Agents)
 ```
-User Request → Fetch Reports → Multi-Agent Workflow → Trade Signal
+User Request → Fetch Reports → Multi-Agent Workflow → Ranked Hypotheses
 ```
 - Retrieves latest reports from Pathway API
-- LangGraph orchestrates multi-agent debate
+- LangGraph orchestrates multi-agent debate and analysis
 - MongoDB stores conversation checkpoints
-- Outputs structured trade signals
+- Outputs ranked investment hypotheses with risk assessments
 
 ## 🎛️ API Usage
 
@@ -238,17 +238,17 @@ curl http://localhost:8000/reports/AAPL/fundamental
 curl http://localhost:8000/symbols
 ```
 
-### Execute Trading Workflow (Trading Agents API)
+### Execute Intelligence Workflow (Intelligence Agents API)
 
 ```bash
-# Trigger trading analysis for a symbol
+# Trigger investment analysis for a symbol
 curl -X POST http://localhost:8001/execute/AAPL
 
 # Check job status
 curl http://localhost:8001/job/{job_id}
 
-# Get latest trade signal
-curl http://localhost:8001/signals/AAPL
+# Get latest investment hypotheses
+curl http://localhost:8001/hypotheses/AAPL
 
 # Get agent reports
 curl http://localhost:8001/reports/AAPL/all
@@ -298,7 +298,7 @@ docker-compose logs -f
 
 # Specific service
 docker-compose logs -f market-consumer
-docker-compose logs -f trading-agents-worker
+docker-compose logs -f intelligence-agents-worker
 ```
 
 ### Check Reports
@@ -359,18 +359,22 @@ The system includes comprehensive error handling:
 
 ## 📝 Output Format
 
-### Trade Signal Example
+### Investment Hypothesis Example
 ```json
 {
   "symbol": "AAPL",
-  "signal": "buy",
-  "quantity": 50,
-  "profit_target": 185.50,
-  "stop_loss": 172.30,
-  "invalidation_condition": "Break below 170 support",
-  "leverage": 10,
+  "hypothesis": "Strong bullish case based on positive earnings and technical strength",
+  "evidence": {
+    "bull_points": ["Revenue growth exceeds expectations", "Positive market sentiment"],
+    "bear_points": ["High valuation concerns", "Competitive pressure"],
+    "synthesis": "Balance of evidence suggests growth potential despite risks"
+  },
+  "risk_assessment": {
+    "aggressive": "High conviction entry opportunity",
+    "neutral": "Moderate position with defined risk",
+    "conservative": "Wait for better entry or reduced position"
+  },
   "confidence": 0.78,
-  "risk_usd": 325.00,
   "timestamp": "2025-11-11T10:30:00Z"
 }
 ```
@@ -380,7 +384,7 @@ The system includes comprehensive error handling:
 Each subdirectory contains its own detailed README:
 - [streaming/README.md](streaming/README.md) - Data collection layer
 - [pathway/README.md](pathway/README.md) - Stream processing layer
-- [trading_agents/README.md](trading_agents/README.md) - Trading decision layer
+- [trading_agents/README.md](trading_agents/README.md) - Intelligence and analysis layer
 
 ## 📄 License
 

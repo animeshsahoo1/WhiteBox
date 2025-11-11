@@ -1,14 +1,14 @@
-# Trading Agents - Multi-Agent Trading System
+# Intelligence Agents - Multi-Agent Investment Analysis System
 
-AI-powered multi-agent trading system using LangGraph for orchestrating complex trading decisions through collaborative agent debate, risk analysis, and signal generation.
+AI-powered multi-agent intelligence system using LangGraph for orchestrating complex investment analysis through collaborative agent debate, hypothesis generation, and risk assessment.
 
 ## 📋 Overview
 
 This system implements a sophisticated multi-agent architecture where specialized AI agents collaborate to:
 - **Research**: Bull vs Bear debate on investment thesis
-- **Trade**: Synthesize research into investment plans
+- **Synthesize**: Integrate research into investment hypotheses
 - **Analyze Risk**: Multi-perspective risk evaluation
-- **Manage**: Final position sizing and signal generation
+- **Generate Hypotheses**: Produce ranked investment theories with evidence and risk assessments
 
 Built with:
 - **LangGraph**: Agent orchestration and state management
@@ -74,10 +74,10 @@ Built with:
 └───────────────────┼───────────────────────────────────────┘
                     │
                     ▼
-            ┌───────────────┐
-            │  Trade Signal │
-            │   (JSON)      │
-            └───────────────┘
+            ┌───────────────────┐
+            │ Ranked Hypotheses │
+            │   (JSON)          │
+            └───────────────────┘
 ```
 
 ## 📁 Structure
@@ -89,14 +89,14 @@ trading_agents/
 │   │   ├── bull_researcher.py     # Bull case advocate
 │   │   └── bear_researcher.py     # Bear case advocate
 │   ├── trader/
-│   │   └── trader.py              # Investment plan synthesis
+│   │   └── trader.py              # Hypothesis synthesis
 │   ├── risk_mngt/
 │   │   ├── aggresive_debator.py   # Risky perspective
 │   │   ├── neutral_debator.py     # Balanced perspective
 │   │   └── conservative_debator.py # Safe perspective
 │   ├── managers/
 │   │   ├── risk_manager.py        # Risk assessment
-│   │   └── final_manager.py       # Trade signal generation
+│   │   └── final_manager.py       # Hypothesis generation
 │   └── utils/
 │       ├── agent_state.py         # State schema
 │       ├── llm.py                 # LLM configuration
@@ -147,10 +147,10 @@ PATHWAY_API_URL=http://pathway-reports-api:8000
 USE_FALLBACK_DATA=false  # Use sample data if reports unavailable
 
 # MongoDB (LangGraph checkpointing)
-MONGODB_URI=mongodb://mongo:27017/trading_agents
+MONGODB_URI=mongodb://mongo:27017/intelligence_agents
 
 # PostgreSQL (Reports storage)
-DATABASE_URL=postgresql://user:password@postgres:5432/trading_db
+DATABASE_URL=postgresql://user:password@postgres:5432/intelligence_db
 
 # Redis (Job queue)
 REDIS_HOST=redis
@@ -170,8 +170,8 @@ AGENT_TEMPERATURE=0.7
 docker-compose up -d
 
 # View logs
-docker-compose logs -f trading-agents-api
-docker-compose logs -f trading-agents-worker
+docker-compose logs -f intelligence-agents-api
+docker-compose logs -f intelligence-agents-worker
 
 # Check health
 curl http://localhost:8001/health
@@ -261,32 +261,32 @@ Highlight:
 Challenge the bull's thesis with critical analysis."""
 ```
 
-#### 3. Trader
-**Purpose**: Synthesize debate into actionable investment plan
+#### 3. Synthesis Agent
+**Purpose**: Synthesize debate into investment hypothesis
 
 **Analysis Focus**:
 - Integrate bull and bear perspectives
 - Identify consensus and conflicts
-- Formulate balanced recommendation
-- Suggest position sizing strategy
+- Formulate balanced investment thesis
+- Assess strength of evidence
 
 **Input**:
 - Complete bull/bear debate history
 - All research reports
 
 **Output**:
-- Investment plan (BUY/SELL/HOLD)
+- Investment hypothesis (bullish/bearish/neutral)
 - Reasoning and key factors
-- Position sizing suggestions
+- Evidence strength assessment
 
 **Prompt Strategy**:
 ```python
-"""You are a Trader synthesizing the bull/bear debate.
+"""You are an Investment Analyst synthesizing the bull/bear debate.
 Analyze:
 - Strength of each argument
 - Risk/reward balance
-- Conviction level
-Generate: BUY/SELL/HOLD recommendation with reasoning."""
+- Evidence quality
+Generate: Investment hypothesis with supporting evidence."""
 ```
 
 #### 4. Risk Analysts (3 Perspectives)
@@ -294,40 +294,40 @@ Generate: BUY/SELL/HOLD recommendation with reasoning."""
 **Aggressive Analyst**:
 - High risk tolerance
 - Growth-focused
-- Larger position sizes
-- Shorter stop losses
+- Evaluates aggressive scenarios
+- Shorter-term perspectives
 
 **Neutral Analyst**:
 - Balanced approach
 - Moderate risk tolerance
-- Standard position sizing
-- Reasonable stops
+- Standard risk evaluation
+- Balanced time horizons
 
 **Conservative Analyst**:
 - Low risk tolerance
 - Capital preservation focus
-- Smaller positions
-- Wide stop losses
+- Evaluates downside scenarios
+- Longer-term perspectives
 
-**Input**: Trader's investment plan + all reports
+**Input**: Synthesis agent's investment hypothesis + all reports
 
 **Output**: Risk perspective with:
-- Position size recommendation
-- Stop loss suggestion
-- Risk assessment
-- Concerns and considerations
+- Risk level assessment
+- Key concerns
+- Risk factors analysis
+- Scenario evaluation
 
 #### 5. Risk Manager
-**Purpose**: Evaluate all risk perspectives and set position
+**Purpose**: Evaluate all risk perspectives and synthesize risk assessment
 
 **Analysis Focus**:
 - Synthesize 3 risk analyst views
-- Balance risk/reward
-- Account for portfolio context
-- Set concrete risk parameters
+- Balance risk/reward perspectives
+- Identify key risk factors
+- Provide comprehensive risk evaluation
 
 **Input**:
-- Trader plan
+- Synthesis agent hypothesis
 - Aggressive analyst view
 - Neutral analyst view
 - Conservative analyst view
@@ -335,36 +335,39 @@ Generate: BUY/SELL/HOLD recommendation with reasoning."""
 
 **Output**:
 - Final risk assessment
-- Position size determination
-- Stop loss level
+- Risk level determination
+- Key concerns and factors
 - Risk justification
 
 #### 6. Final Manager
-**Purpose**: Generate executable trade signal
+**Purpose**: Generate ranked investment hypothesis
 
 **Analysis Focus**:
 - Integrate all previous analyses
-- Convert to precise trade parameters
-- Ensure signal completeness
-- Validate feasibility
+- Rank hypothesis strength
+- Synthesize evidence and risks
+- Ensure completeness
 
 **Input**: 
 - All agent outputs
-- Current portfolio state
-- Account balance
+- Complete debate and analysis history
 
-**Output**: Structured trade signal
+**Output**: Ranked investment hypothesis
 ```json
 {
   "symbol": "AAPL",
-  "signal": "buy",
-  "quantity": 50,
-  "profit_target": 185.50,
-  "stop_loss": 172.30,
-  "invalidation_condition": "Break below 170 support",
-  "leverage": 10,
-  "confidence": 0.78,
-  "risk_usd": 325.00
+  "hypothesis": "Strong bullish case with manageable risks",
+  "evidence": {
+    "bull_points": ["Revenue growth", "Market momentum"],
+    "bear_points": ["Valuation concerns"],
+    "synthesis": "Positive outlook outweighs risks"
+  },
+  "risk_assessment": {
+    "aggressive": "High conviction opportunity",
+    "neutral": "Balanced positive outlook",
+    "conservative": "Cautious optimism"
+  },
+  "confidence": 0.78
 }
 ```
 
@@ -426,12 +429,12 @@ class AgentState(TypedDict):
    a. Bull Researcher → Bear Researcher (debate)
    b. Check consensus
    c. If not converged, repeat debate
-   d. Once converged → Trader
-   e. Trader → 3 Risk Analysts (parallel → sequential)
+   d. Once converged → Synthesis Agent
+   e. Synthesis Agent → 3 Risk Analysts (sequential)
    f. Risk Analysts → Risk Manager
    g. Risk Manager → Final Manager
-   h. Final Manager → Trade Signal
-7. Store signal in PostgreSQL
+   h. Final Manager → Ranked Hypothesis
+7. Store hypothesis in PostgreSQL
 8. Return job result
 ```
 
@@ -500,7 +503,7 @@ result = app.invoke(initial_state, config=config)
 ## 🌐 API Endpoints
 
 ### POST `/execute/{symbol}`
-Trigger trading workflow for a symbol
+Trigger investment analysis workflow for a symbol
 
 ```bash
 curl -X POST http://localhost:8001/execute/AAPL
@@ -510,7 +513,7 @@ curl -X POST http://localhost:8001/execute/AAPL
     "status": "queued",
     "symbol": "AAPL",
     "job_id": "abc-123-def",
-    "message": "Trading workflow job queued successfully"
+    "message": "Investment analysis workflow job queued successfully"
 }
 ```
 
@@ -545,24 +548,28 @@ curl http://localhost:8001/job/abc-123-def
 - `finished` - Completed successfully
 - `failed` - Execution error
 
-### GET `/signals/{symbol}`
-Get latest trade signal
+### GET `/hypotheses/{symbol}`
+Get latest investment hypothesis
 
 ```bash
-curl http://localhost:8001/signals/AAPL
+curl http://localhost:8001/hypotheses/AAPL
 
-# Response (most recent signal)
+# Response (most recent hypothesis)
 {
     "id": 123,
     "symbol": "AAPL",
-    "signal": "buy",
-    "quantity": 50,
-    "profit_target": 185.50,
-    "stop_loss": 172.30,
-    "invalidation_condition": "Break below 170",
-    "leverage": 10,
+    "hypothesis": "Strong bullish case with manageable risks",
+    "evidence": {
+        "bull_points": ["Revenue growth exceeds expectations"],
+        "bear_points": ["High valuation concerns"],
+        "synthesis": "Positive outlook outweighs risks"
+    },
+    "risk_assessment": {
+        "aggressive": "High conviction opportunity",
+        "neutral": "Balanced positive outlook",
+        "conservative": "Cautious optimism"
+    },
     "confidence": 0.78,
-    "risk_usd": 325.00,
     "timestamp": "2025-11-11T10:02:30Z"
 }
 ```
@@ -590,7 +597,7 @@ curl http://localhost:8001/reports/AAPL/bull_researcher
 ```
 
 ### GET `/reports/{symbol}/all`
-Get all reports and signals for symbol
+Get all reports and hypotheses for symbol
 
 ```bash
 curl http://localhost:8001/reports/AAPL/all
@@ -610,8 +617,8 @@ curl http://localhost:8001/reports/AAPL/all
         {"report_type": "bear_researcher", "report_body": "..."},
         ...
     ],
-    "trade_signals": [
-        {"signal": "buy", "quantity": 50, ...}
+    "investment_hypotheses": [
+        {"hypothesis": "Strong bullish case", "confidence": 0.78, ...}
     ]
 }
 ```
@@ -649,18 +656,14 @@ CREATE TABLE graph_reports (
     report_body TEXT NOT NULL
 );
 
--- Trade signals table
-CREATE TABLE trade_signals (
+-- Investment hypotheses table
+CREATE TABLE investment_hypotheses (
     id SERIAL PRIMARY KEY,
     symbol VARCHAR(10) NOT NULL,
-    signal VARCHAR(10) NOT NULL,  -- 'buy', 'sell', 'hold'
-    quantity INTEGER NOT NULL,
-    profit_target FLOAT NOT NULL,
-    stop_loss FLOAT NOT NULL,
-    invalidation_condition TEXT,
-    leverage INTEGER,
+    hypothesis TEXT NOT NULL,
+    evidence JSONB NOT NULL,
+    risk_assessment JSONB NOT NULL,
     confidence FLOAT,
-    risk_usd FLOAT,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -700,7 +703,7 @@ JOB_ID=$(curl -s -X POST http://localhost:8001/execute/AAPL | jq -r .job_id)
 watch -n 2 "curl -s http://localhost:8001/job/$JOB_ID | jq"
 
 # Get result
-curl http://localhost:8001/signals/AAPL | jq
+curl http://localhost:8001/hypotheses/AAPL | jq
 ```
 
 ### Inspect MongoDB Checkpoints
@@ -709,7 +712,7 @@ curl http://localhost:8001/signals/AAPL | jq
 # Connect to MongoDB
 docker exec -it mongo mongosh
 
-use trading_agents
+use intelligence_agents
 
 # List checkpoints
 db.checkpoints.find({}, {thread_id: 1, namespace: 1})

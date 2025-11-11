@@ -1,10 +1,10 @@
 # LangGraph Workflow Setup
 
-LangGraph workflow configuration and orchestration for the multi-agent trading system.
+LangGraph workflow configuration and orchestration for the multi-agent investment intelligence system.
 
 ## 📋 Overview
 
-This directory contains the LangGraph graph construction, state propagation, and conditional routing logic that orchestrates the entire multi-agent workflow.
+This directory contains the LangGraph graph construction, state propagation, and conditional routing logic that orchestrates the entire multi-agent workflow for investment analysis and hypothesis generation.
 
 ## 🗂️ Files
 
@@ -211,7 +211,7 @@ from langgraph.checkpoint.mongodb import MongoDBSaver
 
 checkpointer = MongoDBSaver(
     connection_string="mongodb://mongo:27017",
-    db_name="trading_agents"
+    db_name="intelligence_agents"
 )
 
 # Compile with checkpointing

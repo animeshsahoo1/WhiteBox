@@ -1,14 +1,14 @@
-# Trading Agents - Agent Implementations
+# Intelligence Agents - Agent Implementations
 
-Specialized AI agents for collaborative trading analysis and decision-making.
+Specialized AI agents for collaborative investment analysis and hypothesis generation.
 
 ## 📋 Overview
 
 This directory contains all agent implementations organized by role:
 - **researchers/** - Bull and Bear debate agents
-- **trader/** - Investment plan synthesis agent
+- **trader/** - Investment hypothesis synthesis agent
 - **risk_mngt/** - Risk analysis from multiple perspectives
-- **managers/** - Risk and final decision managers
+- **managers/** - Risk assessment and hypothesis generation managers
 - **utils/** - Shared utilities (state, LLM config, sample data)
 
 ## 🤖 Agent Categories
@@ -34,13 +34,13 @@ Bull → Bear → Bull → Bear → ... → Trader
       (1-3 rounds based on convergence)
 ```
 
-### Trader (Investment Synthesis)
+### Synthesis Agent (Investment Hypothesis)
 
-**Trader** (`trader/trader.py`)
+**Synthesis Agent** (`trader/trader.py`)
 - Synthesizes bull/bear debate
 - Identifies consensus points
-- Formulates balanced recommendation
-- Outputs: BUY/SELL/HOLD with reasoning
+- Formulates balanced investment hypothesis
+- Outputs: Investment thesis with reasoning
 
 ### Risk Analysts (Multi-Perspective)
 
@@ -66,13 +66,13 @@ Bull → Bear → Bull → Bear → ... → Trader
 
 **Risk Manager** (`managers/risk_manager.py`)
 - Synthesizes 3 risk perspectives
-- Sets position size
-- Determines stop loss
-- Validates risk/reward
+- Evaluates risk levels
+- Identifies key concerns
+- Validates risk assessment
 
 **Final Manager** (`managers/final_manager.py`)
 - Integrates all analyses
-- Generates executable signal
+- Generates ranked hypothesis
 - Ensures completeness
 - Outputs structured JSON
 
@@ -87,8 +87,8 @@ Input Reports (Market, News, Sentiment, Fundamentals)
         └───────────┬───────────┘
                     ↓
             ┌──────────────┐
-            │    Trader    │
-            │  (Synthesis) │
+            │  Synthesis   │
+            │    Agent     │
             └──────┬───────┘
                    ↓
     ┌──────────────┼──────────────┐
@@ -101,12 +101,12 @@ Input Reports (Market, News, Sentiment, Fundamentals)
                   ↓
          ┌────────────────┐
          │ Risk Manager   │
-         │ (Position Size)│
+         │ (Assessment)   │
          └────────┬───────┘
                   ↓
          ┌────────────────┐
          │ Final Manager  │
-         │ (Trade Signal) │
+         │  (Hypothesis)  │
          └────────────────┘
 ```
 
@@ -252,15 +252,43 @@ Output: Compelling bull thesis with rebuttals
 ### Risk Analyst Prompt Structure
 ```
 Role: {Aggressive/Neutral/Conservative} Risk Analyst
-Task: Evaluate trader's plan from {risk perspective}
+Task: Evaluate synthesis agent's hypothesis from {risk perspective}
 
 Considerations:
-- Position sizing ({large/moderate/small})
-- Stop loss placement ({tight/moderate/wide})
-- Risk/reward ratio
-- Portfolio impact
+- Risk level assessment ({high/moderate/low})
+- Key risk factors
+- Risk/reward evaluation
+- Scenario analysis
 
-Output: Risk assessment with recommendations
+Output: Risk assessment with concerns
+```
+
+### Final Manager Prompt Structure
+```
+Role: Final Manager generating investment hypothesis
+Task: Synthesize all analyses into ranked hypothesis
+
+Inputs:
+- Synthesis agent recommendation
+- Risk manager assessment
+- All research reports
+- Complete analysis history
+
+Output: JSON investment hypothesis with:
+{
+  "hypothesis": "investment thesis statement",
+  "evidence": {
+    "bull_points": [...],
+    "bear_points": [...],
+    "synthesis": "..."
+  },
+  "risk_assessment": {
+    "aggressive": "...",
+    "neutral": "...",
+    "conservative": "..."
+  },
+  "confidence": float
+}
 ```
 
 ### Final Manager Prompt Structure
