@@ -684,7 +684,7 @@ except redis.ConnectionError:
 - [streaming/producers](../streaming/README.md) - Kafka topics
 
 ### Consumed By
-- [trading_agents](../trading_agents/README.md) - FastAPI endpoints
+- [trading_agents](../trading_agents/README.md) - Intelligence agents via FastAPI endpoints
 
 ## 📚 Dependencies
 
