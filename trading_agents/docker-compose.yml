@@ -6,26 +6,54 @@ networks:
     name: kafka_stock-network
 
 services:
-  trading-agent:
+  trading-agents-worker:
     build: .
-    container_name: trading-agent
+    container_name: trading-agents-worker
     networks:
       - stock-network
     env_file:
       - .env
     environment:
-      # Stock symbol to analyze (can be overridden)
-      STOCK_SYMBOL: ${STOCK_SYMBOL:-AAPL}
-      
       # Pathway API configuration - using the unified service name
       PATHWAY_API_URL: http://pathway-reports-service:8000
-      
-      # Fallback mode - use sample data if reports not available
-      USE_FALLBACK_DATA: ${USE_FALLBACK_DATA:-false}
       
       # Python unbuffered output
       PYTHONUNBUFFERED: 1
     volumes:
       - .:/app
-    restart: "no"  # Run once and exit
-    command: python run.py ${STOCK_SYMBOL:-AAPL}
+    restart: unless-stopped
+    command: python redis_queue/worker.py
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f worker.py || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  trading-agents-api:
+    build: .
+    container_name: trading-agents-api
+    networks:
+      - stock-network
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    environment:
+      # Pathway API configuration - using the unified service name
+      PATHWAY_API_URL: http://pathway-reports-service:8000
+      
+      # Python unbuffered output
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    command: python -m uvicorn api.fastapi_server:app --host 0.0.0.0 --port 8001 --reload
+    depends_on:
+      - trading-agents-worker
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s

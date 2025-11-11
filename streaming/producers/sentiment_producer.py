@@ -1,6 +1,6 @@
 """
-Enhanced Sentiment Producer with multi-source support
-Sources: Reddit, Twitter/X, StockTwits, Web Scraping
+Enhanced Sentiment Producer with Reddit support
+Sources: Reddit
 Performs sentiment analysis on social media content about stocks
 """
 
@@ -9,7 +9,6 @@ import json
 import requests
 import praw
 import time
-import tweepy
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 from collections import OrderedDict
@@ -24,7 +23,7 @@ load_dotenv()
 
 
 class SentimentProducer(BaseProducer):
-    """Producer for social media sentiment analysis with multi-source fallback"""
+    """Producer for social media sentiment analysis using Reddit"""
     
     def __init__(self):
         stocks = os.getenv('STOCKS', 'AAPL,TSLA,NVDA').split(',')
@@ -36,36 +35,28 @@ class SentimentProducer(BaseProducer):
             stocks=stocks
         )
         
-        # Reddit API credentials
-        self.reddit_client_id = os.getenv('REDDIT_CLIENT_ID')
-        self.reddit_client_secret = os.getenv('REDDIT_CLIENT_SECRET')
-        self.reddit_username = os.getenv('REDDIT_USERNAME')
-        self.reddit_password = os.getenv('REDDIT_PASSWORD')
-        self.reddit_user_agent = os.getenv('REDDIT_USER_AGENT', 'pathway-sentiment-agent:v1.0')
+        # Track API calls per account for rate limiting (MUST initialize before loading accounts)
+        self.api_calls = {}
+        self.api_window_start = {}
+        self.max_calls_per_minute = 50  # Conservative limit per account
+        
+        # Reddit API credentials - Multiple accounts for rotation
+        self.reddit_accounts = self._load_reddit_accounts()
+        self.current_reddit_index = 0
         self.reddit = None
         
-        # Twitter/X API credentials
-        self.twitter_bearer_token = os.getenv('TWITTER_BEARER_TOKEN')
-        self.twitter_api_key = os.getenv('TWITTER_API_KEY')
-        self.twitter_api_secret = os.getenv('TWITTER_API_SECRET')
-        self.twitter_access_token = os.getenv('TWITTER_ACCESS_TOKEN')
-        self.twitter_access_secret = os.getenv('TWITTER_ACCESS_SECRET')
-        self.twitter_client = None
-        
         # Configuration
-        self.subreddits = os.getenv('REDDIT_SUBREDDITS', 'wallstreetbets,stocks,investing').split(',')
-        self.reddit_search_limit = int(os.getenv('REDDIT_SEARCH_LIMIT', '20'))
+        self.subreddits = os.getenv('REDDIT_SUBREDDITS', 'wallstreetbets,stocks,investing,StockMarket,options').split(',')
+        self.reddit_search_limit = int(os.getenv('REDDIT_SEARCH_LIMIT', '30'))  # Increased from 20
         self.comment_limit = int(os.getenv('REDDIT_COMMENT_LIMIT', '10'))
-        self.twitter_max_results = int(os.getenv('TWITTER_MAX_RESULTS', '20'))
         
-        # Ticker to company name mapping
-        company_names = os.getenv('COMPANY_NAMES', '').split(',')
-        self.ticker_to_company = {}
-        if len(stocks) == len(company_names) and company_names[0]:
-            self.ticker_to_company = dict(zip(stocks, company_names))
-        else:
-            self.ticker_to_company = {ticker: ticker for ticker in stocks}
-            print("⚠️  Using tickers as company names")
+        # Ticker to company name mapping (optional, for display only)
+        self.ticker_to_company = {ticker: ticker for ticker in stocks}
+        company_names_env = os.getenv('COMPANY_NAMES', '')
+        if company_names_env:
+            company_names = company_names_env.split(',')
+            if len(stocks) == len(company_names):
+                self.ticker_to_company = dict(zip(stocks, company_names))
         
         # Deduplication cache
         self.seen_posts = OrderedDict()
@@ -73,45 +64,131 @@ class SentimentProducer(BaseProducer):
         
         # Sentiment analyzers
         self.vader_analyzer = None
-        
-        # Headers for web scraping
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
     
-    def setup_sources(self):
-        """Setup all sentiment data sources"""
+    def _load_reddit_accounts(self) -> List[Dict]:
+        """Load multiple Reddit accounts from comma-separated environment variables"""
         
-        # Priority 0: Reddit (rich discussions, good for sentiment)
-        if all([self.reddit_client_id, self.reddit_client_secret]):
+        # Get comma-separated lists from .env
+        client_ids_str = os.getenv('REDDIT_CLIENT_IDS', '')
+        client_secrets_str = os.getenv('REDDIT_CLIENT_SECRETS', '')
+        
+        # Split and clean whitespace
+        client_ids = [cid.strip() for cid in client_ids_str.split(',') if cid.strip()]
+        client_secrets = [secret.strip() for secret in client_secrets_str.split(',') if secret.strip()]
+        
+        if not client_ids or not client_secrets:
+            print(f"  ⚠️  No Reddit accounts configured in REDDIT_CLIENT_IDS/REDDIT_CLIENT_SECRETS")
+            return []
+        
+        if len(client_ids) != len(client_secrets):
+            print(f"  ⚠️  Warning: Mismatch between client IDs ({len(client_ids)}) and secrets ({len(client_secrets)})")
+            # Use minimum length to avoid index errors
+            min_len = min(len(client_ids), len(client_secrets))
+            client_ids = client_ids[:min_len]
+            client_secrets = client_secrets[:min_len]
+        
+        accounts = []
+        for i, (client_id, client_secret) in enumerate(zip(client_ids, client_secrets)):
+            accounts.append({
+                'client_id': client_id,
+                'client_secret': client_secret,
+                'user_agent': f'pathway-sentiment-agent-{i+1}:v1.0'
+            })
+            
+            # Initialize tracking for this account
+            self.api_calls[i] = 0
+            self.api_window_start[i] = time.time()
+        
+        print(f"  🔑 Loaded {len(accounts)} Reddit account(s) for rotation")
+        return accounts
+    
+    def _get_reddit_client(self) -> Optional[praw.Reddit]:
+        """Get Reddit client with rate limit checking and automatic rotation"""
+        
+        if not self.reddit_accounts:
+            print("  ⚠️  No Reddit accounts available")
+            return None
+        
+        # Check if current account hit rate limit
+        current_idx = self.current_reddit_index
+        current_time = time.time()
+        
+        # Reset counter if window expired (60 seconds)
+        if current_time - self.api_window_start[current_idx] >= 60:
+            self.api_calls[current_idx] = 0
+            self.api_window_start[current_idx] = current_time
+        
+        # If current account approaching limit, rotate to next
+        if self.api_calls[current_idx] >= self.max_calls_per_minute:
+            print(f"  ⚠️  Account {current_idx + 1} hit rate limit ({self.api_calls[current_idx]}/{self.max_calls_per_minute})")
+            
+            # Calculate next index
+            next_idx = (current_idx + 1) % len(self.reddit_accounts)
+            
+            # If we've cycled through all accounts, need to wait
+            all_limited = all(
+                self.api_calls[i] >= self.max_calls_per_minute 
+                for i in range(len(self.reddit_accounts))
+            )
+            
+            if next_idx == current_idx or all_limited:
+                sleep_time = 60 - (current_time - self.api_window_start[current_idx])
+                if sleep_time > 0:
+                    print(f"  ⏳ All {len(self.reddit_accounts)} account(s) rate limited. Sleeping {sleep_time:.1f}s...")
+                    time.sleep(sleep_time)
+                    # Reset all counters
+                    for i in range(len(self.reddit_accounts)):
+                        self.api_calls[i] = 0
+                        self.api_window_start[i] = time.time()
+            else:
+                # Rotate to next account
+                self.current_reddit_index = next_idx
+                self.reddit = None  # Force recreation with new account
+                print(f"  🔄 Rotating to Reddit account {self.current_reddit_index + 1}/{len(self.reddit_accounts)}")
+        
+        # Create/recreate Reddit client if needed
+        if self.reddit is None:
+            account = self.reddit_accounts[self.current_reddit_index]
             try:
                 self.reddit = praw.Reddit(
-                    client_id=self.reddit_client_id,
-                    client_secret=self.reddit_client_secret,
-                    username=self.reddit_username,
-                    password=self.reddit_password,
-                    user_agent=self.reddit_user_agent
+                    client_id=account['client_id'],
+                    client_secret=account['client_secret'],
+                    user_agent=account['user_agent']
                 )
-                # Test connection
-                _ = self.reddit.user.me()
-                self.register_source("Reddit", self._fetch_from_reddit, priority=0)
+                # Test connection (works without username/password)
+                try:
+                    self.reddit.user.me()
+                except:
+                    pass  # It's okay if this fails, client still works for reading
+                print(f"  ✅ Connected to Reddit using account {self.current_reddit_index + 1}/{len(self.reddit_accounts)}")
+            except Exception as e:
+                print(f"  ❌ Failed to connect with account {self.current_reddit_index + 1}: {e}")
+                # Try next account
+                self.current_reddit_index = (self.current_reddit_index + 1) % len(self.reddit_accounts)
+                self.reddit = None
+                return None
+        
+        # Increment API call counter
+        self.api_calls[self.current_reddit_index] += 1
+        
+        return self.reddit
+    
+    def setup_sources(self):
+        """Setup Reddit as the sentiment data source"""
+        
+        # Reddit (rich discussions, good for sentiment)
+        if self.reddit_accounts:
+            try:
+                # Try to initialize first Reddit client
+                reddit = self._get_reddit_client()
+                if reddit:
+                    self.register_source("Reddit", self._fetch_from_reddit, priority=0)
+                else:
+                    print(f"  ⚠️  Could not initialize any Reddit accounts")
             except Exception as e:
                 print(f"  ⚠️  Could not initialize Reddit: {e}")
-        
-        # Priority 1: Twitter/X (real-time sentiment)
-        if self.twitter_bearer_token:
-            try:
-                self.twitter_client = tweepy.Client(
-                    bearer_token=self.twitter_bearer_token,
-                    consumer_key=self.twitter_api_key,
-                    consumer_secret=self.twitter_api_secret,
-                    access_token=self.twitter_access_token,
-                    access_token_secret=self.twitter_access_secret,
-                    wait_on_rate_limit=True
-                )
-                self.register_source("Twitter", self._fetch_from_twitter, priority=1)
-            except Exception as e:
-                print(f"  ⚠️  Could not initialize Twitter: {e}")
+        else:
+            print(f"  ⚠️  No Reddit accounts configured. Skipping Reddit source.")
         
         # Initialize VADER sentiment analyzer
         self.vader_analyzer = SentimentIntensityAnalyzer()
@@ -225,29 +302,70 @@ class SentimentProducer(BaseProducer):
         return grouped
     
     def _fetch_from_reddit(self, stock_symbol: str) -> Optional[List[Dict]]:
-        """Fetch sentiment data from Reddit"""
+        """Fetch sentiment data from Reddit with automatic account rotation"""
         company_name = self.ticker_to_company.get(stock_symbol, stock_symbol)
         all_posts_data = []
         
         print(f"  🔍 [{stock_symbol}] Searching Reddit for: {stock_symbol} OR {company_name}")
         
-        for subreddit_name in self.subreddits:
+        # Search more subreddits (increased from 2 to 3)
+        subreddits_to_search = self.subreddits
+        
+        for subreddit_name in subreddits_to_search:
             try:
-                subreddit = self.reddit.subreddit(subreddit_name)
-                search_query = f"{stock_symbol} OR {company_name}"
+                # Get Reddit client (handles rotation automatically)
+                reddit = self._get_reddit_client()
+                if not reddit:
+                    print(f"  ❌ No Reddit client available, skipping r/{subreddit_name}")
+                    continue
                 
-                posts = subreddit.search(
-                    search_query,
-                    limit=self.reddit_search_limit,
-                    time_filter='day',
-                    sort='new'
-                )
+                subreddit = reddit.subreddit(subreddit_name)
+                
+                # INTELLIGENT SEARCH: Cast a wide net with multiple search strategies
+                # We want ALL recent discussions, Reddit's search will handle relevance
+                search_queries = [
+                    f"${stock_symbol}",  # Cashtag (most common on Reddit)
+                    stock_symbol,         # Raw ticker
+                ]
+                
+                # Increased search limit
+                search_limit = min(self.reddit_search_limit, 30)
+                
+                # Collect posts from all search variations
+                posts_list = []
+                posts_seen_ids = set()  # Avoid duplicates within same subreddit
+                
+                try:
+                    for query in search_queries:
+                        # Search recent week for sentiment analysis
+                        results = list(subreddit.search(
+                            query,
+                            limit=search_limit,
+                            time_filter='week',  # Recent discussions for sentiment
+                            sort='relevance'
+                        ))
+                        
+                        # Add only unique posts
+                        for post in results:
+                            if post.id not in posts_seen_ids:
+                                posts_list.append(post)
+                                posts_seen_ids.add(post.id)
+                        
+                        # Break early if we have enough posts
+                        if len(posts_list) >= search_limit:
+                            break
+                    
+                except Exception as search_error:
+                    print(f"  ⚠️  Search error in r/{subreddit_name}: {search_error}")
+                    continue
                 
                 posts_found = 0
                 posts_skipped_seen = 0
-                posts_skipped_nomatch = 0
                 
-                for post in posts:
+                for post in posts_list:
+                    # Each iteration counts as API call
+                    self.api_calls[self.current_reddit_index] += 1
+                    
                     posts_found += 1
                     post_id = f"reddit_{post.id}"
                     
@@ -261,45 +379,37 @@ class SentimentProducer(BaseProducer):
                     if len(self.seen_posts) > self.seen_posts_max_size:
                         self.seen_posts.popitem(last=False)
                     
-                    # Check if ticker/company actually mentioned
-                    matches = self._check_ticker_match(
-                        post.title.upper() + " " + post.selftext.upper(),
-                        stock_symbol,
-                        company_name
-                    )
+                    # NO FILTERING - Trust Reddit's search!
+                    # If Reddit returned it for our cashtag search, it's relevant
                     
-                    if not matches:
-                        posts_skipped_nomatch += 1
-                        continue
-                    
-                    # Get comments
-                    comments = self._get_post_comments(post, limit=self.comment_limit)
+                    # Get comments (only if REDDIT_COMMENT_LIMIT > 0)
+                    comments = []
+                    if self.comment_limit > 0:
+                        comments = self._get_post_comments(post, limit=self.comment_limit)
                     
                     # Perform sentiment analysis
                     title_sentiment = self.analyze_sentiment_vader(post.title)
                     content_sentiment = self.analyze_sentiment_vader(post.selftext if post.selftext else "")
                     
-                    # Analyze comments
-                    comment_sentiments = [self.analyze_sentiment_vader(c) for c in comments]
-                    avg_comment_sentiment = (
-                        sum(comment_sentiments) / len(comment_sentiments)
-                        if comment_sentiments else 0.0
-                    )
+                    # Analyze comments if any
+                    avg_comment_sentiment = 0.0
+                    if comments:
+                        comment_sentiments = [self.analyze_sentiment_vader(c) for c in comments]
+                        avg_comment_sentiment = sum(comment_sentiments) / len(comment_sentiments)
                     
-                    # Determine match type
+                    # Simple match type detection (for metadata only)
                     title_text = post.title.upper()
                     content_text = post.selftext.upper() if post.selftext else ""
-                    ticker_in_title = stock_symbol.upper() in title_text or company_name.upper() in title_text
-                    ticker_in_content = stock_symbol.upper() in content_text or company_name.upper() in content_text
+                    cashtag = f"${stock_symbol.upper()}"
                     
-                    if ticker_in_title and ticker_in_content:
-                        match_type = 'title_and_content'
-                    elif ticker_in_title:
-                        match_type = 'title_only'
-                    elif ticker_in_content:
-                        match_type = 'content_only'
+                    if cashtag in title_text:
+                        match_type = 'cashtag_in_title'
+                    elif cashtag in content_text:
+                        match_type = 'cashtag_in_content'
+                    elif stock_symbol.upper() in title_text:
+                        match_type = 'ticker_in_title'
                     else:
-                        match_type = 'unknown'
+                        match_type = 'reddit_search_result'
                     
                     # Format data to match consumer schema EXACTLY
                     post_data = {
@@ -322,13 +432,22 @@ class SentimentProducer(BaseProducer):
                     }
                     
                     all_posts_data.append(post_data)
-                    print(f"    ✅ Added post: {post.title[:50]}...")
                 
-                print(f"  📊 r/{subreddit_name}: Found {posts_found}, Skipped (seen): {posts_skipped_seen}, Skipped (no match): {posts_skipped_nomatch}, Added: {len(all_posts_data)}")
+                print(f"  📊 r/{subreddit_name}: Found {posts_found}, Skipped (seen): {posts_skipped_seen}, Added: {len([p for p in all_posts_data if p['subreddit'] == subreddit_name])}")
+                
+                # Small delay between subreddits to be nice to API
+                time.sleep(1)
             
             except Exception as e:
                 print(f"  ⚠️  Error in r/{subreddit_name}: {e}")
+                # Try rotating to next account on error
+                self.reddit = None
                 continue
+        
+        # Show current API usage
+        if self.reddit_accounts:
+            current_idx = self.current_reddit_index
+            print(f"  📊 API Usage: Account {current_idx + 1}/{len(self.reddit_accounts)} used {self.api_calls[current_idx]}/{self.max_calls_per_minute} calls")
         
         print(f"  📦 [{stock_symbol}] Total posts collected: {len(all_posts_data)}")
         return all_posts_data if all_posts_data else None
@@ -347,88 +466,16 @@ class SentimentProducer(BaseProducer):
             return comment_texts
         except:
             return []
-    
-    # ========== TWITTER SOURCE ==========
-    
-    def _fetch_from_twitter(self, stock_symbol: str) -> Optional[List[Dict]]:
-        """Fetch sentiment data from Twitter/X"""
-        company_name = self.ticker_to_company.get(stock_symbol, stock_symbol)
-        
-        # Build search query (cashtag and company name)
-        query = f"(${stock_symbol} OR {company_name}) -is:retweet lang:en"
-        
-        try:
-            # Search recent tweets
-            tweets = self.twitter_client.search_recent_tweets(
-                query=query,
-                max_results=self.twitter_max_results,
-                tweet_fields=['created_at', 'public_metrics', 'author_id', 'lang'],
-                expansions=['author_id'],
-                user_fields=['username']
-            )
-            
-            if not tweets.data:
-                return None
-            
-            # Build user lookup
-            users = {}
-            if tweets.includes and 'users' in tweets.includes:
-                users = {user.id: user.username for user in tweets.includes['users']}
-            
-            tweets_data = []
-            for tweet in tweets.data:
-                tweet_id = f"twitter_{tweet.id}"
-                
-                # Skip if already seen
-                if tweet_id in self.seen_posts:
-                    continue
-                
-                # Mark as seen
-                self.seen_posts[tweet_id] = datetime.now().timestamp()
-                if len(self.seen_posts) > self.seen_posts_max_size:
-                    self.seen_posts.popitem(last=False)
-                
-                # Analyze sentiment
-                sentiment_score = self.analyze_sentiment_vader(tweet.text)
-                
-                tweet_data = {
-                    'id': tweet_id,
-                    'symbol': stock_symbol,
-                    'company_name': company_name,
-                    'source': 'Twitter',
-                    'platform': 'X',
-                    'content_type': 'tweet',
-                    'title': tweet.text[:100],
-                    'content': tweet.text,
-                    'url': f"https://twitter.com/user/status/{tweet.id}",
-                    'author': users.get(tweet.author_id, 'unknown'),
-                    'created_at': tweet.created_at.isoformat() if tweet.created_at else None,
-                    'timestamp': datetime.now().isoformat(),
-                    'engagement': {
-                        'likes': tweet.public_metrics['like_count'] if hasattr(tweet, 'public_metrics') else 0,
-                        'retweets': tweet.public_metrics['retweet_count'] if hasattr(tweet, 'public_metrics') else 0,
-                        'replies': tweet.public_metrics['reply_count'] if hasattr(tweet, 'public_metrics') else 0,
-                    },
-                    'sentiment': {
-                        'overall': round(sentiment_score, 4),
-                        'classification': self.classify_sentiment(sentiment_score)
-                    },
-                    'data_source': 'Twitter'
-                }
-                
-                tweets_data.append(tweet_data)
-            
-            return tweets_data if tweets_data else None
-            
-        except Exception as e:
-            raise Exception(f"Twitter API error: {e}")
-    
-    # ========== HELPER METHODS ==========
-    
-    def _check_ticker_match(self, text: str, ticker: str, company: str) -> bool:
-        """Check if ticker or company name appears in text"""
-        text_upper = text.upper()
-        return ticker.upper() in text_upper or company.upper() in text_upper
+
+
+def main():
+    """For standalone testing"""
+    producer = SentimentProducer()
+    producer.run()
+
+
+if __name__ == '__main__':
+    main()
 
 
 def main():

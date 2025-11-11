@@ -187,13 +187,16 @@ if __name__ == "__main__":
     
     if not symbol:
         print("❌ Error: No stock symbol provided")
-        print("Usage: python run.py <SYMBOL>")
+        print("Usage: python run_workflow.py <SYMBOL>")
         print("   Or: Set STOCK_SYMBOL environment variable")
-        print("Example: python run.py AAPL")
+        print("Example: python run_workflow.py AAPL")
         sys.exit(1)
     
     # Check if fallback mode is enabled
     use_fallback = os.getenv("USE_FALLBACK_DATA", "false").lower() == "true"
+    
+    # Generate trade date
+    trade_date = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
     
     print("=" * 70)
     print(f"🤖 Trading Agent for {symbol}")
