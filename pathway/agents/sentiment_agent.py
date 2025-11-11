@@ -1,6 +1,6 @@
 import os
 import pathway as pw
-from pathway.xpacks.llm.llms import OpenAIChat
+from pathway.xpacks.llm.llms import LiteLLMChat
 from datetime import datetime
 from dotenv import load_dotenv
 import json
@@ -20,9 +20,15 @@ class SentimentReportUpdater:
             print("Warning: Could not parse STOCK_COMPANY_MAP, using empty mapping")
             self.symbol_mapping = {}
 
-        self.llm = OpenAIChat(
-            model=os.getenv('OPENAI_MODEL', 'gpt-4o-mini'),
+        # Use LiteLLM with OpenRouter
+        model_name = os.getenv('OPENAI_MODEL', 'openai/gpt-4o-mini')
+        if not model_name.startswith('openrouter/') and not model_name.startswith('openai/'):
+            model_name = f'openrouter/{model_name}'
+            
+        self.llm = LiteLLMChat(
+            model=model_name,
             api_key=os.environ.get("OPENAI_API_KEY"),
+            api_base="https://openrouter.ai/api/v1",
             temperature=0.0,
             max_tokens=1500,
         )

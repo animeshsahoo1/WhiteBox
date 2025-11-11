@@ -27,10 +27,11 @@ def process_market_stream(market_table: pw.Table, reports_directory: str = "./re
     if not openai_api_key:
         raise ValueError("OPENAI_API_KEY not found in environment variables")
     
-    # Use Pathway's native OpenAI chat
-    chat = llms.OpenAIChat(
-        model="gpt-4o-mini",
+    # Use LiteLLM with OpenRouter
+    chat = llms.LiteLLMChat(
+        model="openrouter/openai/gpt-4o-mini",
         api_key=openai_api_key,
+        api_base="https://openrouter.ai/api/v1",
         temperature=0.0,
         cache_strategy=pw.udfs.DefaultCache()
     )

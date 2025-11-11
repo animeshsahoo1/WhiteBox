@@ -9,10 +9,11 @@ import pprint
 import psycopg2
 
 load_dotenv()
-chat_model = llms.OpenAIChat(
-        model="gpt-4o-mini",
+chat_model = llms.LiteLLMChat(
+        model="openrouter/openai/gpt-4o-mini",
         temperature=0.7,
         api_key=os.getenv("OPENAI_API_KEY"),
+        api_base="https://openrouter.ai/api/v1",
     )
 def create_risk_manager(llm):
     def risk_manager_node(state, name):
