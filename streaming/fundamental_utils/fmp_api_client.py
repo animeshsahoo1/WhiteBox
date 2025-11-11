@@ -36,11 +36,20 @@ class FmpApiClient:
             response.raise_for_status() # Raises HTTPError for 4xx/5xx responses
             data = response.json()
 
-            if not data or (isinstance(data, dict) and 'Error Message' in data):
-                error_msg = data.get('Error Message', f"Empty response from {endpoint}")
+            # Handle empty responses
+            if not data:
+                print(f"⚠️  API Warning ({endpoint}): Empty response")
+                return None
+            
+            # Handle dictionary responses with error messages
+            if isinstance(data, dict) and 'Error Message' in data:
+                error_msg = data.get('Error Message', f"Error from {endpoint}")
                 print(f"⚠️  API Warning ({endpoint}): {error_msg}")
                 return None
+            
+            # Valid response (can be dict or list)
             return data
+            
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 402:
                 print(f"⚠️  Plan Error ({endpoint}): Your API key plan does not permit access.")

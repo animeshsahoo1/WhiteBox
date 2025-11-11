@@ -9,10 +9,11 @@ Provides endpoints to:
 import sys
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Union
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
+import requests
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
 from pydantic import BaseModel
@@ -53,7 +54,7 @@ app = FastAPI(
 # ============================================================================
 
 class GraphReportResponse(BaseModel):
-    id: int
+    id: Union[int, str]  # Support both int (SERIAL) and str (UUID)
     graph_id: Optional[str]
     symbol: str
     report_type: str
@@ -62,7 +63,7 @@ class GraphReportResponse(BaseModel):
 
 
 class TradeSignalResponse(BaseModel):
-    id: int
+    id: Union[int, str]  # Support both int (SERIAL) and str (UUID)
     symbol: str
     signal: str
     quantity: int
@@ -91,11 +92,6 @@ class AllReportsResponse(BaseModel):
     agent_reports: List[GraphReportResponse]
     trade_signals: List[TradeSignalResponse]
     timestamp: str
-
-
-class ExecuteWorkflowRequest(BaseModel):
-    symbol: str
-    use_fallback: bool = False
 
 
 class ExecuteWorkflowResponse(BaseModel):
@@ -244,7 +240,10 @@ async def root() -> dict:
             "GET /reports/all/{symbol}": "Get all reports for a symbol",
             "GET /signals/{symbol}": "Get trade signals for a symbol",
             "GET /signals/{symbol}/latest": "Get latest trade signal",
-            "POST /execute": "Execute trading workflow for a symbol"
+            "POST /execute?symbol=AAPL": "Execute trading workflow for a symbol"
+        },
+        "examples": {
+            "execute_workflow": "POST /execute?symbol=AAPL"
         }
     }
 
@@ -262,23 +261,27 @@ async def health() -> HealthResponse:
         print(f"Database health check failed: {e}")
         pass
     
-    # Check Pathway API connection
+    # Check Pathway API connection and get symbols from it
     pathway_connected = False
+    symbols = []
     try:
         client = PathwayReportsClient(base_url=PATHWAY_API_URL)
         pathway_connected = client.health_check()
+        
+        # Get symbols from Pathway API (Redis cache)
+        if pathway_connected:
+            response = requests.get(f"{PATHWAY_API_URL}/symbols", timeout=5)
+            if response.status_code == 200:
+                symbols_data = response.json()
+                symbols = symbols_data.get("symbols", [])
     except Exception as e:
         print(f"Pathway API health check failed: {e}")
-        pass
-    
-    # Get available symbols
-    symbols = []
-    try:
+        # Fallback to database if Pathway API is down
         if db_connected:
-            symbols = get_all_symbols_from_db()
-    except Exception as e:
-        print(f"Failed to get symbols: {e}")
-        pass
+            try:
+                symbols = get_all_symbols_from_db()
+            except Exception as db_error:
+                print(f"Database symbol fetch also failed: {db_error}")
     
     # Return OK even if some services are unavailable (degraded mode)
     return HealthResponse(
@@ -292,16 +295,31 @@ async def health() -> HealthResponse:
 
 @app.get("/symbols")
 async def list_symbols() -> dict:
-    """List all symbols with available reports."""
+    """
+    List all symbols with available reports.
+    Routes directly to Pathway API to show real-time Redis cache data.
+    """
     try:
-        symbols = get_all_symbols_from_db()
-        return {
-            "symbols": symbols,
-            "count": len(symbols),
-            "timestamp": datetime.utcnow().isoformat()
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch symbols: {str(e)}")
+        # Route to Pathway API for fresh Redis data
+        response = requests.get(f"{PATHWAY_API_URL}/symbols", timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        # Fallback to database if Pathway API is unavailable
+        print(f"⚠️  Pathway API unavailable, falling back to database: {e}")
+        try:
+            symbols = get_all_symbols_from_db()
+            return {
+                "symbols": symbols,
+                "count": len(symbols),
+                "timestamp": datetime.utcnow().isoformat(),
+                "source": "database_fallback"
+            }
+        except Exception as db_error:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Both Pathway API and database unavailable. Pathway: {str(e)}, DB: {str(db_error)}"
+            )
 
 
 @app.get("/reports/input/{symbol}", response_model=InputReportsResponse)
@@ -560,7 +578,7 @@ async def get_all_reports(symbol: str) -> AllReportsResponse:
 
 
 @app.post("/execute", response_model=ExecuteWorkflowResponse)
-async def execute_workflow(request: ExecuteWorkflowRequest, background_tasks: BackgroundTasks) -> ExecuteWorkflowResponse:
+async def execute_workflow(symbol: str = Query(..., description="Stock symbol to analyze (e.g., AAPL, GOOGL)")) -> ExecuteWorkflowResponse:
     """
     Execute the trading workflow for a given symbol.
     This triggers the full multi-agent pipeline:
@@ -573,7 +591,7 @@ async def execute_workflow(request: ExecuteWorkflowRequest, background_tasks: Ba
     
     The workflow is executed asynchronously via Redis queue.
     """
-    normalized_symbol = request.symbol.upper()
+    normalized_symbol = symbol.upper()
     
     # Check if input reports are available
     try:
@@ -584,23 +602,21 @@ async def execute_workflow(request: ExecuteWorkflowRequest, background_tasks: Ba
                 detail=f"Pathway API is not available. Cannot execute workflow."
             )
         
-        # Verify reports exist (or use fallback if enabled)
-        if not request.use_fallback:
-            reports = client.get_all_reports(normalized_symbol)
-            if not reports.is_complete():
-                missing = reports.missing_reports()
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Incomplete input reports for {normalized_symbol}. Missing: {', '.join(missing)}. Set use_fallback=true to use sample data."
-                )
+        # Verify reports exist
+        reports = client.get_all_reports(normalized_symbol)
+        if not reports.is_complete():
+            missing = reports.missing_reports()
+            raise HTTPException(
+                status_code=400,
+                detail=f"Incomplete input reports for {normalized_symbol}. Missing: {', '.join(missing)}. Please wait for reports to be generated."
+            )
     except HTTPException:
         raise
     except Exception as e:
-        if not request.use_fallback:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot verify input reports for {normalized_symbol}: {str(e)}. Set use_fallback=true to use sample data."
-            )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot verify input reports for {normalized_symbol}: {str(e)}"
+        )
     
     # Enqueue the trading job
     if not QUEUE_AVAILABLE or not enqueue_trade:
@@ -610,7 +626,7 @@ async def execute_workflow(request: ExecuteWorkflowRequest, background_tasks: Ba
         )
     
     try:
-        job_id = enqueue_trade(normalized_symbol, use_fallback=request.use_fallback)
+        job_id = enqueue_trade(normalized_symbol, use_fallback=False)
         
         return ExecuteWorkflowResponse(
             status="queued",
