@@ -10,10 +10,11 @@ load_dotenv()
 
 from pathway.xpacks.llm import llms
 
-chat_model = llms.OpenAIChat(
-    model="gpt-4o-mini",
+chat_model = llms.LiteLLMChat(
+    model="openrouter/openai/gpt-4o-mini",
     temperature=0.7,
     api_key=os.getenv("OPENAI_API_KEY"),
+    api_base="https://openrouter.ai/api/v1",
 )
 
 def create_trader(llm):
