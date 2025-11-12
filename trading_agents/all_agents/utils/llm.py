@@ -4,9 +4,10 @@ import os
 
 load_dotenv()
 
-
-chat_model = llms.OpenAIChat(
-    model="gpt-4o-mini",
+# Use LiteLLM with OpenRouter for better model availability
+chat_model = llms.LiteLLMChat(
+    model="openrouter/openai/gpt-4o-mini",
     temperature=0.7,
     api_key=os.getenv("OPENAI_API_KEY"),
+    api_base="https://openrouter.ai/api/v1",
 )

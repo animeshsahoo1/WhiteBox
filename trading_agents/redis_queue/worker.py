@@ -23,9 +23,9 @@ else:
     print(f"[WORKER] Using local Redis at {REDIS_HOST}:{REDIS_PORT} DB {REDIS_DB}")
     redis_conn = Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=False)
 
-queue_list = [Queue("trade_execution", connection=redis_conn)]
+queue_list = [Queue("analysis_execution", connection=redis_conn)]
 
 if __name__ == "__main__":
-    print("[WORKER] Starting RQ worker listening for trade_execution jobs...")
+    print("[WORKER] Starting RQ worker listening for analysis_execution jobs...")
     worker = Worker(queue_list, connection=redis_conn)
     worker.work()

@@ -74,62 +74,67 @@ Fundamentals Report:
         )
         
         # System prompt for Final Manager
-        FINAL_MANAGER_SYSTEM_PROMPT = f"""You are the Final Manager responsible for synthesizing all analysis and generating the final trade signal for {symbol}.
+        FINAL_MANAGER_SYSTEM_PROMPT = f"""You are the Chief Investment Hypothesis Generator responsible for synthesizing comprehensive multi-agent analysis into a structured investment thesis for {symbol}.
 
 Your role is to:
-1. Review the Trading Agent's recommendation (BUY/HOLD/SELL)
-2. Incorporate the Risk Manager's risk assessment and position sizing guidance
-3. Consider all research reports (market, sentiment, news, fundamentals)
-4. Generate a precise, executable trade signal with specific parameters
+1. Synthesize the Investment Analyst's perspective (bullish/bearish/neutral positioning)
+2. Integrate Risk Assessment findings and scenario analysis
+3. Incorporate all research dimensions (market, sentiment, news, fundamentals)
+4. Generate a professional investment hypothesis with clear rationale
 
-Current Portfolio Context:
-- Symbol: {symbol}
-- Current Position Size: {current_position_size}
-- Account Balance: ${account_balance}
+Analysis Context:
+- Company: {symbol}
+- Analysis Framework: Multi-agent consensus-based
+- Reference Scenario Capital: ${account_balance}
 
-You MUST output your decision in this EXACT JSON format:
+You MUST output your hypothesis in this EXACT JSON format:
 {{
   "symbol": "{symbol}",
-  "signal": "buy" or "sell" or "hold",
-  "quantity": <integer - number of units to trade>,
-  "profit_target": <float - target price>,
-  "stop_loss": <float - stop loss price>,
-  "invalidation_condition": "<string - condition that invalidates the trade>",
-  "leverage": <integer between 5-40>,
-  "confidence": <float between 0-1>,
-  "risk_usd": <float - dollar amount at risk>
+  "investment_thesis": "<2-3 sentence summary of the core investment hypothesis>",
+  "outlook": "bullish" or "bearish" or "neutral",
+  "time_horizon": "<short-term/medium-term/long-term>",
+  "key_catalysts": ["<catalyst 1>", "<catalyst 2>", "<catalyst 3>"],
+  "primary_risks": ["<risk 1>", "<risk 2>", "<risk 3>"],
+  "price_targets": {{
+    "bull_case": <float - optimistic price target>,
+    "base_case": <float - most likely price target>,
+    "bear_case": <float - pessimistic price target>
+  }},
+  "conviction_level": "<high/medium/low>",
+  "confidence_score": <float between 0-1>,
+  "recommended_allocation": "<percentage or descriptor like 'overweight', 'underweight', 'neutral'>",
+  "invalidation_triggers": ["<trigger 1>", "<trigger 2>"],
+  "analysis_summary": "<3-4 sentence summary explaining the rationale>"
 }}
 
-Signal Guidelines:
-- "buy": Initiate new long position or add to existing
-- "sell": Exit position or initiate short
-- "hold": Maintain current position, no changes
+Guidelines for Hypothesis Generation:
 
-Quantity Calculation:
-- For BUY: Calculate based on risk_usd, account balance, and risk manager's guidance
-- For SELL: Use full current position size to close position
-- For HOLD: Use current position size
+**Investment Thesis**: Concise statement of why this is a compelling opportunity or risk
+**Outlook**: 
+- "bullish": Positive momentum, growth catalysts, favorable risk/reward
+- "bearish": Headwinds, valuation concerns, deteriorating fundamentals
+- "neutral": Mixed signals, wait-and-see approach, range-bound expectations
 
-Risk Parameters:
-- Leverage should be 5-40 based on conviction and volatility
-- Confidence should reflect the strength of all analyses (0.0-1.0)
-- risk_usd should align with risk manager's recommendations (typically 1-3% of account)
-- profit_target and stop_loss must be realistic based on technical and fundamental analysis
+**Time Horizon**: Based on catalyst timing and market conditions
+**Key Catalysts**: Specific events or trends that could drive price movement
+**Primary Risks**: Main concerns that could undermine the hypothesis
+**Price Targets**: Realistic price scenarios based on valuation and technical analysis
+**Conviction Level**: How strong is the evidence supporting this hypothesis
+**Confidence Score**: Statistical measure of prediction reliability (0.0-1.0)
+**Recommended Allocation**: Portfolio positioning guidance
+**Invalidation Triggers**: Specific events that would require reassessing the hypothesis
+**Analysis Summary**: Clear explanation of the reasoning and key factors
 
-Invalidation Condition:
-- Describe the specific event or price level that would invalidate this trade
-- Examples: "Break below $150 support", "Negative earnings surprise", "Regulatory decision against company"
-
-Return ONLY the JSON object, nothing else."""
+Return ONLY the JSON object, nothing else. Make it sound like professional investment research, not trading signals."""
 
         # Construct the final manager prompt
         final_manager_prompt = [
             {"role": "system", "content": FINAL_MANAGER_SYSTEM_PROMPT},
-            {"role": "user", "content": f"""Analyze all reports and generate the final trade signal:
+            {"role": "user", "content": f"""Analyze all reports and generate the comprehensive investment hypothesis:
 
 {all_reports}
 
-Generate the trade signal JSON now."""}
+Generate the hypothesis JSON now."""}
         ]
         
         # Create a Pathway table from the prompt for processing
@@ -155,32 +160,46 @@ Generate the trade signal JSON now."""}
                 json_match = re.search(r'\{.*\}', manager_reply, re.DOTALL)
                 json_str = json_match.group(0) if json_match else manager_reply
             
-            trade_signal_args = json.loads(json_str)
+            hypothesis_data = json.loads(json_str)
             
             # Ensure all required fields are present with defaults
-            trade_signal_args.setdefault("symbol", symbol)
-            trade_signal_args.setdefault("signal", "hold")
-            trade_signal_args.setdefault("quantity", current_position_size)
-            trade_signal_args.setdefault("profit_target", 0.0)
-            trade_signal_args.setdefault("stop_loss", 0.0)
-            trade_signal_args.setdefault("invalidation_condition", "No specific condition")
-            trade_signal_args.setdefault("leverage", 10)
-            trade_signal_args.setdefault("confidence", 0.5)
-            trade_signal_args.setdefault("risk_usd", account_balance * 0.02)
+            hypothesis_data.setdefault("symbol", symbol)
+            hypothesis_data.setdefault("investment_thesis", "Analysis pending")
+            hypothesis_data.setdefault("outlook", "neutral")
+            hypothesis_data.setdefault("time_horizon", "medium-term")
+            hypothesis_data.setdefault("key_catalysts", [])
+            hypothesis_data.setdefault("primary_risks", [])
+            hypothesis_data.setdefault("price_targets", {
+                "bull_case": 0.0,
+                "base_case": 0.0,
+                "bear_case": 0.0
+            })
+            hypothesis_data.setdefault("conviction_level", "medium")
+            hypothesis_data.setdefault("confidence_score", 0.5)
+            hypothesis_data.setdefault("recommended_allocation", "neutral")
+            hypothesis_data.setdefault("invalidation_triggers", [])
+            hypothesis_data.setdefault("analysis_summary", "")
             
         except (json.JSONDecodeError, AttributeError) as e:
             # Fallback to safe default values if JSON parsing fails
-            print(f"Warning: Failed to parse trade signal JSON: {e}")
-            trade_signal_args = {
+            print(f"Warning: Failed to parse hypothesis JSON: {e}")
+            hypothesis_data = {
                 "symbol": symbol,
-                "signal": "hold",
-                "quantity": current_position_size,
-                "profit_target": 0.0,
-                "stop_loss": 0.0,
-                "invalidation_condition": "Parsing error - hold position",
-                "leverage": 10,
-                "confidence": 0.0,
-                "risk_usd": 0.0
+                "investment_thesis": "Error in analysis generation",
+                "outlook": "neutral",
+                "time_horizon": "medium-term",
+                "key_catalysts": [],
+                "primary_risks": ["Analysis error"],
+                "price_targets": {
+                    "bull_case": 0.0,
+                    "base_case": 0.0,
+                    "bear_case": 0.0
+                },
+                "conviction_level": "low",
+                "confidence_score": 0.0,
+                "recommended_allocation": "underweight",
+                "invalidation_triggers": ["Parsing error"],
+                "analysis_summary": f"Error parsing analysis: {str(e)}"
             }
 
         # === Write results out ===
@@ -189,11 +208,11 @@ Generate the trade signal JSON now."""}
         # Create the final output structure
         final_output = {
             symbol: {
-                "trade_signal_args": trade_signal_args
+                "hypothesis": hypothesis_data
             }
         }
         
-        full_report = f"""Final Manager Trade Signal
+        full_report = f"""Hypothesis Generator - Investment Analysis
 Generated: {timestamp}
 Symbol: {symbol}
 
@@ -207,24 +226,17 @@ Symbol: {symbol}
             conn = psycopg2.connect(DATABASE_URL, sslmode="require")
             cur = conn.cursor()
             
+            # Store the full hypothesis as JSONB for flexibility
             insert_query = """
-            INSERT INTO trade_signals (
-            symbol, signal, quantity, profit_target, stop_loss, invalidation_condition,
-            leverage, confidence, risk_usd, timestamp
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW() AT TIME ZONE 'UTC')
+            INSERT INTO hypothesis_generation (
+            symbol, hypothesis_data, timestamp
+            ) VALUES (%s, %s, NOW() AT TIME ZONE 'UTC')
             RETURNING id;
             """
             
             cur.execute(insert_query, (
-                trade_signal_args["symbol"],
-                trade_signal_args["signal"],
-                trade_signal_args["quantity"],
-                trade_signal_args["profit_target"],
-                trade_signal_args["stop_loss"],
-                trade_signal_args["invalidation_condition"],
-                trade_signal_args["leverage"],
-                trade_signal_args["confidence"],
-                trade_signal_args["risk_usd"],
+                hypothesis_data["symbol"],
+                json.dumps(hypothesis_data),  # Store full JSON
             ))
             
             conn.commit()
@@ -242,8 +254,8 @@ Symbol: {symbol}
             "final_report": full_report,
             "sender": name,
             "symbol": symbol,
-            "trade_signal": final_output,
-            "trade_signal_args": trade_signal_args
+            "hypothesis": final_output,
+            "hypothesis_data": hypothesis_data
         }
     
     return functools.partial(final_manager_node, name="Final Manager")

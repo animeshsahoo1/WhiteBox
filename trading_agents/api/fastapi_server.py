@@ -1,9 +1,9 @@
 """
-FastAPI server for Trading Agents system.
+FastAPI server for Hypothesis Generation system.
 Provides endpoints to:
-1. Retrieve agent reports (bull, bear, trader, risk manager) from PostgreSQL
-2. Retrieve trade signals
-3. Trigger trading workflow for a given symbol
+1. Retrieve analysis reports (bull/bear debate, analyst, risk assessment) from PostgreSQL
+2. Retrieve hypothesis generation results
+3. Trigger analysis workflow for a given symbol
 4. Health checks and status monitoring
 """
 import sys
@@ -24,14 +24,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.reports_client import PathwayReportsClient, StockReports
 
-# Import enqueue_trade - this will be None if Redis connection fails, handled gracefully
+# Import enqueue_analysis - this will be None if Redis connection fails, handled gracefully
 try:
-    from redis_queue.task_queue import enqueue_trade
+    from redis_queue.task_queue import enqueue_analysis
     QUEUE_AVAILABLE = True
 except Exception as e:
     print(f"WARNING: Redis queue not available: {e}")
     QUEUE_AVAILABLE = False
-    enqueue_trade = None
+    enqueue_analysis = None
 
 load_dotenv()
 
@@ -43,9 +43,9 @@ if not DATABASE_URL:
     print("WARNING: DATABASE_URL not set. Database features will be unavailable.")
 
 app = FastAPI(
-    title="Trading Agents API",
+    title="Hypothesis Generation API",
     version="1.0.0",
-    description="API for multi-agent trading system - retrieve reports, signals, and trigger workflows",
+    description="API for multi-agent hypothesis generation system - retrieve analysis reports and generate investment hypotheses",
 )
 
 
@@ -62,17 +62,10 @@ class GraphReportResponse(BaseModel):
     report_body: str
 
 
-class TradeSignalResponse(BaseModel):
+class HypothesisResponse(BaseModel):
     id: Union[int, str]  # Support both int (SERIAL) and str (UUID)
     symbol: str
-    signal: str
-    quantity: int
-    profit_target: float
-    stop_loss: float
-    invalidation_condition: str
-    leverage: int
-    confidence: float
-    risk_usd: float
+    hypothesis_data: dict  # Full hypothesis JSON
     timestamp: str
 
 
@@ -90,11 +83,11 @@ class AllReportsResponse(BaseModel):
     symbol: str
     input_reports: InputReportsResponse
     agent_reports: List[GraphReportResponse]
-    trade_signals: List[TradeSignalResponse]
+    hypotheses: List[HypothesisResponse]
     timestamp: str
 
 
-class ExecuteWorkflowResponse(BaseModel):
+class AnalyzeWorkflowResponse(BaseModel):
     status: str
     symbol: str
     job_id: Optional[str]
@@ -160,16 +153,15 @@ def get_graph_reports_by_symbol(symbol: str, report_type: Optional[str] = None) 
         conn.close()
 
 
-def get_trade_signals_by_symbol(symbol: str, limit: int = 10) -> List[Dict]:
-    """Fetch trade signals from database by symbol."""
+def get_hypotheses_by_symbol(symbol: str, limit: int = 10) -> List[Dict]:
+    """Fetch hypothesis generation results from database by symbol."""
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
                 """
-                SELECT id, symbol, signal, quantity, profit_target, stop_loss, 
-                       invalidation_condition, leverage, confidence, risk_usd, timestamp
-                FROM trade_signals
+                SELECT id, symbol, hypothesis_data, timestamp
+                FROM hypothesis_generation
                 WHERE symbol = %s
                 ORDER BY timestamp DESC
                 LIMIT %s
@@ -191,7 +183,7 @@ def get_all_symbols_from_db() -> List[str]:
             cur.execute("""
                 SELECT DISTINCT symbol FROM graph_reports
                 UNION
-                SELECT DISTINCT symbol FROM trade_signals
+                SELECT DISTINCT symbol FROM hypothesis_generation
                 ORDER BY symbol
             """)
             results = cur.fetchall()
@@ -228,22 +220,24 @@ def get_input_reports_from_pathway(symbol: str) -> StockReports:
 async def root() -> dict:
     """Root endpoint with API information."""
     return {
-        "message": "Trading Agents API",
+        "message": "Hypothesis Generation API",
         "version": "1.0.0",
-        "description": "Multi-agent trading system with bull/bear debate, risk analysis, and signal generation",
+        "description": "Multi-agent hypothesis generation system with bull/bear debate and risk analysis",
         "endpoints": {
             "GET /health": "Health check and system status",
             "GET /symbols": "List all available symbols",
             "GET /reports/input/{symbol}": "Get input reports (fundamental, market, news, sentiment)",
-            "GET /reports/agent/{symbol}": "Get agent reports (bull, bear, trader, risk)",
-            "GET /reports/agent/{symbol}/{report_type}": "Get specific agent report type",
-            "GET /reports/all/{symbol}": "Get all reports for a symbol",
-            "GET /signals/{symbol}": "Get trade signals for a symbol",
-            "GET /signals/{symbol}/latest": "Get latest trade signal",
-            "POST /execute?symbol=AAPL": "Execute trading workflow for a symbol"
+            "GET /reports/agent/{symbol}": "Get analysis reports (analyst, risk assessment)",
+            "GET /reports/agent/{symbol}/{report_type}": "Get specific analysis report type",
+            "GET /reports/latest/{symbol}": "Get latest reports for each category",
+            "GET /hypothesis/{symbol}": "Get all hypothesis generation results for a symbol",
+            "GET /hypothesis/{symbol}/latest": "Get latest hypothesis for a symbol",
+            "POST /analyze?symbol=AAPL": "Trigger analysis workflow for a symbol"
         },
         "examples": {
-            "execute_workflow": "POST /execute?symbol=AAPL"
+            "analyze_stock": "POST /analyze?symbol=AAPL",
+            "get_hypothesis": "GET /hypothesis/AAPL",
+            "get_latest_reports": "GET /reports/latest/AAPL"
         }
     }
 
@@ -433,38 +427,31 @@ async def get_specific_agent_report(
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
-@app.get("/signals/{symbol}", response_model=List[TradeSignalResponse])
-async def get_trade_signals(
+@app.get("/hypothesis/{symbol}", response_model=List[HypothesisResponse])
+async def get_hypotheses(
     symbol: str,
     limit: int = Query(default=10, ge=1, le=50)
-) -> List[TradeSignalResponse]:
-    """Get trade signals for a symbol (most recent first)."""
+) -> List[HypothesisResponse]:
+    """Get hypothesis generation results for a symbol (most recent first)."""
     normalized_symbol = symbol.upper()
     
     try:
-        signals = get_trade_signals_by_symbol(normalized_symbol, limit)
+        hypotheses = get_hypotheses_by_symbol(normalized_symbol, limit)
         
-        if not signals:
+        if not hypotheses:
             raise HTTPException(
                 status_code=404,
-                detail=f"No trade signals found for {normalized_symbol}"
+                detail=f"No hypothesis results found for {normalized_symbol}"
             )
         
         return [
-            TradeSignalResponse(
-                id=s['id'],
-                symbol=s['symbol'],
-                signal=s['signal'],
-                quantity=s['quantity'],
-                profit_target=float(s['profit_target']),
-                stop_loss=float(s['stop_loss']),
-                invalidation_condition=s['invalidation_condition'],
-                leverage=s['leverage'],
-                confidence=float(s['confidence']),
-                risk_usd=float(s['risk_usd']),
-                timestamp=s['timestamp'].isoformat() if hasattr(s['timestamp'], 'isoformat') else str(s['timestamp'])
+            HypothesisResponse(
+                id=h['id'],
+                symbol=h['symbol'],
+                hypothesis_data=h['hypothesis_data'],
+                timestamp=h['timestamp'].isoformat() if hasattr(h['timestamp'], 'isoformat') else str(h['timestamp'])
             )
-            for s in signals
+            for h in hypotheses
         ]
     except HTTPException:
         raise
@@ -472,33 +459,26 @@ async def get_trade_signals(
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
-@app.get("/signals/{symbol}/latest", response_model=TradeSignalResponse)
-async def get_latest_trade_signal(symbol: str) -> TradeSignalResponse:
-    """Get the most recent trade signal for a symbol."""
+@app.get("/hypothesis/{symbol}/latest", response_model=HypothesisResponse)
+async def get_latest_hypothesis(symbol: str) -> HypothesisResponse:
+    """Get the most recent hypothesis for a symbol."""
     normalized_symbol = symbol.upper()
     
     try:
-        signals = get_trade_signals_by_symbol(normalized_symbol, limit=1)
+        hypotheses = get_hypotheses_by_symbol(normalized_symbol, limit=1)
         
-        if not signals:
+        if not hypotheses:
             raise HTTPException(
                 status_code=404,
-                detail=f"No trade signals found for {normalized_symbol}"
+                detail=f"No hypothesis results found for {normalized_symbol}"
             )
         
-        s = signals[0]
-        return TradeSignalResponse(
-            id=s['id'],
-            symbol=s['symbol'],
-            signal=s['signal'],
-            quantity=s['quantity'],
-            profit_target=float(s['profit_target']),
-            stop_loss=float(s['stop_loss']),
-            invalidation_condition=s['invalidation_condition'],
-            leverage=s['leverage'],
-            confidence=float(s['confidence']),
-            risk_usd=float(s['risk_usd']),
-            timestamp=s['timestamp'].isoformat() if hasattr(s['timestamp'], 'isoformat') else str(s['timestamp'])
+        h = hypotheses[0]
+        return HypothesisResponse(
+            id=h['id'],
+            symbol=h['symbol'],
+            hypothesis_data=h['hypothesis_data'],
+            timestamp=h['timestamp'].isoformat() if hasattr(h['timestamp'], 'isoformat') else str(h['timestamp'])
         )
     except HTTPException:
         raise
@@ -506,13 +486,64 @@ async def get_latest_trade_signal(symbol: str) -> TradeSignalResponse:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
+@app.get("/reports/latest/{symbol}")
+async def get_latest_reports(symbol: str) -> dict:
+    """
+    Get the latest report for each category:
+    - Bull/Bear debate (from investment_debate_state in graph execution)
+    - Analyst report (trader)
+    - Risk assessment reports (risk_manager)
+    """
+    normalized_symbol = symbol.upper()
+    
+    try:
+        # Fetch agent reports from database
+        agent_reports_data = get_graph_reports_by_symbol(normalized_symbol)
+        
+        if not agent_reports_data:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No reports found for {normalized_symbol}"
+            )
+        
+        # Group by report_type and get the latest for each
+        latest_reports = {}
+        for report in agent_reports_data:
+            report_type = report['report_type']
+            if report_type not in latest_reports:
+                latest_reports[report_type] = report
+        
+        # Format the response
+        formatted_reports = {}
+        for report_type, report in latest_reports.items():
+            formatted_reports[report_type] = {
+                "id": report['id'],
+                "timestamp": report['timestamp'].isoformat() if hasattr(report['timestamp'], 'isoformat') else str(report['timestamp']),
+                "report_body": report['report_body']
+            }
+        
+        return {
+            "symbol": normalized_symbol,
+            "latest_reports": formatted_reports,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch latest reports for {normalized_symbol}: {str(e)}"
+        )
+
+
 @app.get("/reports/all/{symbol}", response_model=AllReportsResponse)
 async def get_all_reports(symbol: str) -> AllReportsResponse:
     """
     Get ALL reports for a symbol:
     - Input reports (fundamental, market, news, sentiment)
-    - Agent reports (bull, bear, trader, risk)
-    - Trade signals
+    - Analysis reports (analyst, risk assessment)
+    - Hypothesis generation results
     """
     normalized_symbol = symbol.upper()
     
@@ -543,30 +574,23 @@ async def get_all_reports(symbol: str) -> AllReportsResponse:
             for r in agent_reports_data
         ]
         
-        # Fetch trade signals from database
-        signals_data = get_trade_signals_by_symbol(normalized_symbol, limit=10)
-        trade_signals = [
-            TradeSignalResponse(
-                id=s['id'],
-                symbol=s['symbol'],
-                signal=s['signal'],
-                quantity=s['quantity'],
-                profit_target=float(s['profit_target']),
-                stop_loss=float(s['stop_loss']),
-                invalidation_condition=s['invalidation_condition'],
-                leverage=s['leverage'],
-                confidence=float(s['confidence']),
-                risk_usd=float(s['risk_usd']),
-                timestamp=s['timestamp'].isoformat() if hasattr(s['timestamp'], 'isoformat') else str(s['timestamp'])
+        # Fetch hypotheses from database
+        hypotheses_data = get_hypotheses_by_symbol(normalized_symbol, limit=10)
+        hypotheses = [
+            HypothesisResponse(
+                id=h['id'],
+                symbol=h['symbol'],
+                hypothesis_data=h['hypothesis_data'],
+                timestamp=h['timestamp'].isoformat() if hasattr(h['timestamp'], 'isoformat') else str(h['timestamp'])
             )
-            for s in signals_data
+            for h in hypotheses_data
         ]
         
         return AllReportsResponse(
             symbol=normalized_symbol,
             input_reports=input_reports_response,
             agent_reports=agent_reports,
-            trade_signals=trade_signals,
+            hypotheses=hypotheses,
             timestamp=datetime.utcnow().isoformat()
         )
         
@@ -577,17 +601,17 @@ async def get_all_reports(symbol: str) -> AllReportsResponse:
         )
 
 
-@app.post("/execute", response_model=ExecuteWorkflowResponse)
-async def execute_workflow(symbol: str = Query(..., description="Stock symbol to analyze (e.g., AAPL, GOOGL)")) -> ExecuteWorkflowResponse:
+@app.post("/analyze", response_model=AnalyzeWorkflowResponse)
+async def analyze_stock(symbol: str = Query(..., description="Stock symbol to analyze (e.g., AAPL, GOOGL)")) -> AnalyzeWorkflowResponse:
     """
-    Execute the trading workflow for a given symbol.
-    This triggers the full multi-agent pipeline:
+    Trigger the analysis workflow for a given symbol.
+    This initiates the full multi-agent hypothesis generation pipeline:
     1. Fetches input reports from Pathway API
-    2. Bull-Bear debate
-    3. Trader synthesis
-    4. Risk analysis (risky, neutral, safe)
-    5. Risk manager decision
-    6. Final trade signal generation
+    2. Bull-Bear debate analysis
+    3. Investment analyst synthesis
+    4. Risk assessment (risky, neutral, conservative perspectives)
+    5. Risk manager evaluation
+    6. Final hypothesis generation
     
     The workflow is executed asynchronously via Redis queue.
     """
@@ -599,7 +623,7 @@ async def execute_workflow(symbol: str = Query(..., description="Stock symbol to
         if not client.health_check():
             raise HTTPException(
                 status_code=503,
-                detail=f"Pathway API is not available. Cannot execute workflow."
+                detail=f"Pathway API is not available. Cannot execute analysis workflow."
             )
         
         # Verify reports exist
@@ -618,34 +642,34 @@ async def execute_workflow(symbol: str = Query(..., description="Stock symbol to
             detail=f"Cannot verify input reports for {normalized_symbol}: {str(e)}"
         )
     
-    # Enqueue the trading job
-    if not QUEUE_AVAILABLE or not enqueue_trade:
+    # Enqueue the analysis job
+    if not QUEUE_AVAILABLE or not enqueue_analysis:
         raise HTTPException(
             status_code=503,
             detail="Redis queue is not available. Check REDIS_URL in .env"
         )
     
     try:
-        job_id = enqueue_trade(normalized_symbol, use_fallback=False)
+        job_id = enqueue_analysis(normalized_symbol, use_fallback=False)
         
-        return ExecuteWorkflowResponse(
+        return AnalyzeWorkflowResponse(
             status="queued",
             symbol=normalized_symbol,
             job_id=job_id,
-            message=f"Trading workflow queued for {normalized_symbol}. Job ID: {job_id}",
+            message=f"Analysis workflow queued for {normalized_symbol}. Job ID: {job_id}",
             timestamp=datetime.utcnow().isoformat()
         )
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to enqueue workflow: {str(e)}"
+            detail=f"Failed to enqueue analysis workflow: {str(e)}"
         )
 
 
 if __name__ == "__main__":
     import uvicorn
     
-    print("🚀 Starting Trading Agents API server")
+    print("🚀 Starting Hypothesis Generation API server")
     print(f"📡 Pathway API URL: {PATHWAY_API_URL}")
     print(f"💾 Database: {DATABASE_URL[:30]}...")
     uvicorn.run(app, host="0.0.0.0", port=8001)
