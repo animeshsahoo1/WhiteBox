@@ -128,13 +128,13 @@ def fetch_reports_from_pathway(symbol: str, use_fallback: bool = False) -> dict:
 
 #only run this while testing this fileisrun through queue system in queue/task_queue.py there you will have to enqueue jobs
 #and the worker must be running to pick up those jobs
-def execute_trading_workflow(company_name: str, trade_date: str, use_fallback: bool = False):
+def execute_analysis_workflow(company_name: str, analysis_date: str, use_fallback: bool = False):
     """
-    Run the trading graph for a given company and date.
+    Run the analysis graph for a given company and date.
     
     Args:
         company_name: Stock ticker symbol (e.g., AAPL, GOOGL)
-        trade_date: Trading date string
+        analysis_date: Analysis date string
         use_fallback: If True, use sample data as fallback when reports unavailable
     """
     
@@ -149,14 +149,14 @@ def execute_trading_workflow(company_name: str, trade_date: str, use_fallback: b
     
     # --- MONGODB CHECKPOINTER ---
     DB_URI = os.getenv("MONGODB_URI")
-    config = {"configurable": {"thread_id": f"{company_name}_{trade_date}"}}
+    config = {"configurable": {"thread_id": f"{company_name}_{analysis_date}"}}
     
     with MongoDBSaver.from_conn_string(DB_URI) as mongo_checkpointer:
         graph = create_trading_graph(mongo_checkpointer)
         
         # --- initial state ---
         prop = Propagator()
-        state = prop.create_initial_state(company_name, trade_date)
+        state = prop.create_initial_state(company_name, analysis_date)
         
         # Inject reports from Pathway API
         state["market_report"] = reports["market_report"]
@@ -164,16 +164,16 @@ def execute_trading_workflow(company_name: str, trade_date: str, use_fallback: b
         state["news_report"] = reports["news_report"]
         state["fundamentals_report"] = reports["fundamentals_report"]
         
-        print("\n🚀 Starting trading graph execution...")
+        print("\n🚀 Starting analysis workflow execution...")
         
         # --- run graph ---
         final_state = graph.invoke(state, config)
         
-        print("\n\n================ FINAL REPORT ================\n")
+        print("\n\n================ FINAL HYPOTHESIS REPORT ================\n")
         print(final_state.get("final_report", ""))
         
-        print("\n\n================ FINAL TRADE SIGNAL ================\n")
-        print(final_state.get("trade_signal", {}))
+        print("\n\n================ HYPOTHESIS GENERATION ================\n")
+        print(final_state.get("hypothesis", {}))
         
         return final_state
 
@@ -195,13 +195,13 @@ if __name__ == "__main__":
     # Check if fallback mode is enabled
     use_fallback = os.getenv("USE_FALLBACK_DATA", "false").lower() == "true"
     
-    # Generate trade date
-    trade_date = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
+    # Generate analysis date
+    analysis_date = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
     
     print("=" * 70)
-    print(f"🤖 Trading Agent for {symbol}")
-    print(f"📅 Trade Date: {trade_date}")
+    print(f"🤖 Analysis Agent for {symbol}")
+    print(f"📅 Analysis Date: {analysis_date}")
     print(f"🔄 Fallback Mode: {'Enabled' if use_fallback else 'Disabled'}")
     print("=" * 70)
     
-    execute_trading_workflow(symbol, trade_date, use_fallback=use_fallback)
+    execute_analysis_workflow(symbol, analysis_date, use_fallback=use_fallback)

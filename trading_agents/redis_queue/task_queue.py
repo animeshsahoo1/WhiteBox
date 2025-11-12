@@ -21,13 +21,13 @@ else:
     print(f"[QUEUE] Using local Redis at {REDIS_HOST}:{REDIS_PORT} DB {REDIS_DB}")
     redis_conn = Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=False)
 
-q = Queue("trade_execution", connection=redis_conn)
+q = Queue("analysis_execution", connection=redis_conn)
 
 
-def enqueue_trade(symbol: str, use_fallback: bool = False):
+def enqueue_analysis(symbol: str, use_fallback: bool = False):
     """
-    Enqueue job with retry logic.
-    execute_trading_workflow will be executed inside worker.
+    Enqueue analysis job with retry logic.
+    execute_analysis_workflow will be executed inside worker.
     
     Args:
         symbol: Stock ticker symbol
@@ -37,14 +37,14 @@ def enqueue_trade(symbol: str, use_fallback: bool = False):
         job_id: The RQ job ID
     """
 
-    trade_date = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
+    analysis_date = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
 
     # Use string path instead of importing the function
     # This prevents loading the entire workflow module at import time
     job = q.enqueue(
-        "run_workflow.execute_trading_workflow",
+        "run_workflow.execute_analysis_workflow",
         symbol,
-        trade_date,
+        analysis_date,
         use_fallback,
         retry=Retry(max=3),   # automatic retry 3 times
         failure_ttl=86400     # keep failed for 24h
