@@ -1,6 +1,6 @@
 """
 Enhanced Market Data Producer with multi-source fallback
-Sources: Finnhub, Alpha Vantage, Yahoo Finance, CoinCap (for crypto), FMP
+Sources: Finnhub, Alpha Vantage, FMP
 """
 import os
 import requests
