@@ -1,7 +1,6 @@
 """
 Enhanced News Producer with multi-source fallback support
 Sources: NewsAPI, Financial Modeling Prep, Alpha Vantage, Web Scraping
-NOTE: Twitter and Reddit moved to SentimentProducer
 """
 import os
 import json
@@ -9,7 +8,7 @@ import requests
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 from dotenv import load_dotenv
-from producers.base_producer import BaseProducer
+from producers.base_producer import BasePrdocoducer
 from bs4 import BeautifulSoup
 
 load_dotenv()
