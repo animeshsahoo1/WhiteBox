@@ -1,11 +1,36 @@
+version: "3.9"
+
 networks:
   stock-network:
     driver: bridge
 
 services:
-  # Kafka Infrastructure
+  # ============================================
+  # REDIS CACHE FOR INTERNAL PATHWAY API
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    networks:
+      - stock-network
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ============================================
+  # KAFKA INFRASTRUCTURE
+  # ============================================
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
     networks:
       - stock-network
     environment:
@@ -13,13 +38,20 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
     ports:
       - "2181:2181"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   kafka:
     image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
     networks:
       - stock-network
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy
     ports:
       - "9092:9092"
     environment:
@@ -29,34 +61,288 @@ services:
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
-  # Data Producers (Streaming)
-  stock-producer:
+  # ============================================
+  # STREAMING PRODUCERS
+  # ============================================
+  market-producer:
     build:
       context: ./streaming
       dockerfile: Dockerfile
+    container_name: market-producer
+    command: ["python", "producers/market_data_producer.py"]
     networks:
       - stock-network
-    depends_on:
-      - kafka
     environment:
       KAFKA_BROKER: kafka:29092
-    volumes:
-      - ./streaming:/app
+    env_file:
+      - ./streaming/.env
     restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
 
-  # Pathway Processor (Consumer)
-  pathway-processor:
+  news-producer:
+    build:
+      context: ./streaming
+      dockerfile: Dockerfile
+    container_name: news-producer
+    command: ["python", "producers/news_producer.py"]
+    networks:
+      - stock-network
+    environment:
+      KAFKA_BROKER: kafka:29092
+    env_file:
+      - ./streaming/.env
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  sentiment-producer:
+    build:
+      context: ./streaming
+      dockerfile: Dockerfile
+    container_name: sentiment-producer
+    command: ["python", "producers/sentiment_producer.py"]
+    networks:
+      - stock-network
+    environment:
+      KAFKA_BROKER: kafka:29092
+    env_file:
+      - ./streaming/.env
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  fundamental-producer:
+    build:
+      context: ./streaming
+      dockerfile: Dockerfile
+    container_name: fundamental-producer
+    command: ["python", "producers/fundamental_data_producer.py"]
+    networks:
+      - stock-network
+    environment:
+      KAFKA_BROKER: kafka:29092
+    env_file:
+      - ./streaming/.env
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # ============================================
+  # PATHWAY CONSUMERS
+  # ============================================
+  reports-api:
     build:
       context: ./pathway
       dockerfile: Dockerfile
+    container_name: pathway-reports-api
+    command: uvicorn api.fastapi_server:app --host 0.0.0.0 --port 8000
+    networks:
+      - stock-network
+    env_file:
+      - ./pathway/.env
+    environment:
+      PYTHONUNBUFFERED: 1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./pathway/reports:/app/reports
+      - ./pathway/api:/app/api
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  fundamental-consumer:
+    build:
+      context: ./pathway
+      dockerfile: Dockerfile
+    container_name: fundamental-consumer
+    command: python main_fundamental.py
+    networks:
+      - stock-network
+    env_file:
+      - ./pathway/.env
+    environment:
+      KAFKA_BROKER: kafka:29092
+      PYTHONUNBUFFERED: 1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+    volumes:
+      - ./pathway/reports:/app/reports
+      - ./pathway:/app
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      reports-api:
+        condition: service_healthy
+      fundamental-producer:
+        condition: service_started
+
+  market-consumer:
+    build:
+      context: ./pathway
+      dockerfile: Dockerfile
+    container_name: market-consumer
+    command: python main_market.py
+    networks:
+      - stock-network
+    env_file:
+      - ./pathway/.env
+    environment:
+      KAFKA_BROKER: kafka:29092
+      PYTHONUNBUFFERED: 1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+    volumes:
+      - ./pathway/reports:/app/reports
+      - ./pathway:/app
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      reports-api:
+        condition: service_healthy
+      market-producer:
+        condition: service_started
+
+  news-consumer:
+    build:
+      context: ./pathway
+      dockerfile: Dockerfile
+    container_name: news-consumer
     command: python main_news.py
     networks:
       - stock-network
-    depends_on:
-      - kafka
+    env_file:
+      - ./pathway/.env
     environment:
       KAFKA_BROKER: kafka:29092
+      PYTHONUNBUFFERED: 1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
     volumes:
+      - ./pathway/reports:/app/reports
       - ./pathway:/app
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      reports-api:
+        condition: service_healthy
+      news-producer:
+        condition: service_started
+
+  sentiment-consumer:
+    build:
+      context: ./pathway
+      dockerfile: Dockerfile
+    container_name: sentiment-consumer
+    command: python main_sentiment.py
+    networks:
+      - stock-network
+    env_file:
+      - ./pathway/.env
+    environment:
+      KAFKA_BROKER: kafka:29092
+      PYTHONUNBUFFERED: 1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+    volumes:
+      - ./pathway/reports:/app/reports
+      - ./pathway:/app
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      reports-api:
+        condition: service_healthy
+      sentiment-producer:
+        condition: service_started
+
+  # ============================================
+  # TRADING AGENTS API & WORKER
+  # ============================================
+  trading-agents-api:
+    build:
+      context: ./trading_agents
+      dockerfile: Dockerfile
+    container_name: trading-agents-api
+    command: uvicorn api.fastapi_server:app --host 0.0.0.0 --port 8001
+    networks:
+      - stock-network
+    env_file:
+      - ./trading_agents/.env
+    environment:
+      PYTHONUNBUFFERED: 1
+      PATHWAY_API_URL: http://pathway-reports-api:8000
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 1
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./trading_agents:/app
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      reports-api:
+        condition: service_healthy
+
+  trading-agents-worker:
+    build:
+      context: ./trading_agents
+      dockerfile: Dockerfile
+    container_name: trading-agents-worker
+    command: python redis_queue/worker.py
+    networks:
+      - stock-network
+    env_file:
+      - ./trading_agents/.env
+    environment:
+      PYTHONUNBUFFERED: 1
+      PATHWAY_API_URL: http://pathway-reports-api:8000
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 1
+    volumes:
+      - ./trading_agents:/app
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      reports-api:
+        condition: service_healthy
+      trading-agents-api:
+        condition: service_started
+
+volumes:
+  redis-data:

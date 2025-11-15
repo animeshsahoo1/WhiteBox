@@ -1,0 +1,13 @@
+python-dotenv
+pandas
+langgraph
+langgraph-checkpoint-mongodb
+pymongo
+psycopg2-binary
+requests
+redis
+upstash-redis
+rq
+fastapi
+uvicorn[standard]
+pydantic

@@ -5,7 +5,7 @@ class SentimentConsumer(BaseConsumer):
     """Consumer for Reddit sentiment data from Kafka"""
     
     def __init__(self):
-        super().__init__(topic_name="reddit-sentiment")
+        super().__init__(topic_name="sentiment-data")
     
     def get_output_schema(self):
         """

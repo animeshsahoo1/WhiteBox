@@ -5,9 +5,125 @@ networks:
     external: true
     name: kafka_stock-network
 
-services: 
-  sentiment-agent:
+services:
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: pathway-redis
+    networks:
+      - stock-network
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+ 
+  # FastAPI Reports Service
+  reports-api:
     build: .
+    container_name: pathway-reports-api
+    command: uvicorn api.fastapi_server:app --host 0.0.0.0 --port 8000
+    networks:
+      - stock-network
+    env_file:
+      - .env
+    environment:
+      PYTHONUNBUFFERED: 1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./reports:/app/reports
+      - ./api:/app/api
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # Pathway Consumers
+  fundamental-consumer:
+    build: .
+    container_name: pathway-fundamental-consumer
+    command: python main_fundamental.py
+    networks:
+      - stock-network
+    env_file:
+      - .env
+    environment:
+      KAFKA_BROKER: kafka:29092
+      PYTHONUNBUFFERED: 1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+    volumes:
+      - ./reports:/app/reports
+      - .:/app
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  market-consumer:
+    build: .
+    container_name: pathway-market-consumer
+    command: python main_market.py
+    networks:
+      - stock-network
+    env_file:
+      - .env
+    environment:
+      KAFKA_BROKER: kafka:29092
+      PYTHONUNBUFFERED: 1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+    volumes:
+      - ./reports:/app/reports
+      - .:/app
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  news-consumer:
+    build: .
+    container_name: pathway-news-consumer
+    command: python main_news.py
+    networks:
+      - stock-network
+    env_file:
+      - .env
+    environment:
+      KAFKA_BROKER: kafka:29092
+      PYTHONUNBUFFERED: 1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+    volumes:
+      - ./reports:/app/reports
+      - .:/app
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  sentiment-consumer:
+    build: .
+    container_name: pathway-sentiment-consumer
     command: python main_sentiment.py
     networks:
       - stock-network
@@ -16,19 +132,16 @@ services:
     environment:
       KAFKA_BROKER: kafka:29092
       PYTHONUNBUFFERED: 1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
     volumes:
-      - .:/app
-    restart: unless-stopped
-
-  market-agent:
-    build: .
-    command: python agents/main_market.py      # 👈 run only this file
-    networks:
-      - stock-network
-    environment:
-      KAFKA_BROKER: kafka:29092
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-    volumes:
-      - .:/app
       - ./reports:/app/reports
+      - .:/app
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  redis-data:

@@ -4,6 +4,11 @@ networks:
 
 services:
   zookeeper:
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     image: confluentinc/cp-zookeeper:7.5.0
     networks:
       - stock-network
@@ -18,7 +23,8 @@ services:
     networks:
       - stock-network
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy
     ports:
       - "9092:9092"
     environment:
