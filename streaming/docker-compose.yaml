@@ -47,3 +47,16 @@ services:
     env_file:
       - .env
     restart: unless-stopped
+
+  fundamental-report-producer:
+    build: .
+    command: ["python", "producers/fundamental_report.py"]
+    networks:
+      - stock-network
+    environment:
+      KAFKA_BROKER: kafka:29092
+    env_file:
+      - .env
+    volumes:
+      - ../knowledge_base:/app/knowledge_base
+    restart: unless-stopped
