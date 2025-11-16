@@ -35,6 +35,8 @@ services:
       KAFKA_BROKER: kafka:29092
     env_file:
       - .env
+    volumes:
+      - ./sentiment_logs:/app/sentiment_logs
     restart: unless-stopped
 
   fundamental-producer:

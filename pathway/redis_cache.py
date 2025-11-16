@@ -141,8 +141,64 @@ class RedisReportObserver(pw.io.python.ConnectorObserver):
 _observer_cache: Dict[str, RedisReportObserver] = {}
 
 
+class RedisClusterObserver(pw.io.python.ConnectorObserver):
+    """Pathway observer that writes cluster visualization data into Redis."""
+    
+    CLUSTERS_KEY_PREFIX = "clusters:"
+    ALL_CLUSTERS_KEY = "clusters:all"
+    
+    def __init__(self):
+        self.redis = get_redis_client()
+    
+    def on_change(self, key: Any, row: Dict[str, Any], time: int, is_addition: bool) -> None:
+        symbol = row.get("symbol")
+        if not symbol:
+            return
+        
+        symbol = str(symbol).upper()
+        cluster_id = row.get("cluster_id")
+        
+        if not is_addition:
+            # Remove cluster from Redis
+            cluster_key = f"{self.CLUSTERS_KEY_PREFIX}{symbol}:{cluster_id}"
+            self.redis.delete(cluster_key)
+            # Also remove from the all clusters list
+            self.redis.hdel(self.ALL_CLUSTERS_KEY, cluster_key)
+            return
+        
+        # Add or update cluster
+        cluster_data = {
+            "symbol": symbol,
+            "cluster_id": cluster_id,
+            "summary": row.get("summary", ""),
+            "avg_sentiment": float(row.get("avg_sentiment", 0.0)),
+            "count": int(row.get("count", 0)),
+            "timestamp": row.get("timestamp", datetime.utcnow().isoformat()),
+        }
+        
+        # Store individual cluster
+        cluster_key = f"{self.CLUSTERS_KEY_PREFIX}{symbol}:{cluster_id}"
+        self.redis.set(cluster_key, json.dumps(cluster_data), ex=3600)  # 1 hour TTL
+        
+        # Also add to aggregated list for easy querying
+        self.redis.hset(self.ALL_CLUSTERS_KEY, cluster_key, json.dumps(cluster_data))
+        self.redis.expire(self.ALL_CLUSTERS_KEY, 3600)
+    
+    def on_time_end(self, time: int) -> None:
+        pass
+    
+    def on_end(self) -> None:
+        pass
+
+
 def get_report_observer(report_type: str) -> RedisReportObserver:
     """Return a singleton observer for the given report type."""
+    
+    # Special case for clusters
+    if report_type == "clusters":
+        if "clusters" not in _observer_cache:
+            _observer_cache["clusters"] = RedisClusterObserver()
+        return _observer_cache["clusters"]
 
     if report_type not in _observer_cache:
         ttl_env = os.getenv("REDIS_REPORT_TTL")

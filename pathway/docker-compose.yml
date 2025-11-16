@@ -135,8 +135,12 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: 0
+      # API keys for clustering and LLM
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
     volumes:
       - ./reports:/app/reports
+      - ./sentiment_cluster_state:/app/sentiment_cluster_state
       - .:/app
     restart: unless-stopped
     depends_on:
@@ -145,3 +149,4 @@ services:
 
 volumes:
   redis-data:
+

@@ -18,3 +18,4 @@ pandoc
 newspaper3k==0.2.8
 lxml_html_clean
 openai
+flask==3.0.0
