@@ -42,3 +42,4 @@ pathway/output/*.csv
 pathway/reports/*/
 
 test.py
+knowledge_base

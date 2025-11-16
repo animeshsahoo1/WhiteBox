@@ -58,5 +58,5 @@ services:
     env_file:
       - .env
     volumes:
-      - ../knowledge_base:/app/knowledge_base
+      - ../knowledge_base:/knowledge_base
     restart: unless-stopped
