@@ -7,6 +7,21 @@ import json
 
 load_dotenv()
 
+# Import agentic RAG report generator
+try:
+    import sys
+    # Add agents directory to path for import
+    agents_dir = os.path.dirname(os.path.abspath(__file__))
+    if agents_dir not in sys.path:
+        sys.path.insert(0, agents_dir)
+    
+    from fundamental_report import generate_fundamental_report
+    USE_AGENTIC_RAG = True
+    print("✓ Agentic RAG fundamental report generator loaded")
+except ImportError as e:
+    print(f"⚠️  Agentic RAG not available ({e}), using standard report generation")
+    USE_AGENTIC_RAG = False
+
 
 class FundamentalReportUpdater:
     """Maintains and updates fundamental analysis AI reports using OpenAI's LLM."""
@@ -439,7 +454,19 @@ def process_fundamental_stream(
         # Format the fundamental data
         formatted_data = report_updater._format_fundamental_data(data_dict)
 
-        # Create analysis prompt
+        # Use Agentic RAG if available, otherwise standard prompt-based
+        if USE_AGENTIC_RAG:
+            try:
+                print(f"\n[REDUCER] Processing {symbol} with Agentic RAG")
+                print(f"[REDUCER] Formatted data size: {len(formatted_data)} chars")
+                report_content = generate_fundamental_report(symbol, formatted_data)
+                print(f"[REDUCER] Agentic RAG completed for {symbol}")
+                return report_content
+            except Exception as e:
+                print(f"⚠️  Agentic RAG failed for {symbol}: {e}, falling back to standard")
+        
+        # Standard prompt-based approach
+        print(f"[REDUCER] Using standard LLM for {symbol}")
         messages = report_updater._create_analysis_prompt(
             symbol, current_report, formatted_data
         )
@@ -449,14 +476,17 @@ def process_fundamental_stream(
     @pw.udf
     def _save_report(symbol: str, report_content: str) -> str:
         """UDF to save the report to filesystem."""
+        print(f"\n[SAVE] Saving report for {symbol}...")
         report_path = report_updater._get_report_path(symbol)
         with open(report_path, "w", encoding="utf-8") as f:
             f.write(report_content)
         print(
-            f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] Saved fundamental report for {symbol} to {report_path}"
+            f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] ✓ Saved fundamental report for {symbol} to {report_path}"
         )
         return report_content
 
+    print(f"[STREAM] Starting fundamental stream processing...")
+    
     # Group by symbol and apply the reducer
     prompts_table = fundamental_table.groupby(pw.this.symbol).reduce(
         symbol=pw.this.symbol,
@@ -483,9 +513,15 @@ def process_fundamental_stream(
     )
 
     # Generate AI report using LLM
-    response_table = prompts_table.select(
-        symbol=pw.this.symbol,
-        response=_save_report(pw.this.symbol, report_updater.llm(pw.this.prompts))
-    )
+    if USE_AGENTIC_RAG:
+        response_table = prompts_table.select(
+            symbol=pw.this.symbol,
+            response=_save_report(pw.this.symbol, pw.this.prompts)
+        )
+    else:
+        response_table = prompts_table.select(
+            symbol=pw.this.symbol,
+            response=_save_report(pw.this.symbol, report_updater.llm(pw.this.prompts))
+        )
 
     return response_table

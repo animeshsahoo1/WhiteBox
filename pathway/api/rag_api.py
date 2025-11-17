@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
-from langchain.schema import Document
+from langchain_core.documents import Document
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 import requests
