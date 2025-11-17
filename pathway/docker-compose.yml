@@ -58,7 +58,7 @@ services:
   rag-api:
     build: .
     container_name: pathway-rag-api
-    command: uvicorn api.rag_api:app --host 0.0.0.0 --port 8001
+    command: uvicorn api.rag_api:app --host 0.0.0.0 --port 7001
     networks:
       - stock-network
     env_file:
@@ -67,13 +67,13 @@ services:
       PYTHONUNBUFFERED: 1
       KNOWLEDGE_BASE_PATH: /app/knowledge_base
     ports:
-      - "8001:8001"
+      - "7001:7001"
     volumes:
       - ./api:/app/api
       - ../knowledge_base:/app/knowledge_base
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:7001/health"]
       interval: 30s
       timeout: 10s
       retries: 3
