@@ -11,6 +11,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from sec_api import PdfGeneratorApi
 from fundamental_utils.fmp_api_client import FmpApiClient
+from producers.pdf_parser import PDFParser
 
 load_dotenv()
 
@@ -24,6 +25,7 @@ class FundamentalReportProducer:
         
         self.fmp_client = None
         self.pdf_api = None
+        self.pdf_parser = None
         self.knowledge_base = Path(os.getenv('KNOWLEDGE_BASE_DIR', '../knowledge_base')).resolve()
         self.limit = int(os.getenv('SEC_FILINGS_LIMIT', '100'))
         
@@ -38,8 +40,10 @@ class FundamentalReportProducer:
         try:
             self.fmp_client = FmpApiClient()
             self.pdf_api = PdfGeneratorApi(os.getenv('SEC_API'))
+            self.pdf_parser = PDFParser()
             print("✅ FMP client initialized")
             print("✅ SEC PDF API initialized")
+            print("✅ PDF parser initialized")
             return True
         except ValueError as e:
             print(f"❌ FMP client init failed: {e}")
@@ -104,6 +108,15 @@ class FundamentalReportProducer:
                 time.sleep(2)
             except Exception as e:
                 print(f"❌ [{stock}] Error: {e}")
+        
+        # Parse all downloaded PDFs to JSONL
+        print(f"\n{'='*70}")
+        print("📄 Starting PDF parsing...")
+        print(f"{'='*70}\n")
+        try:
+            self.pdf_parser.parse_all_stocks()
+        except Exception as e:
+            print(f"❌ PDF parsing failed: {e}")
     
     def run(self):
         print("="*70)

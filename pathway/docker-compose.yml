@@ -54,6 +54,31 @@ services:
       redis:
         condition: service_healthy
 
+  # RAG API Service (LangGraph + Pathway)
+  rag-api:
+    build: .
+    container_name: pathway-rag-api
+    command: uvicorn api.rag_api:app --host 0.0.0.0 --port 8001
+    networks:
+      - stock-network
+    env_file:
+      - .env
+    environment:
+      PYTHONUNBUFFERED: 1
+      KNOWLEDGE_BASE_PATH: /app/knowledge_base
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./api:/app/api
+      - ../knowledge_base:/app/knowledge_base
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
   # Pathway Consumers
   fundamental-consumer:
     build: .

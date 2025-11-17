@@ -55,6 +55,7 @@ services:
       - stock-network
     environment:
       KAFKA_BROKER: kafka:29092
+      KNOWLEDGE_BASE_DIR: /knowledge_base
     env_file:
       - .env
     volumes:

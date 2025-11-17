@@ -19,3 +19,4 @@ newspaper3k==0.2.8
 lxml_html_clean
 openai
 sec-api
+landingai-ade
