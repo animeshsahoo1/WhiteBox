@@ -22,8 +22,7 @@ services:
       context: ..
       dockerfile: phase2/Dockerfile
     container_name: phase2-hypothesis-generator
-    command: python hypothesis_generator/generator.py
-    working_dir: /app/phase2
+    command: python -m hypothesis_generator.generator
     env_file:
       - .env
     ports:
@@ -46,8 +45,7 @@ services:
       context: ..
       dockerfile: phase2/Dockerfile
     container_name: phase2-hypothesis-api
-    command: python hypothesis_generator/app.py
-    working_dir: /app/phase2
+    command: python -m hypothesis_generator.app
     env_file:
       - .env
     ports:
@@ -70,8 +68,7 @@ services:
       context: ..
       dockerfile: phase2/Dockerfile
     container_name: phase2-risk-managers
-    command: python risk_managers/risk_assessment.py
-    working_dir: /app/phase2
+    command: python -m risk_managers.risk_assessment
     env_file:
       - .env
     ports:
@@ -91,8 +88,7 @@ services:
       context: ..
       dockerfile: phase2/Dockerfile
     container_name: phase2-backtesting-api
-    command: python backtesting/backtesting_api.py
-    working_dir: /app/phase2
+    command: python -m backtesting.backtesting_api
     env_file:
       - .env
     ports:
@@ -118,7 +114,6 @@ services:
       dockerfile: phase2/Dockerfile
     container_name: phase2-orchestrator
     command: python run_conversational_orchestrator.py
-    working_dir: /app/phase2
     env_file:
       - .env
     depends_on:
@@ -139,31 +134,6 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # PostgreSQL Database (for conversation memory)
-  postgres:
-    image: postgres:15-alpine
-    container_name: phase2-postgres
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-trading_system}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
-    ports:
-      - "5432:5432"
-    networks:
-      - phase2-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
 networks:
   phase2-network:
     driver: bridge
-
-volumes:
-  postgres-data:

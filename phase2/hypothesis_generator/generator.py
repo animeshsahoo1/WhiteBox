@@ -372,7 +372,6 @@ class HypothesisGenerator:
         logger.info("Watching for facilitator report changes...")
         return hypothesis_reports
     
-    @staticmethod
     def _cache_hypothesis_to_redis(self, key, row: dict, time: int, is_addition: bool):
         """Cache latest hypothesis report to Redis (no expiration)"""
         if not is_addition:

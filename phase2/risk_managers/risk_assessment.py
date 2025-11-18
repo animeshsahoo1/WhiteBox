@@ -7,7 +7,7 @@ import json
 import logging
 import requests
 from typing import Dict, Any
-from Pathway_InterIIT.phase2.risk_managers.risk_managers_prompt import RiskManagerPrompts
+from .risk_managers_prompt import RiskManagerPrompts
 
 from ..config.settings import openai_settings, trading_settings, risk_manager_settings
 
@@ -212,6 +212,8 @@ class RiskAssessmentTool(McpServable):
         result = final.select(
             result=concat_responses(pw.this.responses)
         )
+        
+        return result
 
     
     def register_mcp(self, server: McpServer):
@@ -225,7 +227,7 @@ class RiskAssessmentTool(McpServable):
                 "Uses LLM-based risk managers with tier-specific constraints."
             ),
             request_handler=self.analyze_trading_strategy,
-            schema=self.TradingAnalysisRequestSchema
+            schema=TradingAnalysisRequestSchema
         )
         
         logger.info("Registered assess_risk_all_tiers tool")

@@ -5,13 +5,14 @@ import requests
 from fastmcp import Client
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.tools import tool
+from langchain_openai import ChatOpenAI
 import sys
 from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config.settings import orchestrator_settings, trading_settings
+from config.settings import orchestrator_settings, trading_settings, openai_settings
 
 
 # ============================================================================
@@ -58,7 +59,7 @@ async def call_hypothesis_mcp_async() -> list:
         client = Client(HYPOTHESIS_MCP)
         async with client:
             result = await client.call_tool(
-                name="get_hypotheses",
+                name="get_hypothesis",
                 arguments={}
             )
             return result.get("hypotheses", []) if isinstance(result, dict) else result
@@ -124,19 +125,6 @@ def call_strategy_api_backtest(strategy: dict) -> dict:
 # WEB SEARCH FUNCTIONS
 # ============================================================================
 
-def web_search_tool(query: str) -> str:
-    """
-    Web search tool that can be called by the LLM
-    Returns search results as a formatted string
-    """
-    try:
-        search = DuckDuckGoSearchRun()
-        results = search.run(query)
-        return f"Search results for '{query}':\n{results[:orchestrator_settings.web_search_result_length]}"
-    except Exception as e:
-        return f"Error performing search: {str(e)}"
-
-
 @tool
 def web_search(query: str) -> str:
     """
@@ -149,4 +137,34 @@ def web_search(query: str) -> str:
     Returns:
         Search results as text
     """
-    return web_search_tool(query)
+    try:
+        search = DuckDuckGoSearchRun()
+        results = search.run(query)
+        return f"Search results for '{query}':\n{results[:orchestrator_settings.web_search_result_length]}"
+    except Exception as e:
+        return f"Error performing search: {str(e)}"
+
+
+def web_search_tool(query: str) -> str:
+    """
+    Web search tool that can be called by the LLM
+    Returns search results as a formatted string
+    """
+    return web_search.invoke({"query": query})
+
+
+# ============================================================================
+# LLM INITIALIZATION (must be after web_search definition)
+# ============================================================================
+
+# Initialize LLM for orchestrator
+llm = ChatOpenAI(
+    model=openai_settings.model_orchestrator,
+    api_key=openai_settings.api_key,
+    temperature=orchestrator_settings.llm_temperature,
+    max_tokens=orchestrator_settings.llm_max_tokens,
+    base_url=openai_settings.api_base
+)
+
+# LLM with web search tool
+llm_with_tools = llm.bind_tools([web_search])
