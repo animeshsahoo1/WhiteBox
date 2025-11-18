@@ -9,13 +9,13 @@ import requests
 from typing import Dict, Any
 from Pathway_InterIIT.phase2.risk_managers.risk_managers_prompt import RiskManagerPrompts
 
-from ..config.settings import openai_settings
+from ..config.settings import openai_settings, trading_settings, risk_manager_settings
 
 logger = logging.getLogger(__name__)
 
-pw.set_license_key("demo-license-key-with-telemetry")  # Replace with your actual license key
-
-# Set OpenAI API key for LLM
+# Set Pathway license key from config
+if trading_settings.pathway_license_key:
+    pw.set_license_key(trading_settings.pathway_license_key)
 class TradingAnalysisRequestSchema(pw.Schema):
     symbol: str
     strategy: str
@@ -26,7 +26,7 @@ def fetch_reports_from_api(symbol: str) -> pw.Json:
     """
     Fetch reports A, B, C, D, E from FastAPI endpoint
     """
-    base_url = "http://localhost:8000"  # Your FastAPI server
+    base_url = risk_manager_settings.reports_api_url
     reports = {}
     
     try:
@@ -167,7 +167,7 @@ class RiskAssessmentTool(McpServable):
         )
 
         llm = OpenAIChat(
-            model=openai_settings.model_hypothesis,
+            model=openai_settings.model_risk,
             api_key=openai_settings.api_key,
             temperature=openai_settings.temperature,
             max_tokens=openai_settings.max_tokens
@@ -236,8 +236,8 @@ basic_tools = RiskAssessmentTool()
 pathway_mcp_server = PathwayMcp(
     name="Streamable MCP Server",
     transport="streamable-http",
-    host="localhost",
-    port=9001,
+    host=risk_manager_settings.host,
+    port=risk_manager_settings.port,
     serve=[basic_tools],
 )
 

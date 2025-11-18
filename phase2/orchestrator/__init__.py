@@ -1,10 +1,11 @@
 """Orchestrator module"""
 
-from .agent import StrategyOrchestrator, handle_user_query
-from .mcp_client import MCPClientWrapper
+from .graph import build_graph, main
+from .conversational_interface import ConversationalOrchestrator, main as conversational_main
 
 __all__ = [
-    "StrategyOrchestrator",
-    "handle_user_query",
-    "MCPClientWrapper",
+    "build_graph",
+    "main",
+    "ConversationalOrchestrator",
+    "conversational_main",
 ]

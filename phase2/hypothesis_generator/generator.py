@@ -11,10 +11,18 @@ from pydantic import Field
 import redis
 
 from loguru import logger
-from ..config.settings import openai_settings
+from ..config.settings import (
+    openai_settings, 
+    redis_settings, 
+    pathway_api_settings,
+    trading_settings,
+    mcp_settings
+)
 from pathway.xpacks.llm.mcp_server import McpServable, McpServer, PathwayMcp
 
-pw.set_license_key("6A8F4E-E3131A-14AEE1-C9783F-D03643-V3")  # Replace with your actual license key
+# Set Pathway license key from config
+if trading_settings.pathway_license_key:
+    pw.set_license_key(trading_settings.pathway_license_key)
 
 logger = logging.getLogger(__name__)
 
@@ -226,18 +234,21 @@ class HypothesisGenerator:
     
     def __init__(
         self, 
-        symbol: str,
-        pathway_api_host: str = "localhost",
-        pathway_api_port: int = 9000,
-        redis_host: str = "localhost",
-        redis_port: int = 9004,
-        redis_db: int = 0
+        symbol: str = None,
+        pathway_api_host: str = None,
+        pathway_api_port: int = None,
+        redis_host: str = None,
+        redis_port: int = None,
+        redis_db: int = None
     ):
-        self.symbol = symbol
-        self.pathway_api_base = f"http://{pathway_api_host}:{pathway_api_port}"
+        # Use config settings as defaults
+        self.symbol = symbol or trading_settings.symbol
+        pathway_host = pathway_api_host or pathway_api_settings.host
+        pathway_port = pathway_api_port or pathway_api_settings.port
+        self.pathway_api_base = f"http://{pathway_host}:{pathway_port}"
         
         # Only watch facilitator report endpoint
-        self.facilitator_url = f"{self.pathway_api_base}/reports/{symbol}/facilitator"
+        self.facilitator_url = f"{self.pathway_api_base}/reports/{self.symbol}/facilitator"
         
         # LLM for hypothesis generation
         self.llm = OpenAIChat(
@@ -248,6 +259,10 @@ class HypothesisGenerator:
         )
         
         # Redis for caching latest hypotheses (no expiration)
+        redis_host = redis_host or redis_settings.host
+        redis_port = redis_port or redis_settings.port
+        redis_db = redis_db if redis_db is not None else redis_settings.db
+        
         self.redis_client = redis.Redis(
             host=redis_host,
             port=redis_port,
@@ -255,7 +270,7 @@ class HypothesisGenerator:
             decode_responses=True
         )
         
-        logger.info(f"Hypothesis Generator initialized for {symbol}")
+        logger.info(f"Hypothesis Generator initialized for {self.symbol}")
         logger.info(f"Watching facilitator endpoint: {self.facilitator_url}")
     
     def create_pipeline(self):
@@ -402,12 +417,11 @@ class HypothesisGenerator:
 # MAIN RUNNERS
 # ============================================================================
     
-symbol :str= Field(default="AAPL", env="SYMBOL")
-logger.info(f"🚀 Starting Hypothesis Generator for {symbol}")
+logger.info(f"🚀 Starting Hypothesis Generator for {trading_settings.symbol}")
 logger.info(f"👁️  Watching facilitator report endpoint only")
 logger.info(f"💾 Hypotheses will be cached in Redis (no expiration)")
 
-generator = HypothesisGenerator(symbol=symbol)
+generator = HypothesisGenerator()
 hypothesis = generator.create_pipeline()
 
 
@@ -452,8 +466,8 @@ function_to_serve = HypothesesResource()
 pathway_mcp_server = PathwayMcp(
     name="Streamable MCP Server",
     transport="streamable-http",
-    host="localhost",
-    port=9000,
+    host=mcp_settings.host,
+    port=mcp_settings.port,
     serve=[function_to_serve],
 )
 

@@ -1,0 +1,169 @@
+version: '3.8'
+
+services:
+  # Redis (for hypothesis caching)
+  redis:
+    image: redis:7-alpine
+    container_name: phase2-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - phase2-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Hypothesis Generator (MCP Server)
+  hypothesis-generator:
+    build:
+      context: ..
+      dockerfile: phase2/Dockerfile
+    container_name: phase2-hypothesis-generator
+    command: python hypothesis_generator/generator.py
+    working_dir: /app/phase2
+    env_file:
+      - .env
+    ports:
+      - "9000:9000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - phase2-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Hypothesis Query API
+  hypothesis-api:
+    build:
+      context: ..
+      dockerfile: phase2/Dockerfile
+    container_name: phase2-hypothesis-api
+    command: python hypothesis_generator/app.py
+    working_dir: /app/phase2
+    env_file:
+      - .env
+    ports:
+      - "8002:8002"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - phase2-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Risk Managers (MCP Server)
+  risk-managers:
+    build:
+      context: ..
+      dockerfile: phase2/Dockerfile
+    container_name: phase2-risk-managers
+    command: python risk_managers/risk_assessment.py
+    working_dir: /app/phase2
+    env_file:
+      - .env
+    ports:
+      - "9001:9001"
+    networks:
+      - phase2-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Backtesting API (FastAPI)
+  backtesting-api:
+    build:
+      context: ..
+      dockerfile: phase2/Dockerfile
+    container_name: phase2-backtesting-api
+    command: python backtesting/backtesting_api.py
+    working_dir: /app/phase2
+    env_file:
+      - .env
+    ports:
+      - "8001:8001"
+    networks:
+      - phase2-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Orchestrator (Conversational Interface)
+  orchestrator:
+    build:
+      context: ..
+      dockerfile: phase2/Dockerfile
+    container_name: phase2-orchestrator
+    command: python run_conversational_orchestrator.py
+    working_dir: /app/phase2
+    env_file:
+      - .env
+    depends_on:
+      hypothesis-generator:
+        condition: service_started
+      risk-managers:
+        condition: service_started
+      backtesting-api:
+        condition: service_healthy
+    networks:
+      - phase2-network
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # PostgreSQL Database (for conversation memory)
+  postgres:
+    image: postgres:15-alpine
+    container_name: phase2-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-trading_system}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - phase2-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  phase2-network:
+    driver: bridge
+
+volumes:
+  postgres-data:

@@ -7,6 +7,8 @@ import json
 from loguru import logger
 import uvicorn
 
+from ..config.settings import redis_settings, hypothesis_api_settings
+
 app = FastAPI(
     title="Hypothesis Query API",
     version="1.0.0",
@@ -15,9 +17,9 @@ app = FastAPI(
 
 # Redis client for reading cached hypotheses
 redis_client = redis.Redis(
-    host="localhost",
-    port=9004,
-    db=0,
+    host=redis_settings.host,
+    port=redis_settings.port,
+    db=redis_settings.db,
     decode_responses=True
 )
 
@@ -166,6 +168,10 @@ async def get_hypothesis_metadata(symbol: str):
 if __name__ == "__main__":
     """Run the query API server (separate process)"""
     
-    logger.info("🌐 Starting Hypothesis Query API on port 8002")
+    logger.info(f"🌐 Starting Hypothesis Query API on port {hypothesis_api_settings.port}")
     logger.info("📚 Hypotheses cached indefinitely until facilitator report changes")
-    uvicorn.run(app, host="0.0.0.0", port=8002)
+    uvicorn.run(
+        app, 
+        host=hypothesis_api_settings.host, 
+        port=hypothesis_api_settings.port
+    )
