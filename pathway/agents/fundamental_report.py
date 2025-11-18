@@ -1,29 +1,98 @@
 import os
 import requests
+import json
+import jsonschema
 from typing import List, Dict, Literal
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.documents import Document
+from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
 load_dotenv()
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
+CHART_SCHEMA = {
+    "title": "ChartCollection",
+    "description": "A collection of financial charts",
+    "type": "object",
+    "properties": {
+        "charts": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "chart_type": {"type": "string", "enum": ["bar", "line", "pie"]},
+                    "title": {"type": "string"},
+                    "x": {"type": "string"},
+                    "y": {"type": "string"},
+                    "data": {"type": "array", "items": {"type": "object"}}
+                },
+                "required": ["chart_type", "title", "x", "y", "data"]
+            }
+        }
+    },
+    "required": ["charts"]
+}
+
+TABLE_SCHEMA = {
+    "title": "TableCollection",
+    "description": "A collection of financial tables",
+    "type": "object",
+    "properties": {
+        "tables": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "columns": {"type": "array", "items": {"type": "string"}},
+                    "rows": {"type": "array", "items": {"type": "array"}}
+                },
+                "required": ["title", "columns", "rows"]
+            }
+        }
+    },
+    "required": ["tables"]
+}
+
+def _serialize_structured_output(output):
+    if hasattr(output, "model_dump"):
+        return output.model_dump()
+    if hasattr(output, "dict"):
+        return output.dict()
+    return output
+
 REPORT_SECTIONS = [
+    {
+    "name": "Data Visualizations",
+    "tools": ["rag"],
+    "description": "LLM-generated charts and plots summarizing key trends: revenue, earnings, margins, cash flows, valuation multiples."
+    },
+    {
+    "name": "Tabular Insights",
+    "tools": ["rag"],
+    "description": "Structured tables containing historical metrics, segment breakdowns, YoY/ QoQ comparisons, and ratio summaries."
+    },
+    {
+    "name": "Quantitative Highlights",
+    "tools": ["rag"],
+    "description": "Key numerical indicators and computed metrics: growth rates, volatility, averages, risk measures, valuation metrics."
+    },
     {
         "name": "Executive Summary",
         "tools": ["rag"],
         "description": "High-level snapshot of the company’s business, financial condition, and key fundamental insights."
     },
-    {
-        "name": "Business Overview",
-        "tools": ["rag"],
-        "description": "Core operations, segments, revenue sources, business model mechanics, industry structure."
-    },
+    # {
+    #     "name": "Business Overview",
+    #     "tools": ["rag"],
+    #     "description": "Core operations, segments, revenue sources, business model mechanics, industry structure."
+    # },
     # {
     #     "name": "Financial Statements Analysis",
     #     "tools": ["rag"],
@@ -82,6 +151,9 @@ llm = ChatOpenAI(
     api_key=os.getenv("OPENROUTER_API_KEY"),
     base_url="https://openrouter.ai/api/v1",
 )
+
+chart_llm = llm.with_structured_output(schema=CHART_SCHEMA)
+table_llm = llm.with_structured_output(schema=TABLE_SCHEMA)
 
 hallucination_grader_prompt = ChatPromptTemplate.from_messages([
     ("system", "Grade if LLM generation is grounded in facts. Binary score 'yes' or 'no'."),
@@ -200,9 +272,73 @@ def generate_section_node(state: ReportState) -> Dict:
     if not section:
         return {"section_content": ""}
     
-    system_prompt = f"""You are a senior equity research analyst. Generate the '{section_name}' section for a fundamental analysis report.
+    if section_name == "Data Visualizations":
+        system_prompt = (
+            "You must output ONLY valid JSON compliant with the chart schema below. "
+            "No prose or explanations.\n\nSchema:\n"
+            f"{json.dumps(CHART_SCHEMA, indent=2)}\n\nRules:\n"
+            "- chart_type must be one of bar, line, pie\n"
+            "- Use real numbers from the provided data\n"
+            "- data must be an array of objects with numeric fields"
+        )
 
-Section Description: {section['description']}
+        user_prompt = f"""Symbol: {state['symbol']}
+
+Financial Data:
+{fundamental_data[:2000]}
+
+Context:
+{tools_output[:1000]}
+
+Return chart JSON now."""
+
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt)
+        ]
+
+        generation = chart_llm.invoke(messages)
+        payload = _serialize_structured_output(generation)
+        
+        return {
+            "section_content": json.dumps(payload),
+            "attempts": state.get("attempts", 0) + 1
+        }
+    
+    if section_name == "Tabular Insights":
+        system_prompt = (
+            "You must output ONLY valid JSON compliant with the table schema below. "
+            "No prose or explanations.\n\nSchema:\n"
+            f"{json.dumps(TABLE_SCHEMA, indent=2)}\n\nRules:\n"
+            "- Include at least one table\n"
+            "- columns is an array of strings\n"
+            "- rows is an array of arrays, each matching the columns order"
+        )
+
+        user_prompt = f"""Symbol: {state['symbol']}
+
+Financial Data:
+{fundamental_data[:2000]}
+
+Context:
+{tools_output[:1000]}
+
+Return table JSON now."""
+
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt)
+        ]
+
+        generation = table_llm.invoke(messages)
+        payload = _serialize_structured_output(generation)
+        
+        return {
+            "section_content": json.dumps(payload),
+            "attempts": state.get("attempts", 0) + 1
+        }
+    
+    system_prompt = f"""You are a senior equity research analyst. Generate the '{section_name}' section for a fundamental analysis report.
 
 Guidelines:
 - Professional, analytical tone
@@ -224,13 +360,12 @@ Additional Context:
 
 Generate the '{section_name}' section now."""
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
-        ("human", user_prompt)
-    ])
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=user_prompt)
+    ]
     
-    chain = prompt | llm
-    generation = chain.invoke({})
+    generation = llm.invoke(messages)
     
     return {
         "section_content": generation.content,
@@ -242,12 +377,35 @@ def verify_section_node(state: ReportState) -> Dict:
     fundamental_data = state["fundamental_data"]
     tools_output = state.get("tools_output", "")
     attempts = state.get("attempts", 0)
+    section_name = state["current_section_name"]
     
     print(f"[VERIFY] Checking quality (attempt {attempts})...")
     
-    section = next((s for s in REPORT_SECTIONS if s["name"] == state["current_section_name"]), None)
+    section = next((s for s in REPORT_SECTIONS if s["name"] == section_name), None)
     if not section:
         return {"verification": "pass"}
+    
+    if section_name == "Data Visualizations":
+        try:
+            parsed = json.loads(section_content)
+            jsonschema.validate(parsed, CHART_SCHEMA)
+            print(f"  → Schema validation: PASSED ✓")
+            return {"verification": "pass"}
+        except Exception as e:
+            result = "fail" if attempts < 2 else "force_pass"
+            print(f"  → Schema validation: FAILED ({'retrying' if result == 'fail' else 'forcing pass'})")
+            return {"verification": result}
+    
+    if section_name == "Tabular Insights":
+        try:
+            parsed = json.loads(section_content)
+            jsonschema.validate(parsed, TABLE_SCHEMA)
+            print(f"  → Schema validation: PASSED ✓")
+            return {"verification": "pass"}
+        except Exception as e:
+            result = "fail" if attempts < 2 else "force_pass"
+            print(f"  → Schema validation: FAILED ({'retrying' if result == 'fail' else 'forcing pass'})")
+            return {"verification": result}
     
     docs_content = f"{fundamental_data[:1000]}\n{tools_output[:1000]}"
     
@@ -329,6 +487,7 @@ def generate_fundamental_report(symbol: str, fundamental_data: str) -> str:
     print(f"Starting Fundamental Report Generation for {symbol}")
     print(f"{'='*60}\n")
     
+    generated_ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
     initial_state = {
         "symbol": symbol,
         "fundamental_data": fundamental_data,
@@ -336,7 +495,7 @@ def generate_fundamental_report(symbol: str, fundamental_data: str) -> str:
         "current_section_index": 0,
         "current_section_name": "",
         "section_content": "",
-        "full_report": f"# {symbol} - Fundamental Analysis Report\n\n*Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC*",
+        "full_report": f"# {symbol} - Fundamental Analysis Report\n\n*Generated: {generated_ts} UTC*",
         "attempts": 0,
         "tools_output": ""
     }
