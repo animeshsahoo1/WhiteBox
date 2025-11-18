@@ -23,7 +23,7 @@ def process_market_stream(market_table: pw.Table, reports_directory: str = "./re
     """
     
     # Load API key
-    openai_api_key = os.getenv("OPENAI_API_KEY")
+    openai_api_key = os.getenv("OPENROUTER_API_KEY")
     if not openai_api_key:
         raise ValueError("OPENAI_API_KEY not found in environment variables")
     

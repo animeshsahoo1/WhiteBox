@@ -191,6 +191,91 @@ class RedisClusterObserver(pw.io.python.ConnectorObserver):
         pass
 
 
+class RedisImageObserver(pw.io.python.ConnectorObserver):
+    """Pathway observer that writes indicator chart images into Redis."""
+    
+    IMAGES_KEY_PREFIX = "images:"
+    IMAGES_INDEX_KEY = "images:index"
+    
+    def __init__(self, ttl_seconds: int = 3600):
+        self.redis = get_redis_client()
+        self.ttl_seconds = ttl_seconds
+    
+    def on_change(self, key: Any, row: Dict[str, Any], time: int, is_addition: bool) -> None:
+        symbol = row.get("symbol")
+        if not symbol:
+            return
+        
+        symbol = str(symbol).upper()
+        
+        # Extract timestamp (use window_end or current time)
+        timestamp_raw = row.get("window_end") or row.get("timestamp") or datetime.utcnow()
+        if isinstance(timestamp_raw, datetime):
+            timestamp = timestamp_raw.strftime("%Y%m%d_%H%M%S")
+        else:
+            timestamp = str(timestamp_raw).replace(" ", "_").replace(":", "").replace("-", "")
+        
+        # Build unique key for this image set
+        image_set_key = f"{self.IMAGES_KEY_PREFIX}{symbol}:{timestamp}"
+        
+        if not is_addition:
+            # Remove images
+            self.redis.delete(image_set_key)
+            self.redis.hdel(self.IMAGES_INDEX_KEY, f"{symbol}:{timestamp}")
+            return
+        
+        # Extract images from row (assuming images are in a Json field)
+        images_data = row.get("images")
+        if not images_data:
+            return
+        
+        # Convert to dict if it's a Json object
+        if hasattr(images_data, "as_dict"):
+            images_dict = images_data.as_dict()
+        elif isinstance(images_data, dict):
+            images_dict = images_data
+        else:
+            return
+        
+        # Store all images in a single hash
+        image_payload = {
+            "symbol": symbol,
+            "timestamp": timestamp,
+            "window_start": str(row.get("window_start", "")),
+            "window_end": str(row.get("window_end", "")),
+            "pattern_image": images_dict.get("pattern_image", ""),
+            "trend_image": images_dict.get("trend_image", ""),
+            "rsi_plot": images_dict.get("rsi_plot", ""),
+            "macd_plot": images_dict.get("macd_plot", ""),
+            "stochastic_plot": images_dict.get("stochastic_plot", ""),
+            "roc_plot": images_dict.get("roc_plot", ""),
+            "willr_plot": images_dict.get("willr_plot", ""),
+            "price_plot": images_dict.get("price_plot", ""),
+            "created_at": datetime.utcnow().isoformat()
+        }
+        
+        # Store as JSON in Redis
+        self.redis.set(image_set_key, json.dumps(image_payload), ex=self.ttl_seconds)
+        
+        # Add to index for easy lookup
+        index_entry = {
+            "symbol": symbol,
+            "timestamp": timestamp,
+            "key": image_set_key,
+            "created_at": datetime.utcnow().isoformat()
+        }
+        self.redis.hset(self.IMAGES_INDEX_KEY, f"{symbol}:{timestamp}", json.dumps(index_entry))
+        self.redis.expire(self.IMAGES_INDEX_KEY, self.ttl_seconds)
+        
+        print(f"✅ Cached images for {symbol} at {timestamp} in Redis: {image_set_key}")
+    
+    def on_time_end(self, time: int) -> None:
+        pass
+    
+    def on_end(self) -> None:
+        pass
+
+
 def get_report_observer(report_type: str) -> RedisReportObserver:
     """Return a singleton observer for the given report type."""
     
@@ -199,6 +284,14 @@ def get_report_observer(report_type: str) -> RedisReportObserver:
         if "clusters" not in _observer_cache:
             _observer_cache["clusters"] = RedisClusterObserver()
         return _observer_cache["clusters"]
+    
+    # Special case for images
+    if report_type == "images":
+        if "images" not in _observer_cache:
+            ttl_env = os.getenv("REDIS_IMAGE_TTL")
+            ttl_value = int(ttl_env) if ttl_env else 3600  # Default 1 hour
+            _observer_cache["images"] = RedisImageObserver(ttl_value)
+        return _observer_cache["images"]
 
     if report_type not in _observer_cache:
         ttl_env = os.getenv("REDIS_REPORT_TTL")
@@ -249,3 +342,91 @@ def delete_symbol(symbol: str, redis_client: Optional[redis.Redis] = None) -> No
     key = _build_symbol_key(symbol.upper())
     client.delete(key)
     client.srem(REPORT_SYMBOL_SET_KEY, symbol.upper())
+
+
+def get_images_for_symbol(symbol: str, timestamp: Optional[str] = None, redis_client: Optional[redis.Redis] = None) -> Dict[str, Any]:
+    """
+    Retrieve indicator chart images for a symbol from Redis.
+    
+    Args:
+        symbol: Stock symbol (e.g., "AAPL")
+        timestamp: Optional specific timestamp (format: YYYYMMDD_HHMMSS). If None, returns latest.
+        redis_client: Optional Redis client instance
+    
+    Returns:
+        Dictionary with image data or empty dict if not found
+    """
+    client = redis_client or get_redis_client()
+    symbol = symbol.upper()
+    
+    if timestamp:
+        # Get specific timestamp
+        image_key = f"images:{symbol}:{timestamp}"
+        data = client.get(image_key)
+        if data:
+            try:
+                return json.loads(data)
+            except (TypeError, json.JSONDecodeError):
+                return {}
+        return {}
+    else:
+        # Get latest - scan all keys for this symbol
+        index_data = client.hgetall("images:index")
+        symbol_images = []
+        
+        for key, value in index_data.items():
+            try:
+                entry = json.loads(value)
+                if entry.get("symbol") == symbol:
+                    symbol_images.append(entry)
+            except (TypeError, json.JSONDecodeError):
+                continue
+        
+        if not symbol_images:
+            return {}
+        
+        # Sort by timestamp and get latest
+        symbol_images.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        latest = symbol_images[0]
+        
+        # Fetch the actual image data
+        image_key = latest.get("key")
+        if image_key:
+            data = client.get(image_key)
+            if data:
+                try:
+                    return json.loads(data)
+                except (TypeError, json.JSONDecodeError):
+                    return {}
+        
+        return {}
+
+
+def list_images_for_symbol(symbol: str, redis_client: Optional[redis.Redis] = None) -> list[Dict[str, Any]]:
+    """
+    List all available image timestamps for a symbol.
+    
+    Args:
+        symbol: Stock symbol
+        redis_client: Optional Redis client instance
+    
+    Returns:
+        List of image metadata dictionaries
+    """
+    client = redis_client or get_redis_client()
+    symbol = symbol.upper()
+    
+    index_data = client.hgetall("images:index")
+    symbol_images = []
+    
+    for key, value in index_data.items():
+        try:
+            entry = json.loads(value)
+            if entry.get("symbol") == symbol:
+                symbol_images.append(entry)
+        except (TypeError, json.JSONDecodeError):
+            continue
+    
+    # Sort by timestamp descending (newest first)
+    symbol_images.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+    return symbol_images

@@ -54,6 +54,35 @@ services:
       redis:
         condition: service_healthy
 
+  # Historical Analysis API Service
+  historical-analysis-api:
+    build: .
+    container_name: pathway-historical-analysis-api
+    command: uvicorn api.historical_analysis_api:app --host 0.0.0.0 --port 4000
+    networks:
+      - stock-network
+    env_file:
+      - .env
+    environment:
+      PYTHONUNBUFFERED: 1
+      # API keys for potential future agent integration
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./historical_reports:/app/historical_reports
+      - ./api:/app/api
+      - ./agents:/app/agents
+      - .:/app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
   # Pathway Consumers
   fundamental-consumer:
     build: .
@@ -146,6 +175,37 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+
+  # DEMO: Market Data from CSV (no Kafka)
+  market-demo:
+    build: .
+    container_name: pathway-market-demo
+    command: python main_market_demo_service.py
+    networks:
+      - stock-network
+    env_file:
+      - .env
+    environment:
+      PYTHONUNBUFFERED: 1
+      # Demo configuration
+      DEMO_TICKER: ${DEMO_TICKER:-AAPL}
+      DEMO_INTERVAL: ${DEMO_INTERVAL:-5m}
+      DEMO_SPEEDUP: ${DEMO_SPEEDUP:-10.0}
+      DEMO_DATA_DIR: /app/demo_data
+      # Analysis window configuration
+      MARKET_LOOKBACK_MINUTES: ${MARKET_LOOKBACK_MINUTES:-10}
+      MARKET_HOP_MINUTES: ${MARKET_HOP_MINUTES:-5}
+      MIN_DATA_POINTS: ${MIN_DATA_POINTS:-30}
+      # API keys for agents
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    volumes:
+      - ./reports:/app/reports
+      - ../streaming/producers/demo_data:/app/demo_data:ro  # Mount CSV data as read-only
+      - .:/app
+    restart: "no"  # Don't auto-restart when CSV replay finishes
+    profiles:
+      - demo  # Only start when explicitly requested with --profile demo
 
 volumes:
   redis-data:
