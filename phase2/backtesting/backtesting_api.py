@@ -9,10 +9,16 @@ from typing import Any
 import sys
 from pathlib import Path
 
-# Add parent directory to path for imports
+# Add parent directory to path for config import
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config.settings import backtesting_server_settings
+from config import config
+
+# Backtesting server settings
+BACKTESTING_SERVER_HOST = config.backtesting.SERVER_HOST
+BACKTESTING_SERVER_PORT = config.backtesting.SERVER_PORT
+
+print(f"Backtesting server configured: {BACKTESTING_SERVER_HOST}:{BACKTESTING_SERVER_PORT}")
 
 app = FastAPI(title="Backtesting API", version="1.0.0")
 
@@ -91,7 +97,7 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/strategies")
-async def get_strategies() -> dict[str, Any]:
+async def get_strategies(request: dict[str, Any]) -> dict[str, Any]:
     """Return all strategies"""
     return HARDCODED_STRATEGIES
 
@@ -115,6 +121,6 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         app, 
-        host=backtesting_server_settings.host, 
-        port=backtesting_server_settings.port
+        host=BACKTESTING_SERVER_HOST, 
+        port=BACKTESTING_SERVER_PORT
     )

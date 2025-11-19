@@ -7,31 +7,50 @@ import json
 import logging
 import requests
 from typing import Dict, Any
+import sys
+from pathlib import Path
 from .risk_managers_prompt import RiskManagerPrompts
 
-from ..config.settings import openai_settings, trading_settings, risk_manager_settings
+# Add parent directory to path for config import
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from config import config
 
 logger = logging.getLogger(__name__)
 
-# Set Pathway license key from config
-if trading_settings.pathway_license_key:
-    pw.set_license_key(trading_settings.pathway_license_key)
+# Configuration from config.py
+PATHWAY_LICENSE_KEY = config.trading.PATHWAY_LICENSE_KEY
+OPENAI_API_KEY = config.openai.API_KEY
+OPENAI_API_BASE = config.openai.API_BASE
+OPENAI_MODEL_RISK = config.openai.MODEL_RISK
+REPORTS_API_URL = config.pathway_api.REPORTS_API_URL
+RISK_MANAGER_HOST = config.risk_manager.MCP_HOST
+RISK_MANAGER_PORT = config.risk_manager.MCP_PORT
+
+print(f"Risk Manager configured on: {RISK_MANAGER_HOST}:{RISK_MANAGER_PORT}")
+print(f"Reports API URL: {REPORTS_API_URL}")
+if OPENAI_API_KEY:
+    print(f"OpenAI API Key loaded: {OPENAI_API_KEY[:8]}...")
+
+# Set Pathway license key
+if PATHWAY_LICENSE_KEY:
+    pw.set_license_key(PATHWAY_LICENSE_KEY)
 class TradingAnalysisRequestSchema(pw.Schema):
-    symbol: str
-    strategy: str
-    risk_levels: pw.Json
+    pass
+    # symbol: str
+    # strategy: str
+    # risk_levels: pw.Json
 
 @pw.udf
 def fetch_reports_from_api(symbol: str) -> pw.Json:
     """
     Fetch reports A, B, C, D, E from FastAPI endpoint
     """
-    base_url = risk_manager_settings.reports_api_url
     reports = {}
     
     try:
         response = requests.get(
-            f"{base_url}/reports/{symbol}",
+            f"{REPORTS_API_URL}/reports/{symbol}",
             timeout=5
         )
         if response.status_code == 200:
@@ -140,80 +159,7 @@ class RiskAssessmentTool(McpServable):
         """
         
         # Step 1: Fetch reports from API
-        enriched = request.select(
-            pw.this.symbol,
-            pw.this.strategy,
-            pw.this.risk_levels,
-            reports=fetch_reports_from_api(pw.this.symbol)
-        )
-
-        flattened = enriched.flatten(pw.this.risk_levels).select(
-            pw.this.symbol,
-            pw.this.strategy,
-            pw.this.reports,
-            risk_level=pw.this.risk_levels
-        )
-
-        prompts = flattened.select(
-            pw.this.symbol,
-            pw.this.strategy,
-            pw.this.reports,
-            pw.this.risk_level,
-            prompt=create_prompt(
-                pw.this.strategy,
-                pw.this.reports,
-                pw.this.risk_level
-            )
-        )
-
-        llm = OpenAIChat(
-            model=openai_settings.model_risk,
-            api_key=openai_settings.api_key,
-            temperature=openai_settings.temperature,
-            max_tokens=openai_settings.max_tokens
-        )
-        responses = prompts.select(
-            pw.this.symbol,
-            pw.this.strategy,
-            pw.this.risk_level,
-            response=extract_json(llm(pw.this.prompt))
-        )
-
-        @pw.udf
-        def label_response(risk_level: str, response: tuple) -> str:
-            
-            """Label response with risk level"""
-            return f"--- Risk Level: {risk_level} ---\n{json.dumps(response, indent=2)}"
-        
-        responses = responses.select(
-            pw.this.symbol,
-            pw.this.strategy,
-            llm_response=label_response(
-                pw.this.risk_level,
-                pw.this.response
-            )
-        )
-
-        final = responses.groupby(
-            pw.this.symbol,
-            pw.this.strategy
-        ).reduce(
-            pw.this.symbol,
-            pw.this.strategy,
-            responses=pw.reducers.sorted_tuple(pw.this.llm_response)
-        )
-
-        @pw.udf
-        def concat_responses(responses: tuple) -> str:
-            """Concatenate all LLM responses"""
-            separator = "\n\n" + "="*80 + "\n\n"
-            return separator.join(responses)
-        
-        result = final.select(
-            result=concat_responses(pw.this.responses)
-        )
-        
-        return result
+        return request.select(result=1)
 
     
     def register_mcp(self, server: McpServer):
@@ -221,11 +167,6 @@ class RiskAssessmentTool(McpServable):
         
         server.tool(
             name="assess_risk_all_tiers",
-            description=(
-                "Assess trading strategy risk across all 3 tiers (no-risk, neutral, aggressive). "
-                "Returns approval status, recommended parameters, warnings, and reasoning for each tier. "
-                "Uses LLM-based risk managers with tier-specific constraints."
-            ),
             request_handler=self.analyze_trading_strategy,
             schema=TradingAnalysisRequestSchema
         )
@@ -238,8 +179,8 @@ basic_tools = RiskAssessmentTool()
 pathway_mcp_server = PathwayMcp(
     name="Streamable MCP Server",
     transport="streamable-http",
-    host=risk_manager_settings.host,
-    port=risk_manager_settings.port,
+    host=RISK_MANAGER_HOST,
+    port=RISK_MANAGER_PORT,
     serve=[basic_tools],
 )
 

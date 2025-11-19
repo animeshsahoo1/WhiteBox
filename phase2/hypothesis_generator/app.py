@@ -6,8 +6,25 @@ from datetime import datetime
 import json
 from loguru import logger
 import uvicorn
+import sys
+from pathlib import Path
 
-from ..config.settings import redis_settings, hypothesis_api_settings
+# Add parent directory to path for config import
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from config import config
+
+# Redis settings
+REDIS_HOST = config.redis.HOST
+REDIS_PORT = config.redis.PORT
+REDIS_DB = config.redis.DB
+
+# Hypothesis API settings
+HYPOTHESIS_API_HOST = config.hypothesis.API_HOST
+HYPOTHESIS_API_PORT = config.hypothesis.API_PORT
+
+print(f"Hypothesis API configured on: {HYPOTHESIS_API_HOST}:{HYPOTHESIS_API_PORT}")
+print(f"Redis connection: {REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}")
 
 app = FastAPI(
     title="Hypothesis Query API",
@@ -17,9 +34,9 @@ app = FastAPI(
 
 # Redis client for reading cached hypotheses
 redis_client = redis.Redis(
-    host=redis_settings.host,
-    port=redis_settings.port,
-    db=redis_settings.db,
+    host=REDIS_HOST,
+    port=REDIS_PORT,
+    db=REDIS_DB,
     decode_responses=True
 )
 
@@ -168,10 +185,10 @@ async def get_hypothesis_metadata(symbol: str):
 if __name__ == "__main__":
     """Run the query API server (separate process)"""
     
-    logger.info(f"🌐 Starting Hypothesis Query API on port {hypothesis_api_settings.port}")
+    logger.info(f"🌐 Starting Hypothesis Query API on port {HYPOTHESIS_API_PORT}")
     logger.info("📚 Hypotheses cached indefinitely until facilitator report changes")
     uvicorn.run(
         app, 
-        host=hypothesis_api_settings.host, 
-        port=hypothesis_api_settings.port
+        host=HYPOTHESIS_API_HOST, 
+        port=HYPOTHESIS_API_PORT
     )

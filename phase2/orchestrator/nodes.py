@@ -17,9 +17,14 @@ from .tools import (
     web_search_tool,
     llm,
     llm_with_tools,
-    TRADING_SYMBOL
+    TRADING_SYMBOL,
+    ORCH_MIN_WIN_RATE,
+    ORCH_MIN_SHARPE,
+    ORCH_TIME_WINDOW,
+    ORCH_STRATEGY_LIMIT,
+    ORCH_MAX_WEB_SEARCHES,
+    ORCH_MAX_SYNTHESIS_ITERATIONS
 )
-from config.settings import orchestrator_settings
 
 
 # ============================================================================
@@ -28,6 +33,11 @@ from config.settings import orchestrator_settings
 
 def classify_query(state: AgentState) -> AgentState:
     """Classify user query into one of five types"""
+    print("\n" + "="*50)
+    print("NODE: classify_query")
+    print("="*50)
+
+    call_risk_analysis_mcp(symbol=TRADING_SYMBOL, strategy={}, risk_levels=["no_risk", "neutral", "aggressive"])
     
     classification_prompt = f"""Classify this user query into exactly ONE category:
 
@@ -58,10 +68,14 @@ Respond with ONLY the category name, nothing else."""
 
 def route_after_classification(state: AgentState) -> str:
     """Route based on query type"""
+    print("\n" + "="*50)
+    print("ROUTER: route_after_classification")
+    print(f"Routing to: {'strategy_input' if state['query_type'] == 'input_strategy' else 'is_hypothesis_needed'}")
+    print("="*50)
     if state["query_type"] == "input_strategy":
-        return "extract_user_strategy"
+        return "strategy_input"
     else:
-        return "decide_hypothesis_need"
+        return "is_hypothesis_needed"
 
 
 # ============================================================================
@@ -70,6 +84,9 @@ def route_after_classification(state: AgentState) -> str:
 
 def extract_user_strategy(state: AgentState) -> AgentState:
     """Extract strategy from user input"""
+    print("\n" + "="*50)
+    print("NODE: extract_user_strategy")
+    print("="*50)
     
     extraction_prompt = f"""The user has provided a trading strategy. Extract it into structured format.
 
@@ -122,6 +139,9 @@ Respond with ONLY valid JSON, no other text."""
 
 def decide_hypothesis_need(state: AgentState) -> AgentState:
     """Decide if hypothesis is needed for strategy search"""
+    print("\n" + "="*50)
+    print("NODE: decide_hypothesis_need")
+    print("="*50)
     
     decision_prompt = f"""Does this query require current market hypothesis to answer?
 
@@ -151,14 +171,21 @@ Respond with ONLY: YES or NO"""
 
 def route_hypothesis_decision(state: AgentState) -> str:
     """Route based on hypothesis need"""
+    print("\n" + "="*50)
+    print("ROUTER: route_hypothesis_decision")
+    print(f"Routing to: {'need_hypothesis' if state['need_hypothesis'] else 'hypothesis_not_needed'}")
+    print("="*50)
     if state["need_hypothesis"]:
-        return "fetch_hypotheses"
+        return "need_hypothesis"
     else:
-        return "build_search_params"
+        return "hypothesis_not_needed"
 
 
 def fetch_hypotheses(state: AgentState) -> AgentState:
     """Fetch current market hypotheses"""
+    print("\n" + "="*50)
+    print("NODE: fetch_hypotheses")
+    print("="*50)
     
     hypotheses = call_hypothesis_mcp()
     state["hypotheses"] = hypotheses
@@ -180,6 +207,9 @@ def fetch_hypotheses(state: AgentState) -> AgentState:
 
 def build_search_params(state: AgentState) -> AgentState:
     """Build search parameters for Strategy Bank"""
+    print("\n" + "="*50)
+    print("NODE: build_search_params")
+    print("="*50)
     
     # Build context for LLM
     context = {
@@ -199,22 +229,22 @@ Build a JSON search parameter object:
     "technical_indicators": ["RSI", "MACD"],  // If mentioned
     "category": "book | user | llm | all",
     "performance_criteria": {{
-      "min_win_rate": {orchestrator_settings.min_win_rate},
-      "min_sharpe_ratio": {orchestrator_settings.min_sharpe_ratio}
+      "min_win_rate": {ORCH_MIN_WIN_RATE},
+      "min_sharpe_ratio": {ORCH_MIN_SHARPE}
     }},
-    "time_window": "{orchestrator_settings.default_time_window} | 90d | 180d",
+    "time_window": "{ORCH_TIME_WINDOW} | 90d | 180d",
     "market_conditions": {{
       "volatility": "low | moderate | high | any",
       "trend": "bullish | bearish | sideways | any"
     }}
   }},
   "sort_by": "rank | sharpe | win_rate | total_return",
-  "limit": {orchestrator_settings.default_strategy_limit}
+  "limit": {ORCH_STRATEGY_LIMIT}
 }}
 
 Guidelines:
 - If hypothesis present, set trend to hypothesis direction
-- Default time_window: "{orchestrator_settings.default_time_window}"
+- Default time_window: "{ORCH_TIME_WINDOW}"
 - Default sort_by: "rank"
 - Only include filters that are relevant
 - For general queries, keep filters minimal
@@ -239,9 +269,9 @@ Respond with ONLY valid JSON."""
         print(f"Error building search params: {e}")
         # Fallback to default params
         state["search_params"] = {
-            "filters": {"time_window": orchestrator_settings.default_time_window},
+            "filters": {"time_window": ORCH_TIME_WINDOW},
             "sort_by": "rank",
-            "limit": orchestrator_settings.default_strategy_limit
+            "limit": ORCH_STRATEGY_LIMIT
         }
     
     return state
@@ -249,6 +279,9 @@ Respond with ONLY valid JSON."""
 
 def search_strategy_bank(state: AgentState) -> AgentState:
     """Search Strategy Bank via FastAPI"""
+    print("\n" + "="*50)
+    print("NODE: search_strategy_bank")
+    print("="*50)
     
     search_params = state.get("search_params", {})
     
@@ -270,6 +303,9 @@ def search_strategy_bank(state: AgentState) -> AgentState:
 
 def decide_web_search_need(state: AgentState) -> AgentState:
     """Decide if web search is needed based on search results"""
+    print("\n" + "="*50)
+    print("NODE: decide_web_search_need")
+    print("="*50)
     
     strategies = state.get("strategies_found", [])
     
@@ -291,6 +327,10 @@ def decide_web_search_need(state: AgentState) -> AgentState:
 
 def route_after_web_search_decision(state: AgentState) -> str:
     """Route after deciding on web search"""
+    print("\n" + "="*50)
+    print("ROUTER: route_after_web_search_decision")
+    print(f"Routing to: {'found_strategy' if state.get('selected_strategy') else 'no_strategy_found'}")
+    print("="*50)
     if state.get("selected_strategy"):
         # Found strategy in bank, skip to risk analysis or backtest first
         # Check if it already has backtest results
@@ -302,6 +342,9 @@ def route_after_web_search_decision(state: AgentState) -> str:
 
 def synthesize_strategy_from_web(state: AgentState) -> AgentState:
     """Synthesize a strategy using LLM with web search tool"""
+    print("\n" + "="*50)
+    print("NODE: synthesize_strategy_from_web")
+    print("="*50)
     
     # Build context including search params if available
     context_info = {
@@ -311,7 +354,7 @@ def synthesize_strategy_from_web(state: AgentState) -> AgentState:
         "hypotheses": state.get("hypotheses", [])
     }
     
-    max_searches = orchestrator_settings.max_web_searches  # Maximum number of web searches allowed
+    max_searches = ORCH_MAX_WEB_SEARCHES  # Maximum number of web searches allowed
     
     state["messages"].append(AIMessage(
         content="[Starting web-based strategy synthesis with search tool]"
@@ -374,7 +417,7 @@ Respond with ONLY valid JSON."""
     search_count = 0
     
     # Allow the LLM to use tools iteratively
-    for iteration in range(orchestrator_settings.max_synthesis_iterations):  # Max iterations to prevent infinite loops
+    for iteration in range(ORCH_MAX_SYNTHESIS_ITERATIONS):  # Max iterations to prevent infinite loops
         response = llm_with_tools.invoke(messages)
         messages.append(response)
         
@@ -447,6 +490,10 @@ Respond with ONLY valid JSON."""
 
 def route_after_synthesis(state: AgentState) -> str:
     """Route after web synthesis"""
+    print("\n" + "="*50)
+    print("ROUTER: route_after_synthesis")
+    print(f"Routing to: {'strategy_generated' if state.get('selected_strategy') else 'no_valid_strategy'}")
+    print("="*50)
     if state.get("selected_strategy"):
         # Strategy was successfully synthesized, backtest it
         return "strategy_generated"
@@ -461,6 +508,9 @@ def route_after_synthesis(state: AgentState) -> str:
 
 def backtest_strategy(state: AgentState) -> AgentState:
     """Backtest the selected strategy via FastAPI"""
+    print("\n" + "="*50)
+    print("NODE: backtest_strategy")
+    print("="*50)
     
     # Determine which strategy to backtest
     if state.get("user_inputted_strategy"):
@@ -486,6 +536,9 @@ def backtest_strategy(state: AgentState) -> AgentState:
 
 def analyze_risk(state: AgentState) -> AgentState:
     """Get risk analysis for the selected strategy"""
+    print("\n" + "="*50)
+    print("NODE: analyze_risk")
+    print("="*50)
     
     strategy = state.get("selected_strategy", {})
     
@@ -499,6 +552,11 @@ def analyze_risk(state: AgentState) -> AgentState:
         strategy=strategy,
         risk_levels=["no_risk", "neutral", "aggressive"]
     )
+
+    print("="*20)
+    print("Risk Analysis Result:")
+    print(json.dumps(risk_result, indent=2))
+    print("="*20)
     
     state["risk_analyses"] = risk_result
     state["messages"].append(AIMessage(
@@ -514,6 +572,9 @@ def analyze_risk(state: AgentState) -> AgentState:
 
 def generate_response(state: AgentState) -> AgentState:
     """Generate final response to user"""
+    print("\n" + "="*50)
+    print("NODE: generate_response")
+    print("="*50)
     
     # Build context
     context = {
@@ -568,6 +629,9 @@ If no strategy was found, explain why and suggest alternatives."""
 
 def update_memory(state: AgentState) -> AgentState:
     """Update conversation memory"""
+    print("\n" + "="*50)
+    print("NODE: update_memory")
+    print("="*50)
     
     conversation_entry = {
         "user_query": state["user_query"],

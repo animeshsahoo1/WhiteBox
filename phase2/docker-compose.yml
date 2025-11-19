@@ -6,7 +6,7 @@ services:
     image: redis:7-alpine
     container_name: phase2-redis
     ports:
-      - "6379:6379"
+      - "9003:9003"
     networks:
       - phase2-network
     restart: unless-stopped
@@ -26,7 +26,7 @@ services:
     env_file:
       - .env
     ports:
-      - "9000:9000"
+      - "9002:9002"
     depends_on:
       redis:
         condition: service_healthy
@@ -49,7 +49,7 @@ services:
     env_file:
       - .env
     ports:
-      - "8002:8002"
+      - "9001:9001"
     depends_on:
       redis:
         condition: service_healthy
@@ -72,7 +72,7 @@ services:
     env_file:
       - .env
     ports:
-      - "9001:9001"
+      - "9004:9004"
     networks:
       - phase2-network
     restart: unless-stopped
@@ -92,12 +92,12 @@ services:
     env_file:
       - .env
     ports:
-      - "8001:8001"
+      - "9005:9005"
     networks:
       - phase2-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:9005/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -116,6 +116,40 @@ services:
     command: python run_conversational_orchestrator.py
     env_file:
       - .env
+    volumes:
+      - ../phase2:/app/phase2
+    depends_on:
+      hypothesis-generator:
+        condition: service_started
+      risk-managers:
+        condition: service_started
+      backtesting-api:
+        condition: service_healthy
+    networks:
+      - phase2-network
+    restart: "no"
+    stdin_open: true
+    tty: true
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Streamlit UI
+  streamlit:
+    build:
+      context: ..
+      dockerfile: phase2/Dockerfile
+    container_name: phase2-streamlit
+    command: streamlit run streamlit_app.py --server.port=8501 --server.address=0.0.0.0 --server.enableCORS=false --server.enableXsrfProtection=false
+    env_file:
+      - .env
+    ports:
+      - "8501:8501"
     depends_on:
       hypothesis-generator:
         condition: service_started
@@ -126,8 +160,6 @@ services:
     networks:
       - phase2-network
     restart: unless-stopped
-    stdin_open: true
-    tty: true
     logging:
       driver: "json-file"
       options:

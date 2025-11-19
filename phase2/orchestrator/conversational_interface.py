@@ -12,10 +12,15 @@ This module provides a conversational layer that:
 import json
 from typing import List, Dict, Any
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+import sys
+from pathlib import Path
 
+# Add parent directory to path for config import
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from config import config
 from .graph import build_graph
 from .tools import llm, TRADING_SYMBOL
-from config.settings import orchestrator_settings
 
 
 class ConversationalOrchestrator:
@@ -160,12 +165,13 @@ Respond with ONLY the formatted query, nothing else."""
             Assistant's response
         """
         # Build conversation context
+        print("ok"*20)
         context = {
             "conversation_history": self.conversation_history[-5:],
             "user_preferences": self.user_preferences,
             "pending_request": self.pending_strategy_request
         }
-        
+        print("ok")
         # Check if we should invoke the workflow
         if self.should_invoke_workflow(user_message, context):
             # Extract the formal query from conversation

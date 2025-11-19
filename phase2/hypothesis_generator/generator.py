@@ -9,27 +9,60 @@ from datetime import datetime
 import requests
 from pydantic import Field
 import redis
+import sys
+from pathlib import Path
 
 from loguru import logger
-from ..config.settings import (
-    openai_settings, 
-    redis_settings, 
-    pathway_api_settings,
-    trading_settings,
-    mcp_settings
-)
 from pathway.xpacks.llm.mcp_server import McpServable, McpServer, PathwayMcp
 
-# Set Pathway license key from config
-if trading_settings.pathway_license_key:
-    pw.set_license_key(trading_settings.pathway_license_key)
+# Add parent directory to path for config import
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from config import config
 
 logger = logging.getLogger(__name__)
+
+# Configuration from config.py
+PATHWAY_LICENSE_KEY = config.trading.PATHWAY_LICENSE_KEY
+OPENAI_API_KEY = config.openai.API_KEY
+OPENAI_API_BASE = config.openai.API_BASE
+OPENAI_MODEL_HYPOTHESIS = config.openai.MODEL_HYPOTHESIS
+OPENAI_TEMPERATURE = config.orch_llm.TEMPERATURE
+OPENAI_MAX_TOKENS = config.orch_llm.MAX_TOKENS
+
+REDIS_HOST = config.redis.HOST
+REDIS_PORT = config.redis.PORT
+REDIS_DB = config.redis.DB
+
+PATHWAY_API_HOST = config.pathway_api.REPORTS_API_URL.split('://')[1].split(':')[0]
+PATHWAY_API_PORT = config.pathway_api.REPORTS_API_URL.split('://')[1].split(':')[1]
+
+TRADING_SYMBOL = config.trading.SYMBOL
+
+MCP_HOST = config.hypothesis.MCP_HOST
+MCP_PORT = config.hypothesis.MCP_PORT
+
+print(f"Hypothesis Generator configuration:")
+print(f"  Trading Symbol: {TRADING_SYMBOL}")
+print(f"  Pathway API: {PATHWAY_API_HOST}:{PATHWAY_API_PORT}")
+print(f"  Redis: {REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}")
+print(f"  MCP Server: {MCP_HOST}:{MCP_PORT}")
+if OPENAI_API_KEY:
+    print(f"  OpenAI API Key: {OPENAI_API_KEY[:8]}...")
+
+# Set Pathway license key
+if PATHWAY_LICENSE_KEY:
+    pw.set_license_key(PATHWAY_LICENSE_KEY)
 
 
 # ============================================================================
 # HELPER FUNCTIONS (UDFs)
 # ============================================================================
+
+class FacilitatorReportSchema(pw.Schema):
+    content: str
+    last_updated: str
+    timestamp: str
 
 @pw.udf
 def prepare_llm_messages(
@@ -241,10 +274,10 @@ class HypothesisGenerator:
         redis_port: int = None,
         redis_db: int = None
     ):
-        # Use config settings as defaults
-        self.symbol = symbol or trading_settings.symbol
-        pathway_host = pathway_api_host or pathway_api_settings.host
-        pathway_port = pathway_api_port or pathway_api_settings.port
+        # Use environment variables as defaults
+        self.symbol = symbol or TRADING_SYMBOL
+        pathway_host = pathway_api_host or PATHWAY_API_HOST
+        pathway_port = pathway_api_port or PATHWAY_API_PORT
         self.pathway_api_base = f"http://{pathway_host}:{pathway_port}"
         
         # Only watch facilitator report endpoint
@@ -252,16 +285,17 @@ class HypothesisGenerator:
         
         # LLM for hypothesis generation
         self.llm = OpenAIChat(
-            model=openai_settings.model_hypothesis,
-            api_key=openai_settings.api_key,
-            temperature=openai_settings.temperature,
-            max_tokens=openai_settings.max_tokens
+            model=OPENAI_MODEL_HYPOTHESIS,
+            api_key=OPENAI_API_KEY,
+            temperature=OPENAI_TEMPERATURE,
+            max_tokens=OPENAI_MAX_TOKENS,
+            base_url=OPENAI_API_BASE
         )
         
         # Redis for caching latest hypotheses (no expiration)
-        redis_host = redis_host or redis_settings.host
-        redis_port = redis_port or redis_settings.port
-        redis_db = redis_db if redis_db is not None else redis_settings.db
+        redis_host = redis_host or REDIS_HOST
+        redis_port = redis_port or REDIS_PORT
+        redis_db = redis_db if redis_db is not None else REDIS_DB
         
         self.redis_client = redis.Redis(
             host=redis_host,
@@ -281,6 +315,7 @@ class HypothesisGenerator:
 
         facilitator_stream = pw.io.http.read(
             url=self.facilitator_url,
+            schema=FacilitatorReportSchema,
             format="json",
             autocommit_duration_ms=1000,  # Check every second
         )
@@ -416,7 +451,7 @@ class HypothesisGenerator:
 # MAIN RUNNERS
 # ============================================================================
     
-logger.info(f"🚀 Starting Hypothesis Generator for {trading_settings.symbol}")
+logger.info(f"🚀 Starting Hypothesis Generator for {TRADING_SYMBOL}")
 logger.info(f"👁️  Watching facilitator report endpoint only")
 logger.info(f"💾 Hypotheses will be cached in Redis (no expiration)")
 
@@ -427,6 +462,7 @@ hypothesis = generator.create_pipeline()
 
 class ValueRequestSchema(pw.Schema):
     pass
+
 
 
 class HypothesesResource(McpServable):
@@ -444,12 +480,8 @@ class HypothesesResource(McpServable):
             report_data=pw.right.report_data
         )
         results = results.select(
-            result=pw.if_else(
-                pw.this.report_data.is_none(),
-                "No report available",
-                pw.this.report_data
+            result=pw.this.report_data
             )
-        )
         return results
 
     def register_mcp(self, server: McpServer):
@@ -465,8 +497,8 @@ function_to_serve = HypothesesResource()
 pathway_mcp_server = PathwayMcp(
     name="Streamable MCP Server",
     transport="streamable-http",
-    host=mcp_settings.host,
-    port=mcp_settings.port,
+    host=MCP_HOST,
+    port=MCP_PORT,
     serve=[function_to_serve],
 )
 
