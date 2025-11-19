@@ -64,7 +64,8 @@ async def call_risk_analysis_mcp_async(symbol: str, strategy: dict, risk_levels:
             name="assess_risk_all_tiers",
             arguments={}
         )
-        return result if isinstance(result, dict) else {}
+        print(result)
+        return result 
 
 
 def call_risk_analysis_mcp(symbol: str, strategy: dict, risk_levels: list) -> dict:
@@ -103,7 +104,7 @@ def call_strategy_api_search(search_params: dict) -> dict:
     """
     try:
         response = requests.get(
-            "http://backtesting-api:8001/strategies", 
+            STRATEGY_API_ENDPOINT, 
             json={"hello":"world"},
             timeout=STRATEGY_API_SEARCH_TIMEOUT
         )
