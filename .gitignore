@@ -41,4 +41,4 @@ streaming/producers/news_cache.json
 pathway/output/*.csv
 pathway/reports/*/
 
-*.py
+# *.py
