@@ -287,62 +287,62 @@ services:
       sentiment-producer:
         condition: service_started
 
-  # ============================================
-  # TRADING AGENTS API & WORKER
-  # ============================================
-  # trading-agents-api:
-  #   build:
-  #     context: ./trading_agents
-  #     dockerfile: Dockerfile
-  #   container_name: trading-agents-api
-  #   command: uvicorn api.fastapi_server:app --host 0.0.0.0 --port 8001
-  #   networks:
-  #     - stock-network
-  #   env_file:
-  #     - ./trading_agents/.env
-  #   environment:
-  #     PYTHONUNBUFFERED: 1
-  #     PATHWAY_API_URL: http://pathway-reports-api:8000
-  #     REDIS_HOST: redis
-  #     REDIS_PORT: 6379
-  #     REDIS_DB: 1
-  #   ports:
-  #     - "8001:8001"
-  #   volumes:
-  #     - ./trading_agents:/app
-  #   restart: unless-stopped
-  #   depends_on:
-  #     redis:
-  #       condition: service_healthy
-  #     reports-api:
-  #       condition: service_healthy
+  ============================================
+  TRADING AGENTS API & WORKER
+  ============================================
+  trading-agents-api:
+    build:
+      context: ./trading_agents
+      dockerfile: Dockerfile
+    container_name: trading-agents-api
+    command: uvicorn api.fastapi_server:app --host 0.0.0.0 --port 8001
+    networks:
+      - stock-network 
+    env_file:
+      - ./trading_agents/.env
+    environment:
+      PYTHONUNBUFFERED: 1
+      PATHWAY_API_URL: http://pathway-reports-api:8000
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 1
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./trading_agents:/app
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      reports-api:
+        condition: service_healthy
 
-  # trading-agents-worker:
-  #   build:
-  #     context: ./trading_agents
-  #     dockerfile: Dockerfile
-  #   container_name: trading-agents-worker
-  #   command: python redis_queue/worker.py
-  #   networks:
-  #     - stock-network
-  #   env_file:
-  #     - ./trading_agents/.env
-  #   environment:
-  #     PYTHONUNBUFFERED: 1
-  #     PATHWAY_API_URL: http://pathway-reports-api:8000
-  #     REDIS_HOST: redis
-  #     REDIS_PORT: 6379
-  #     REDIS_DB: 1
-  #   volumes:
-  #     - ./trading_agents:/app
-  #   restart: unless-stopped
-  #   depends_on:
-  #     redis:
-  #       condition: service_healthy
-  #     reports-api:
-  #       condition: service_healthy
-  #     trading-agents-api:
-  #       condition: service_started
+  trading-agents-worker:
+    build:
+      context: ./trading_agents
+      dockerfile: Dockerfile
+    container_name: trading-agents-worker
+    command: python redis_queue/worker.py
+    networks:
+      - stock-network
+    env_file:
+      - ./trading_agents/.env
+    environment:
+      PYTHONUNBUFFERED: 1
+      PATHWAY_API_URL: http://pathway-reports-api:8000
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 1
+    volumes:
+      - ./trading_agents:/app
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      reports-api:
+        condition: service_healthy
+      trading-agents-api:
+        condition: service_started
 
 volumes:
   redis-data:

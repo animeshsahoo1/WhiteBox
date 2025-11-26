@@ -159,61 +159,7 @@ def main():
     
     # Build and print graph
     graph = build_graph()
-    print_graph(graph)  # Commented out - causes timeout with mermaid.ink
-    
-    # # Initialize conversation history
-    # conversation_history = []
-    
-    # while True:
-    #     # Get user input
-    #     user_query = input("\n🤔 You: ").strip()
-        
-    #     if not user_query:
-    #         continue
-        
-    #     if user_query.lower() in ['quit', 'exit', 'q']:
-    #         print("\n👋 Goodbye! Happy trading!\n")
-    #         break
-        
-    #     # Initialize state
-    #     initial_state = {
-    #         "messages": [HumanMessage(content=user_query)],
-    #         "user_query": user_query,
-    #         "query_type": "",
-    #         "user_inputted_strategy": {},
-    #         "need_hypothesis": False,
-    #         "hypotheses": [],
-    #         "search_params": {},
-    #         "strategies_found": [],
-    #         "selected_strategy": {},
-    #         "backtest_results": {},
-    #         "web_search_results": [],
-    #         "risk_analyses": {},
-    #         "final_response": "",
-    #         "conversation_history": conversation_history
-    #     }
-        
-    #     print("\n🤖 Processing...")
-        
-    #     try:
-    #         # Run graph
-    #         final_state = graph.invoke(initial_state)
-            
-    #         # Print response
-    #         print("\n" + "=" * 70)
-    #         print("📊 ORCHESTRATOR RESPONSE:")
-    #         print("=" * 70)
-    #         print(final_state["final_response"])
-    #         print("=" * 70)
-            
-    #         # Update conversation history
-    #         conversation_history = final_state.get("conversation_history", [])
-            
-    #     except Exception as e:
-    #         print(f"\n❌ Error: {e}")
-    #         import traceback
-    #         traceback.print_exc()
-    #         print("Please try again or rephrase your query.\n")
+
 
 
 if __name__ == "__main__":

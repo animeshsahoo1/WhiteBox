@@ -115,7 +115,8 @@ Respond with ONLY: YES or NO"""
         ])
         
         decision = response.content.strip().lower()
-        return "yes" in decision
+        # return "yes" in decision
+        return decision in ["yes", "y", "true", "1"]
 
     def extract_workflow_query(self, conversation_context: List[Dict[str, str]]) -> str:
         """
@@ -165,13 +166,13 @@ Respond with ONLY the formatted query, nothing else."""
             Assistant's response
         """
         # Build conversation context
-        print("ok"*20)
+        # print("ok"*20)
         context = {
             "conversation_history": self.conversation_history[-5:],
             "user_preferences": self.user_preferences,
             "pending_request": self.pending_strategy_request
         }
-        print("ok")
+        # print("ok")
         # Check if we should invoke the workflow
         if self.should_invoke_workflow(user_message, context):
             # Extract the formal query from conversation
