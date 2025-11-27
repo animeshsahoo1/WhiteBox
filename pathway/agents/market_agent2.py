@@ -185,7 +185,6 @@ Be concise and focused on immediate trading signals."""
             })
         
         system_msg = SystemMessage(content="You are an expert technical indicator analyst with visual chart interpretation skills.")
-        system_msg = SystemMessage(content="You are an expert technical indicator analyst with visual chart interpretation skills.")
         user_msg = HumanMessage(content=prompt_content)
         
         messages = state.get("messages", [])
@@ -392,160 +391,6 @@ def create_trading_graph(tool_llm, graph_llm):
 
 
 # =====================================================================
-# CUSTOM REDUCERS FOR TECHNICAL INDICATORS
-# =====================================================================
-
-class RsiReducer(pw.BaseCustomAccumulator):
-    """RSI (Relative Strength Index) reducer with 14-period calculation"""
-    def __init__(self, sum=0, cnt=0, prices=None):
-        self.period = 14
-        self.prices = prices if prices is not None else []
-        
-    @classmethod
-    def from_row(cls, row):
-        [price] = row
-        if price is None:
-            return cls(prices=[])
-        return cls(prices=[float(price)])
-        
-    def update(self, other):
-        self.prices.extend(other.prices)
-        
-    def compute_result(self) -> float:
-        if len(self.prices) < self.period + 1:
-            return 0.0
-        
-        gains = []
-        losses = []
-        for i in range(1, len(self.prices)):
-            change = self.prices[i] - self.prices[i-1]
-            gains.append(max(change, 0))
-            losses.append(max(-change, 0))
-        
-        avg_gain = sum(gains[-self.period:]) / self.period
-        avg_loss = sum(losses[-self.period:]) / self.period
-        
-        if avg_loss == 0:
-            return 100.0
-        rs = avg_gain / avg_loss
-        rsi = 100 - (100 / (1 + rs))
-        return round(rsi, 2)
-
-class Ema12Reducer(pw.BaseCustomAccumulator):
-    """EMA reducer with 12-period calculation"""
-    def __init__(self, values=None):
-        self.period = 12
-        self.values = values if values is not None else []
-        
-    @classmethod
-    def from_row(cls, row):
-        [value] = row
-        if value is None:
-            return cls(values=[])
-        return cls(values=[float(value)])
-        
-    def update(self, other):
-        self.values.extend(other.values)
-        
-    def compute_result(self) -> float:
-        if len(self.values) < self.period:
-            return 0.0
-        
-        multiplier = 2.0 / (self.period + 1)
-        ema = sum(self.values[:self.period]) / self.period
-        
-        for val in self.values[self.period:]:
-            ema = (val - ema) * multiplier + ema
-        
-        return round(ema, 2)
-
-class Ema26Reducer(pw.BaseCustomAccumulator):
-    """EMA reducer with 26-period calculation"""
-    def __init__(self, values=None):
-        self.period = 26
-        self.values = values if values is not None else []
-        
-    @classmethod
-    def from_row(cls, row):
-        [value] = row
-        if value is None:
-            return cls(values=[])
-        return cls(values=[float(value)])
-        
-    def update(self, other):
-        self.values.extend(other.values)
-        
-    def compute_result(self) -> float:
-        if len(self.values) < self.period:
-            return 0.0
-        
-        multiplier = 2.0 / (self.period + 1)
-        ema = sum(self.values[:self.period]) / self.period
-        
-        for val in self.values[self.period:]:
-            ema = (val - ema) * multiplier + ema
-        
-        return round(ema, 2)
-
-class Ema9Reducer(pw.BaseCustomAccumulator):
-    """EMA reducer with 9-period calculation"""
-    def __init__(self, values=None):
-        self.period = 9
-        self.values = values if values is not None else []
-        
-    @classmethod
-    def from_row(cls, row):
-        [value] = row
-        if value is None:
-            return cls(values=[])
-        return cls(values=[float(value)])
-        
-    def update(self, other):
-        self.values.extend(other.values)
-        
-    def compute_result(self) -> float:
-        if len(self.values) < self.period:
-            return 0.0
-        
-        multiplier = 2.0 / (self.period + 1)
-        ema = sum(self.values[:self.period]) / self.period
-        
-        for val in self.values[self.period:]:
-            ema = (val - ema) * multiplier + ema
-        
-        return round(ema, 2)
-
-class RocReducer(pw.BaseCustomAccumulator):
-    """ROC (Rate of Change) reducer with 10-period calculation"""
-    def __init__(self, prices=None):
-        self.period = 10
-        self.prices = prices if prices is not None else []
-        
-    @classmethod
-    def from_row(cls, row):
-        [price] = row
-        if price is None:
-            return cls(prices=[])
-        return cls(prices=[float(price)])
-        
-    def update(self, other):
-        self.prices.extend(other.prices)
-        
-    def compute_result(self) -> float:
-        if len(self.prices) < self.period + 1:
-            return 0.0
-        
-        current = self.prices[-1]
-        past = self.prices[-self.period-1]
-        
-        if past == 0:
-            return 0.0
-        
-        roc = ((current - past) / past) * 100
-        return round(roc, 2)
-
-
-# =====================================================================
 # PATHWAY INTEGRATION - WINDOWING AND STREAMING
 # =====================================================================
 def process_market_stream_with_agents(
@@ -655,19 +500,7 @@ def process_market_stream_with_agents(
         data_points=pw.reducers.count(),
         latest_price=pw.reducers.argmax(pw.this.sent_at, pw.coalesce(pw.this.current_price, 0.0)),
         latest_change=pw.reducers.argmax(pw.this.sent_at, pw.coalesce(pw.this.change, 0.0)),
-        latest_change_percent=pw.reducers.argmax(pw.this.sent_at, pw.coalesce(pw.this.change_percent, 0.0)),
-        # Simple statistical indicators using built-in reducers
-        avg_close=pw.reducers.avg(pw.coalesce(pw.this.current_price, 0.0)),
-        min_close=pw.reducers.min(pw.coalesce(pw.this.current_price, 0.0)),
-        max_close=pw.reducers.max(pw.coalesce(pw.this.current_price, 0.0)),
-        max_high=pw.reducers.max(pw.coalesce(pw.this.high, 0.0)),
-        min_low=pw.reducers.min(pw.coalesce(pw.this.low, 0.0)),
-        # Custom stateful reducers for technical indicators
-        rsi=pw.reducers.udf_reducer(RsiReducer)(pw.coalesce(pw.this.current_price, 0.0)),
-        ema12=pw.reducers.udf_reducer(Ema12Reducer)(pw.coalesce(pw.this.current_price, 0.0)),
-        ema26=pw.reducers.udf_reducer(Ema26Reducer)(pw.coalesce(pw.this.current_price, 0.0)),
-        ema9=pw.reducers.udf_reducer(Ema9Reducer)(pw.coalesce(pw.this.current_price, 0.0)),
-        roc=pw.reducers.udf_reducer(RocReducer)(pw.coalesce(pw.this.current_price, 0.0))
+        latest_change_percent=pw.reducers.argmax(pw.this.sent_at, pw.coalesce(pw.this.change_percent, 0.0))
     )
     
     # Debug: Log window contents
@@ -877,57 +710,47 @@ The following chart images have been saved separately:
             
             print(f"✅ Comprehensive report saved: {comprehensive_report_path}")
             
-            # Save three individual agent reports (for backward compatibility) - NO IMAGE EMBEDS
-            # 1. Indicator report
-            report_path = reports_subdir / f"indicator_analysis_{timestamp}.md"
-            content = f"""# 📊 Indicator Agent Analysis: {symbol}
-
-**Generated:** {datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")}
-**Period:** {window_start} to {window_end}
-
-## Analysis
-
-{agent_results.get('indicator_report', 'No analysis')}
-
----
-**Note:** Chart images saved separately in `../images/` directory
-"""
-            with open(report_path, 'w', encoding='utf-8') as f:
-                f.write(content)
+            # Save individual agent reports (for backward compatibility) - NO IMAGE EMBEDS
+            agent_reports = [
+                {
+                    "filename": f"indicator_analysis_{timestamp}.md",
+                    "emoji": "📊",
+                    "title": "Indicator Agent Analysis",
+                    "key": "indicator_report",
+                    "note": "Chart images saved separately in `../images/` directory"
+                },
+                {
+                    "filename": f"pattern_analysis_{timestamp}.md",
+                    "emoji": "📉",
+                    "title": "Pattern Agent Analysis",
+                    "key": "pattern_report",
+                    "note": f"Candlestick chart saved as `../images/candlestick_{timestamp}.png`"
+                },
+                {
+                    "filename": f"trend_analysis_{timestamp}.md",
+                    "emoji": "📈",
+                    "title": "Trend Agent Analysis",
+                    "key": "trend_report",
+                    "note": f"Trend chart saved as `../images/trend_{timestamp}.png`"
+                }
+            ]
             
-            # 2. Pattern report
-            report_path = reports_subdir / f"pattern_analysis_{timestamp}.md"
-            content = f"""# 📉 Pattern Agent Analysis: {symbol}
+            for report_info in agent_reports:
+                report_path = reports_subdir / report_info["filename"]
+                content = f"""# {report_info['emoji']} {report_info['title']}: {symbol}
 
 **Generated:** {datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")}
 **Period:** {window_start} to {window_end}
 
 ## Analysis
 
-{agent_results.get('pattern_report', 'No analysis')}
+{agent_results.get(report_info['key'], 'No analysis')}
 
 ---
-**Note:** Candlestick chart saved as `../images/candlestick_{timestamp}.png`
+**Note:** {report_info['note']}
 """
-            with open(report_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            
-            # 3. Trend report
-            report_path = reports_subdir / f"trend_analysis_{timestamp}.md"
-            content = f"""# 📈 Trend Agent Analysis: {symbol}
-
-**Generated:** {datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")}
-**Period:** {window_start} to {window_end}
-
-## Analysis
-
-{agent_results.get('trend_report', 'No analysis')}
-
----
-**Note:** Trend chart saved as `../images/trend_{timestamp}.png`
-"""
-            with open(report_path, 'w', encoding='utf-8') as f:
-                f.write(content)
+                with open(report_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
             
             print(f"✅ All reports saved for {symbol} ({len(saved_plots)} indicator plots)")
                 
@@ -1003,6 +826,19 @@ The following chart images have been saved separately:
         
         return pw.Json(result)
     
+    # Helper for empty image dict fallback
+    def _empty_images_dict():
+        return {
+            "pattern_image": "", 
+            "trend_image": "",
+            "rsi_plot": "",
+            "macd_plot": "",
+            "stochastic_plot": "",
+            "roc_plot": "",
+            "willr_plot": "",
+            "price_plot": ""
+        }
+    
     # UDF to generate images
     @pw.udf
     def generate_images(kline_data: pw.Json, indicators: pw.Json) -> pw.Json:
@@ -1018,31 +854,13 @@ The following chart images have been saved separately:
             # Validate data structure
             if not kline_dict or not all(k in kline_dict for k in ['Datetime', 'Open', 'High', 'Low', 'Close']):
                 print("⚠️ Warning: Invalid kline_data structure, missing required fields")
-                return pw.Json({
-                    "pattern_image": "", 
-                    "trend_image": "",
-                    "rsi_plot": "",
-                    "macd_plot": "",
-                    "stochastic_plot": "",
-                    "roc_plot": "",
-                    "willr_plot": "",
-                    "price_plot": ""
-                })
+                return pw.Json(_empty_images_dict())
             
             # Check data points
             data_points = len(kline_dict.get('Datetime', []))
             if data_points < 2:
                 print(f"⚠️ Warning: Insufficient data points ({data_points}) for chart generation")
-                return pw.Json({
-                    "pattern_image": "", 
-                    "trend_image": "",
-                    "rsi_plot": "",
-                    "macd_plot": "",
-                    "stochastic_plot": "",
-                    "roc_plot": "",
-                    "willr_plot": "",
-                    "price_plot": ""
-                })
+                return pw.Json(_empty_images_dict())
             
             print(f"📊 Generating comprehensive charts with {data_points} data points...")
             
@@ -1083,16 +901,7 @@ The following chart images have been saved separately:
             print(f"❌ Error generating images: {e}")
             import traceback
             traceback.print_exc()
-            return pw.Json({
-                "pattern_image": "", 
-                "trend_image": "",
-                "rsi_plot": "",
-                "macd_plot": "",
-                "stochastic_plot": "",
-                "roc_plot": "",
-                "willr_plot": "",
-                "price_plot": ""
-            })
+            return pw.Json(_empty_images_dict())
     
     # UDF to run LangGraph analysis
     @pw.udf
@@ -1202,7 +1011,7 @@ The following chart images have been saved separately:
                 "confidence_score": 0.0
             })
 
-    # Compute derived indicators from the reducer results
+    # Prepare kline data and OHLC tuples for indicator calculation
     enriched = windowed_table.select(
         pw.this.symbol,
         pw.this.window_start,
@@ -1211,16 +1020,9 @@ The following chart images have been saved separately:
         pw.this.latest_price,
         pw.this.latest_change,
         pw.this.latest_change_percent,
-        pw.this.rsi,
-        pw.this.ema12,
-        pw.this.ema26,
-        pw.this.ema9,
-        pw.this.roc,
         pw.this.closes,
         pw.this.highs,
         pw.this.lows,
-        # Compute MACD from EMAs
-        macd=pw.this.ema12 - pw.this.ema26,
         kline_data=prepare_kline_data(
             pw.this.timestamps,
             pw.this.opens,
@@ -1230,7 +1032,7 @@ The following chart images have been saved separately:
         )
     )
     
-    # Package indicators into JSON format for agents
+    # Package indicators into JSON format for agents (uses TA-Lib for accurate calculations)
     @pw.udf
     def package_indicators(closes: tuple, highs: tuple, lows: tuple) -> pw.Json:
         """
