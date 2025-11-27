@@ -287,9 +287,9 @@ services:
       sentiment-producer:
         condition: service_started
 
-  # ============================================
-  # TRADING AGENTS API & WORKER
-  # ============================================
+  ============================================
+  TRADING AGENTS API & WORKER
+  ============================================
   trading-agents-api:
     build:
       context: ./trading_agents
@@ -297,7 +297,7 @@ services:
     container_name: trading-agents-api
     command: uvicorn api.fastapi_server:app --host 0.0.0.0 --port 8001
     networks:
-      - stock-network
+      - stock-network 
     env_file:
       - ./trading_agents/.env
     environment:
