@@ -13,5 +13,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application code
 COPY . .
 
-# Expose FastAPI port
+# Expose FastAPI ports
 EXPOSE 8000
+EXPOSE 4000

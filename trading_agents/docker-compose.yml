@@ -40,10 +40,7 @@ services:
     env_file:
       - .env
     environment:
-      # Pathway API configuration - using the unified service name
       PATHWAY_API_URL: http://pathway-reports-service:8000
-      
-      # Python unbuffered output
       PYTHONUNBUFFERED: 1
     volumes:
       - .:/app
@@ -53,6 +50,28 @@ services:
       - trading-agents-worker
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  orchestrator-api:
+    build: .
+    container_name: orchestrator-api
+    networks:
+      - stock-network
+    ports:
+      - "7002:7002"
+    env_file:
+      - .env
+    environment:
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    command: python -m uvicorn api.orchestrator_api:app --host 0.0.0.0 --port 7002 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7002/health"]
       interval: 10s
       timeout: 5s
       retries: 5

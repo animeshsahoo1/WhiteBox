@@ -8,7 +8,7 @@ import requests
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 from dotenv import load_dotenv
-from producers.base_producer import BasePrdocoducer
+from producers.base_producer import BaseProducer
 from bs4 import BeautifulSoup
 
 load_dotenv()

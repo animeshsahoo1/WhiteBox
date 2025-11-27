@@ -11,3 +11,5 @@ rq
 fastapi
 uvicorn[standard]
 pydantic
+langchain-openai
+langchain-core
