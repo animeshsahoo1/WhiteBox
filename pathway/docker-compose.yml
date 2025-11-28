@@ -18,12 +18,12 @@ services:
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 3s
       retries: 5
     restart: unless-stopped
- 
+
   # FastAPI Reports Service
   reports-api:
     build: .
@@ -38,14 +38,25 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: 0
+      # API keys for potential future agent integration
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      KNOWLEDGE_BASE_PATH: /app/knowledge_base
     ports:
       - "8000:8000"
     volumes:
-      - ./reports:/app/reports
+      - ./reports/fundamental:/app/reports/fundamental
+      - ./reports/market:/app/reports/market
+      - ./reports/news:/app/reports/news
+      - ./reports/sentiment:/app/reports/sentiment
+      - ./reports/market_demo:/app/reports/market_demo
       - ./api:/app/api
+      - ./historical_reports:/app/historical_reports
+      - ./agents:/app/agents
+      - ../knowledge_base:/app/knowledge_base
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -53,59 +64,6 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-# RAG API Service (LangGraph + Pathway)
-  rag-api:
-    build: .
-    container_name: pathway-rag-api
-    command: uvicorn api.rag_api:app --host 0.0.0.0 --port 7001
-    networks:
-      - stock-network
-    env_file:
-      - .env
-    environment:
-      PYTHONUNBUFFERED: 1
-      KNOWLEDGE_BASE_PATH: /app/knowledge_base
-    ports:
-      - "7001:7001"
-    volumes:
-      - ./api:/app/api
-      - ../knowledge_base:/app/knowledge_base
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:7001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
-
-  # Historical Analysis API Service
-  historical-analysis-api:
-    build: .
-    container_name: pathway-historical-analysis-api
-    command: uvicorn api.historical_analysis_api:app --host 0.0.0.0 --port 4000
-    networks:
-      - stock-network
-    env_file:
-      - .env
-    environment:
-      PYTHONUNBUFFERED: 1
-      # API keys for potential future agent integration
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
-    ports:
-      - "4000:4000"
-    volumes:
-      - ./historical_reports:/app/historical_reports
-      - ./api:/app/api
-      - ./agents:/app/agents
-      - .:/app
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
 
   # Pathway Consumers
   fundamental-consumer:
@@ -123,8 +81,7 @@ services:
       REDIS_PORT: 6379
       REDIS_DB: 0
     volumes:
-      - ./reports:/app/reports
-      - .:/app
+      - ./reports/fundamental:/app/reports/fundamental
     restart: unless-stopped
     depends_on:
       redis:
@@ -145,8 +102,7 @@ services:
       REDIS_PORT: 6379
       REDIS_DB: 0
     volumes:
-      - ./reports:/app/reports
-      - .:/app
+      - ./reports/market:/app/reports/market
     restart: unless-stopped
     depends_on:
       redis:
@@ -167,8 +123,7 @@ services:
       REDIS_PORT: 6379
       REDIS_DB: 0
     volumes:
-      - ./reports:/app/reports
-      - .:/app
+      - ./reports/news:/app/reports/news
     restart: unless-stopped
     depends_on:
       redis:
@@ -192,9 +147,8 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
     volumes:
-      - ./reports:/app/reports
+      - ./reports/sentiment:/app/reports/sentiment
       - ./sentiment_cluster_state:/app/sentiment_cluster_state
-      - .:/app
     restart: unless-stopped
     depends_on:
       redis:
@@ -224,13 +178,8 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
     volumes:
-      - ./reports:/app/reports
-      - ../streaming/producers/demo_data:/app/demo_data:ro  # Mount CSV data as read-only
-      - .:/app
-    restart: "no"  # Don't auto-restart when CSV replay finishes
+      - ./reports/market_demo:/app/reports/market_demo
+      - ../streaming/producers/demo_data:/app/demo_data:ro # Mount CSV data as read-only
+    restart: "no" # Don't auto-restart when CSV replay finishes
     profiles:
-      - demo  # Only start when explicitly requested with --profile demo
-
-volumes:
-  redis-data:
-
+      - demo # Only start when explicitly requested with --profile demo

@@ -19,7 +19,7 @@ services:
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -39,7 +39,7 @@ services:
     ports:
       - "2181:2181"
     healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      test: [ "CMD", "nc", "-z", "localhost", "2181" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -53,16 +53,16 @@ services:
       zookeeper:
         condition: service_healthy
     ports:
-      - "9092:9092"
+      - "9023:9023"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9023
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
     healthcheck:
-      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      test: [ "CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9023" ]
       interval: 10s
       timeout: 10s
       retries: 5
@@ -76,7 +76,7 @@ services:
       context: ./streaming
       dockerfile: Dockerfile
     container_name: market-producer
-    command: ["python", "producers/market_data_producer.py"]
+    command: [ "python", "producers/market_data_producer.py" ]
     networks:
       - stock-network
     environment:
@@ -93,7 +93,7 @@ services:
       context: ./streaming
       dockerfile: Dockerfile
     container_name: news-producer
-    command: ["python", "producers/news_producer.py"]
+    command: [ "python", "producers/news_producer.py" ]
     networks:
       - stock-network
     environment:
@@ -110,7 +110,7 @@ services:
       context: ./streaming
       dockerfile: Dockerfile
     container_name: sentiment-producer
-    command: ["python", "producers/sentiment_producer.py"]
+    command: [ "python", "producers/sentiment_producer.py" ]
     networks:
       - stock-network
     environment:
@@ -127,7 +127,7 @@ services:
       context: ./streaming
       dockerfile: Dockerfile
     container_name: fundamental-producer
-    command: ["python", "producers/fundamental_data_producer.py"]
+    command: [ "python", "producers/fundamental_data_producer.py" ]
     networks:
       - stock-network
     environment:
@@ -157,14 +157,20 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: 0
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      KNOWLEDGE_BASE_PATH: /app/knowledge_base
     ports:
       - "8000:8000"
     volumes:
       - ./pathway/reports:/app/reports
       - ./pathway/api:/app/api
+      - ./pathway/historical_reports:/app/historical_reports
+      - ./pathway/agents:/app/agents
+      - ./knowledge_base:/app/knowledge_base
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -287,9 +293,9 @@ services:
       sentiment-producer:
         condition: service_started
 
-  ============================================
-  TRADING AGENTS API & WORKER
-  ============================================
+  # ============================================
+  # TRADING AGENTS API & WORKER
+  # ============================================
   trading-agents-api:
     build:
       context: ./trading_agents
@@ -297,7 +303,7 @@ services:
     container_name: trading-agents-api
     command: uvicorn api.fastapi_server:app --host 0.0.0.0 --port 8001
     networks:
-      - stock-network 
+      - stock-network
     env_file:
       - ./trading_agents/.env
     environment:

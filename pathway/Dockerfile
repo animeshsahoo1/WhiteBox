@@ -15,4 +15,3 @@ COPY . .
 
 # Expose FastAPI ports
 EXPOSE 8000
-EXPOSE 4000

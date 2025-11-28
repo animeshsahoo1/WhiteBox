@@ -168,7 +168,7 @@ answer_grader_prompt = ChatPromptTemplate.from_messages([
 answer_grader = answer_grader_prompt | llm.with_structured_output(GradeAnswer)
 
 def retrieve_rag(question: str) -> List[Document]:
-    rag_url = os.getenv("RAG_API_URL", "http://localhost:7001")
+    rag_url = os.getenv("RAG_API_URL", "http://localhost:8000")
     try:
         r = requests.post(f"{rag_url}/query", json={"question": question}, timeout=30)
         r.raise_for_status()

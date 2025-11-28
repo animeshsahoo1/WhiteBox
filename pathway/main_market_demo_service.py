@@ -129,7 +129,7 @@ def main():
     )
     
     # Process market data with multi-agent system
-    reports_directory = f"/app/reports/demo/{ticker}_{interval}"
+    reports_directory = f"/app/reports/market_demo/{ticker}_{interval}"
     
     print(f"🤖 Initializing market agent analysis pipeline...")
     print(f"⚙️  Window: {lookback_minutes}min lookback, {hop_minutes}min hop")

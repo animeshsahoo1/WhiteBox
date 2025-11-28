@@ -18,7 +18,7 @@ def main():
     market_table = market_consumer.consume()
 
     # Process market data with multi-agent system and generate comprehensive reports
-    reports_directory = os.path.join(os.path.dirname(__file__), "reports/market")
+    reports_directory = "/app/reports/market"
     
     # Configure sliding window parameters
     lookback_minutes = int(os.getenv("MARKET_LOOKBACK_MINUTES", "10"))

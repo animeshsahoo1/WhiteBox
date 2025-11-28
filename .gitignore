@@ -42,5 +42,8 @@ pathway/output/*.csv
 pathway/reports/*/
 
 test.py
-knowledge_base
+knowledge_base    
 backend_server
+sentiment_cluster_state
+reports
+streaming/sentiment_logs

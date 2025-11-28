@@ -16,7 +16,7 @@ def main():
     # Initialize consumer
     fundamental_consumer = FundamentalDataConsumer()
     fundamental_table = fundamental_consumer.consume()
-    reports_directory = os.path.join(os.path.dirname(__file__), "reports/fundamental")
+    reports_directory = "/app/reports/fundamental"
     
     # Process fundamental data
     updated_fundamental_reports = process_fundamental_stream(

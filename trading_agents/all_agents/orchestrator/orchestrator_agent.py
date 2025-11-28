@@ -68,7 +68,7 @@ def fetch_reports(symbol: str):
 def fetch_fundamental_data(question: str):
     """Fetch fundamental data QnA from RAG API on port 7001."""
     try:
-        url = "http://localhost:7001/query"
+        url = "http://localhost:8000/query"
         payload = {"question": question}
         response = requests.post(url, json=payload, timeout=10)
         response.raise_for_status()
