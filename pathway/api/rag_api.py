@@ -194,7 +194,7 @@ router_prompt = ChatPromptTemplate.from_messages([
     ("system", "Route user question to vectorstore or web_search. Use vectorstore for financial documents questions. Use web_search for current events or general knowledge."),
     ("human", "{question}")
 ])
-router = router_prompt | llm.with_structured_output(RouteQuery)
+route_llm = router_prompt | llm.with_structured_output(RouteQuery)
 
 retrieval_grader_prompt = ChatPromptTemplate.from_messages([
     ("system", "You are a grader assessing relevance of a retrieved document to a user question. If the document contains keyword(s) or semantic meaning related to the user question, grade it as relevant. Give a binary score 'yes' or 'no'."),
@@ -297,7 +297,7 @@ def generate_node(state):
     return {"documents": state["documents"], "question": state["question"], "generation": generation.content, "attempts": state["attempts"] + 1}
 
 def route_question_node(state):
-    source = router.invoke({"question": state["question"]})
+    source = route_llm.invoke({"question": state["question"]})
     return "web_search" if source.datasource == "web_search" else "vectorstore"
 
 def grade_generation_node(state):

@@ -183,3 +183,6 @@ services:
     restart: "no" # Don't auto-restart when CSV replay finishes
     profiles:
       - demo # Only start when explicitly requested with --profile demo
+
+volumes:
+  redis-data:
