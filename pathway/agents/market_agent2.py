@@ -961,7 +961,7 @@ The following chart images have been saved separately:
                     base_url="https://openrouter.ai/api/v1"
                 )
                 graph_llm = ChatOpenAI(
-                    model="gpt-4o",
+                    model="gpt-4o-mini",
                     temperature=0.1,
                     api_key=openrouter_key,
                     base_url="https://openrouter.ai/api/v1"

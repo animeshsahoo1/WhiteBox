@@ -1,0 +1,8 @@
+docker build -t trade .
+
+docker run --add-host=host.docker.internal:host-gateway -p 2000:2000 -it --env-file .env -v "${PWD}:/app" -w /app trade bash
+
+
+### U NEED TO ON THE RAG SERVER
+go to agnetx > AGENTX > read to_run.txt > it has intructions to on the docker container with port forwarding
+(PORT: 5091)

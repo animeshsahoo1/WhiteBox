@@ -432,7 +432,7 @@ setup.quick_thinking_llm = llms.OpenAIChat(
 )
 
 setup.deep_thinking_llm = llms.OpenAIChat(
-    model="gpt-4o",
+    model="gpt-4o-mini",
     temperature=0.3
 )
 ```

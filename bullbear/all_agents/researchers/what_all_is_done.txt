@@ -1,0 +1,22 @@
+Bear and Bull both have samea architecture, just thinking and prompting is different
+
+Bear architecture: It hase bear_memory, once you run the .py file all the memories are stored there, it is VDB but internaly 
+stores memories as graph with nodes, as per paper it claimed in this way. Then when need memory comes it is enriched using LLM and 
+then added to the graph(linking) and grpah is updated(evolution)
+
+Efficient Memory was implemented from A-Mem, it uses ChromaDB locally once u do that "bear_memory=...."
+
+now regardgin query part, LiteLLM wrapper by pathway does not support Tool calling okay so what i did was
+LLM -> outputs a json format what tool it wanan use and also gives arguements -> manually call the tool and pass it to next 
+LLM who gives the final output -> 2 step ReAct architecture i guesss
+
+FUTURE WORK:
+1. Decide how to stop dynamically
+2. Proper Documetns have to be indexed as now for sample the inputs docs is some sample text regarding fire safety
+3. Fa3ster has used smtg compresion, LLM reasonig during retrival can implemetn that
+4. Have to read papers on query retrival to generate good prompts
+
+
+to make this work make sure "agnetx>AGENTX>server>rag>ragServer.py" is running as it is VDB from where we do queries
+and then run bear_researcher.py, it also has sample testcode
+make sure you remove sample test code and cross checks states before integrating it into the graph
