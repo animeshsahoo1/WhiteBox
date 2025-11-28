@@ -8,7 +8,7 @@ import threading
 from typing import List, Literal
 from dotenv import load_dotenv
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -194,7 +194,7 @@ router_prompt = ChatPromptTemplate.from_messages([
     ("system", "Route user question to vectorstore or web_search. Use vectorstore for financial documents questions. Use web_search for current events or general knowledge."),
     ("human", "{question}")
 ])
-router = router_prompt | llm.with_structured_output(RouteQuery)
+route_llm = router_prompt | llm.with_structured_output(RouteQuery)
 
 retrieval_grader_prompt = ChatPromptTemplate.from_messages([
     ("system", "You are a grader assessing relevance of a retrieved document to a user question. If the document contains keyword(s) or semantic meaning related to the user question, grade it as relevant. Give a binary score 'yes' or 'no'."),
@@ -297,7 +297,7 @@ def generate_node(state):
     return {"documents": state["documents"], "question": state["question"], "generation": generation.content, "attempts": state["attempts"] + 1}
 
 def route_question_node(state):
-    source = router.invoke({"question": state["question"]})
+    source = route_llm.invoke({"question": state["question"]})
     return "web_search" if source.datasource == "web_search" else "vectorstore"
 
 def grade_generation_node(state):
@@ -326,17 +326,10 @@ async def run_workflow(question: str):
     result = await graph_app.ainvoke(inputs)
     return result
 
+
 # ==================== FastAPI Setup ====================
 
-app = FastAPI(title="RAG API", version="1.0.0", description="LangGraph + Pathway RAG API")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+router = APIRouter()
 
 class QueryRequest(BaseModel):
     question: str
@@ -346,11 +339,11 @@ class QueryResponse(BaseModel):
     answer: str
     sources: list
 
-@app.get("/health")
+@router.get("/health")
 def health():
     return {"status": "ok", "service": "rag-api"}
 
-@app.post("/query", response_model=QueryResponse)
+@router.post("/query", response_model=QueryResponse)
 async def query_endpoint(req: QueryRequest):
     """Main RAG query endpoint."""
     try:
@@ -363,6 +356,3 @@ async def query_endpoint(req: QueryRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=7001)

@@ -18,7 +18,7 @@ def main():
     news_table = news_consumer.consume()
 
     # Process news data and generate AI reports
-    reports_directory = os.path.join(os.path.dirname(__file__), "reports/news")
+    reports_directory = "/app/reports/news"
     updated_news_reports = process_news_stream(
         news_table, reports_directory=reports_directory
     )

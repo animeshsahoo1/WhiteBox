@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Dict, Optional
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 # Add parent directory to path to import redis_cache
@@ -18,6 +19,8 @@ from redis_cache import (
     get_reports_for_symbol,
     list_symbols as redis_list_symbols,
 )
+from .historical_analysis_api import router as historical_router
+from .rag_api import router as rag_router
 
 REPORT_TYPES = ["fundamental", "market", "news", "sentiment"]
 
@@ -26,6 +29,17 @@ app = FastAPI(
     version="5.0.0",
     description="FastAPI serves AI reports directly from the Redis cache populated by Pathway",
 )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(historical_router, tags=["Historical Analysis"])
+app.include_router(rag_router, tags=["RAG"])
 
 
 class ReportsResponse(BaseModel):
@@ -67,9 +81,9 @@ def _compute_report_counts() -> Dict[str, int]:
 @app.get("/", response_model=dict)
 async def root() -> dict:
     return {
-        "message": "Pathway Live Reports API (Redis Cache)",
+        "message": "Pathway Unified API",
         "version": "5.0.0",
-        "architecture": "Pathway streams reports into Redis; FastAPI reads from Redis on demand",
+        "architecture": "Unified Server for Reports, Historical Analysis, and RAG",
         "endpoints": {
             "GET /reports/{symbol}": "Get all cached reports for a stock symbol",
             "GET /reports/{symbol}/{report_type}": "Get a specific report",
@@ -77,6 +91,8 @@ async def root() -> dict:
             "GET /clusters/{symbol}": "Get cluster data for a specific symbol",
             "GET /symbols": "List all symbols with cached reports",
             "GET /health": "Health check endpoint",
+            "POST /analyze": "Historical Analysis",
+            "POST /query": "RAG Query"
         },
     }
 

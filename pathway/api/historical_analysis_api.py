@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 from enum import Enum
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, APIRouter
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, validator
 import uvicorn
@@ -39,11 +39,9 @@ from agents.utils.batch_analysis import (
 # market_agent2 saves directly to reports/market/{ticker}/
 REPORTS_BASE_DIR = Path("./reports/market")
 
-app = FastAPI(
-    title="Historical Market Analysis API (Pathway)",
-    version="3.0.0",
-    description="Generate market analysis using Pathway + market_agent2 pipeline on historical data",
-)
+
+router = APIRouter()
+
 
 # =====================================================================
 # ENUMS AND MODELS
@@ -196,7 +194,7 @@ def generate_historical_report(request: AnalysisRequest, report_id: str) -> Dict
 # API ENDPOINTS
 # =====================================================================
 
-@app.get("/")
+@router.get("/")
 async def root():
     return {
         "service": "Historical Market Analysis API (Pathway)",
@@ -209,7 +207,7 @@ async def root():
     }
 
 
-@app.get("/health")
+@router.get("/health")
 async def health():
     return {
         "status": "healthy",
@@ -219,7 +217,7 @@ async def health():
     }
 
 
-@app.post("/analyze", response_model=AnalysisResponse)
+@router.post("/analyze", response_model=AnalysisResponse)
 async def analyze(request: AnalysisRequest):
     """
     Generate complete historical analysis with comprehensive report and all images.
@@ -248,7 +246,4 @@ async def analyze(request: AnalysisRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-if __name__ == "__main__":
-    uvicorn.run("historical_analysis_api:app", host="0.0.0.0", port=4000, reload=True)
 

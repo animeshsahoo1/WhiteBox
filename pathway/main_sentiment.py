@@ -25,7 +25,7 @@ def main():
     sentiment_table = sentiment_consumer.consume_flattened()
 
     # Process sentiment data with clustering pipeline
-    reports_directory = os.path.join(os.path.dirname(__file__), "reports/sentiment")
+    reports_directory = "/app/reports/sentiment"
     
     print("\n📊 Processing Steps:")
     print("  1️⃣  Assign posts to clusters (per-symbol)")
