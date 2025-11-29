@@ -21,13 +21,15 @@ from redis_cache import (
 )
 from .historical_analysis_api import router as historical_router
 from .rag_api import router as rag_router
+from .bullbear_api import router as bullbear_router
+from .orchestrator_api import router as orchestrator_router
 
-REPORT_TYPES = ["fundamental", "market", "news", "sentiment"]
+REPORT_TYPES = ["fundamental", "market", "news", "sentiment", "facilitator"]
 
 app = FastAPI(
-    title="Pathway Live Reports API (Redis Cache)",
-    version="5.0.0",
-    description="FastAPI serves AI reports directly from the Redis cache populated by Pathway",
+    title="Pathway Unified API",
+    version="7.0.0",
+    description="Unified API for Reports, RAG, Bull-Bear Debate, and Orchestrator",
 )
 
 app.add_middleware(
@@ -40,6 +42,8 @@ app.add_middleware(
 
 app.include_router(historical_router, tags=["Historical Analysis"])
 app.include_router(rag_router, tags=["RAG"])
+app.include_router(bullbear_router, tags=["Bull-Bear Debate"])
+app.include_router(orchestrator_router, tags=["Orchestrator"])
 
 
 class ReportsResponse(BaseModel):
@@ -48,6 +52,7 @@ class ReportsResponse(BaseModel):
     market_report: Optional[str] = None
     news_report: Optional[str] = None
     sentiment_report: Optional[str] = None
+    facilitator_report: Optional[str] = None
     timestamp: str
     status: str
 
@@ -82,17 +87,20 @@ def _compute_report_counts() -> Dict[str, int]:
 async def root() -> dict:
     return {
         "message": "Pathway Unified API",
-        "version": "5.0.0",
-        "architecture": "Unified Server for Reports, Historical Analysis, and RAG",
+        "version": "7.0.0",
+        "architecture": "Unified Server for Reports, RAG, Bull-Bear Debate, and Orchestrator",
         "endpoints": {
-            "GET /reports/{symbol}": "Get all cached reports for a stock symbol",
-            "GET /reports/{symbol}/{report_type}": "Get a specific report",
-            "GET /clusters": "Get all cluster visualization data (for frontend graphs)",
-            "GET /clusters/{symbol}": "Get cluster data for a specific symbol",
-            "GET /symbols": "List all symbols with cached reports",
-            "GET /health": "Health check endpoint",
+            "GET /reports/{symbol}": "Get all cached reports (includes facilitator)",
+            "GET /reports/{symbol}/{report_type}": "Get specific report",
+            "GET /clusters": "Get cluster visualization data",
+            "GET /clusters/{symbol}": "Get symbol clusters",
+            "GET /symbols": "List symbols with cached reports",
+            "GET /health": "Health check",
             "POST /analyze": "Historical Analysis",
-            "POST /query": "RAG Query"
+            "POST /query": "RAG Query",
+            "POST /debate/{symbol}": "Run bull-bear debate",
+            "GET /debate/{symbol}/status": "Check facilitator report exists",
+            "POST /orchestrator/query": "Smart query with auto context gathering"
         },
     }
 
@@ -144,12 +152,14 @@ async def get_all_reports(symbol: str) -> ReportsResponse:
     market_report = reports.get("market", {}).get("content")
     news_report = reports.get("news", {}).get("content")
     sentiment_report = reports.get("sentiment", {}).get("content")
+    facilitator_report = reports.get("facilitator", {}).get("content")
 
     print(f"\n📊 Cached results for {normalized_symbol}:")
     print(f"  Fundamental: {'✅' if fundamental_report else '❌'}")
     print(f"  Market: {'✅' if market_report else '❌'}")
     print(f"  News: {'✅' if news_report else '❌'}")
     print(f"  Sentiment: {'✅' if sentiment_report else '❌'}")
+    print(f"  Facilitator: {'✅' if facilitator_report else '❌'}")
     print(f"✅ Returning cached response for {normalized_symbol}\n")
 
     return ReportsResponse(
@@ -158,6 +168,7 @@ async def get_all_reports(symbol: str) -> ReportsResponse:
         market_report=market_report,
         news_report=news_report,
         sentiment_report=sentiment_report,
+        facilitator_report=facilitator_report,
         timestamp=datetime.utcnow().isoformat(),
         status="success",
     )
