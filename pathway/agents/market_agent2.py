@@ -970,7 +970,7 @@ The following chart images have been saved separately:
                 # Use OpenAI directly
                 print("🔑 Using OpenAI API")
                 tool_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.1, api_key=openai_key)
-                graph_llm = ChatOpenAI(model="gpt-4o", temperature=0.1, api_key=openai_key)
+                graph_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.1, api_key=openai_key)
             else:
                 raise ValueError("No API key found. Set either OPENROUTER_API_KEY or OPENAI_API_KEY environment variable.")
             

@@ -6,35 +6,25 @@ import ast
 
 import chromadb
 from chromadb.config import Settings
-from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
-from nltk.tokenize import word_tokenize
-
-
-def simple_tokenize(text):
-    return word_tokenize(text)
 
 
 class ChromaRetriever:
-    """Vector database retrieval using ChromaDB"""
+    """Vector database retrieval using ChromaDB with default embeddings."""
 
     def __init__(
         self, 
         collection_name: str = "memories", 
-        model_name: str = "all-MiniLM-L6-v2"
+        model_name: str = None  # Kept for compatibility, but ignored
     ):
-        """Initialize ChromaDB retriever.
+        """Initialize ChromaDB retriever with default embeddings.
 
         Args:
             collection_name: Name of the ChromaDB collection
-            model_name: SentenceTransformer model name for embeddings
+            model_name: Ignored - uses ChromaDB default embeddings
         """
         self.client = chromadb.Client(Settings(allow_reset=True))
-        self.embedding_function = SentenceTransformerEmbeddingFunction(
-            model_name=model_name
-        )
-        self.collection = self.client.get_or_create_collection(
-            name=collection_name, embedding_function=self.embedding_function
-        )
+        # Use ChromaDB's default embedding function (no external dependencies)
+        self.collection = self.client.get_or_create_collection(name=collection_name)
 
     def add_document(self, document: str, metadata: Dict, doc_id: str):
         """Add a document to ChromaDB."""
