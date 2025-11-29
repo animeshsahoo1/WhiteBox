@@ -769,28 +769,84 @@ def process_sentiment_stream(
     
     filtered_prompts_table = prompts_table.filter(has_valid_prompts(pw.this.prompts))
 
-    # STEP 6: Generate final reports via LLM and save
+    # STEP 6: Generate final reports via LLM and save (with alert trigger)
+    # Cooldown tracking for alerts (module-level)
+    _alert_cooldowns = {}
+    
     @pw.udf
-    def _save_report(symbol: str, report_content: str) -> str:
+    def _save_report_and_alert(symbol: str, report_content: str, cluster_data_json: str) -> str:
+        """Save report AND trigger BullBear alert if sentiment is outside threshold."""
+        import httpx
+        from datetime import datetime as dt
+        
+        # 1. Save report (original functionality)
         report_path = report_updater._get_report_path(symbol)
         with open(report_path, "w", encoding="utf-8") as f:
             f.write(report_content)
         print(f"\n{'='*60}")
-        print(
-            f"  💾 [{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC] "
-            f"Saved sentiment report for {symbol}"
-        )
+        print(f"  💾 [{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC] Saved sentiment report for {symbol}")
         print(f"  📁 Location: {report_path}")
         print(f"  📊 Report length: {len(report_content)} characters")
+        
+        # 2. Calculate overall sentiment from cluster data and trigger alert
+        try:
+            clusters = json.loads(cluster_data_json)
+            if clusters:
+                total_weighted = sum(c['avg_sentiment'] * c['count'] for c in clusters)
+                total_posts = sum(c['count'] for c in clusters)
+                overall_sentiment = total_weighted / total_posts if total_posts > 0 else 0.0
+                
+                # Get alert config from env
+                alert_min = float(os.getenv("SENTIMENT_ALERT_MIN", "-0.5"))
+                alert_max = float(os.getenv("SENTIMENT_ALERT_MAX", "0.5"))
+                alerts_enabled = os.getenv("SENTIMENT_ALERT_ENABLED", "true").lower() == "true"
+                alert_cooldown = int(os.getenv("SENTIMENT_ALERT_COOLDOWN", "300"))
+                bullbear_url = os.getenv("BULLBEAR_API_URL", "http://localhost:8000")
+                
+                print(f"  🎯 Alert check: sentiment={overall_sentiment:.3f}, range=[{alert_min}, {alert_max}]")
+                
+                if alerts_enabled and (overall_sentiment < alert_min or overall_sentiment > alert_max):
+                    # Check cooldown
+                    now = dt.now()
+                    last = _alert_cooldowns.get(symbol)
+                    if not last or (now - last).total_seconds() >= alert_cooldown:
+                        direction = "bearish" if overall_sentiment < alert_min else "bullish"
+                        print(f"  🚨 TRIGGERING BullBear API ({direction})...")
+                        try:
+                            response = httpx.post(
+                                f"{bullbear_url}/debate/{symbol}",
+                                json={"max_rounds": 2, "background": True},
+                                timeout=10.0
+                            )
+                            _alert_cooldowns[symbol] = now
+                            print(f"  ✅ BullBear API called (status: {response.status_code})")
+                        except httpx.ConnectError:
+                            print(f"  ⚠️ BullBear API not reachable at {bullbear_url}")
+                        except Exception as e:
+                            print(f"  ⚠️ BullBear API error: {e}")
+                    else:
+                        remaining = alert_cooldown - (now - last).total_seconds()
+                        print(f"  ⏳ Alert cooldown active ({remaining:.0f}s remaining)")
+                else:
+                    print(f"  ✅ Sentiment within range, no alert needed")
+        except Exception as e:
+            print(f"  ⚠️ Alert check error: {e}")
+        
         print(f"{'='*60}\n")
         return report_content
     
     # Generate reports conditionally based on API key availability
     if report_updater.has_valid_api_key:
         print("  🔑 Generating reports with LLM")
-        response_table = filtered_prompts_table.select(
-            symbol=pw.this.symbol,
-            response=_save_report(pw.this.symbol, report_updater.llm(pw.this.prompts))
+        response_table = filtered_prompts_table.join(
+            summaries_by_symbol, pw.left.symbol == pw.right.symbol
+        ).select(
+            symbol=pw.left.symbol,
+            response=_save_report_and_alert(
+                pw.left.symbol, 
+                report_updater.llm(pw.left.prompts),
+                summaries_to_json(pw.right.summaries_json)
+            )
         )
     else:
         print("  ⚠️  No valid API key - generating basic reports")
@@ -800,9 +856,15 @@ def process_sentiment_stream(
             company = report_updater.symbol_mapping.get(symbol, symbol)
             return f"# {company} ({symbol}) - Sentiment Report\n\nBasic sentiment tracking enabled.\n\nNote: LLM analysis unavailable (no API key configured)."
         
-        response_table = filtered_prompts_table.select(
-            symbol=pw.this.symbol,
-            response=_save_report(pw.this.symbol, generate_basic_report(pw.this.symbol, pw.this.prompts))
+        response_table = filtered_prompts_table.join(
+            summaries_by_symbol, pw.left.symbol == pw.right.symbol
+        ).select(
+            symbol=pw.left.symbol,
+            response=_save_report_and_alert(
+                pw.left.symbol,
+                generate_basic_report(pw.left.symbol, pw.left.prompts),
+                summaries_to_json(pw.right.summaries_json)
+            )
         )
     
     # STEP 7: Create visualization table (separate from reports)
