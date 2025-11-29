@@ -1,4 +1,0 @@
-docker build -t trade .
-
-docker run --add-host=host.docker.internal:host-gateway -p 2000:2000 -it --env-file .env -v "${PWD}:/app" -w /app trade bash
-
