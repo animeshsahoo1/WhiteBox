@@ -23,7 +23,6 @@ def get_embedding(text: str) -> list:
         )
         return response.data[0]['embedding']  # Return as list for JSON serialization
     except Exception as e:
-        print(f"Embedding error: {e}")
         return [0.0] * 1536  # Fallback
 
 
@@ -153,8 +152,21 @@ BAD examples (too vague):
 Write ONLY the summary, no labels or extra formatting:"""
 
         try:
-            response = self.llm([{"role": "user", "content": prompt}])
-            return response.strip()
+            # Use litellm directly for synchronous call (self.llm is Pathway's async wrapper)
+            model_name = os.getenv('OPENAI_MODEL', 'openai/gpt-4o-mini')
+            if not model_name.startswith('openrouter/') and not model_name.startswith('openai/'):
+                model_name = f'openrouter/{model_name}'
+            
+            api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
+            response = litellm.completion(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                api_key=api_key,
+                api_base="https://openrouter.ai/api/v1",
+                temperature=0.0,
+                max_tokens=500,
+            )
+            return response.choices[0].message.content.strip()
         except Exception as e:
             print(f"Error generating cluster summary: {e}")
             return f"Discussion about {company} with {len(cluster_data['posts'])} posts on a common theme"
@@ -252,22 +264,18 @@ def process_sentiment_stream(
         if comments and len(comments) > 10:
             parts.append(comments[:300])
         result = " | ".join(parts) if parts else title or "No content"
-        print(f"  📝 Combined text fields: {result[:100]}...")
         return result
     
     @pw.udf
     def average_sentiment(title_sent: float, content_sent: float, comments_sent: float) -> float:
         """Calculate average sentiment across all fields"""
         avg = (title_sent + content_sent + comments_sent) / 3.0
-        print(f"  💭 Calculated avg sentiment: {avg:.3f}")
         return avg
     
     @pw.udf
     def generate_embedding(text: str) -> str:
         """Generate embedding for text (returns JSON string for storage)"""
-        print(f"  🔢 Generating embedding for text: {text[:50]}...")
         embedding = get_embedding(text)
-        print(f"  ✅ Generated embedding with {len(embedding)} dimensions")
         return json.dumps(embedding)
 
     # Enrich posts with combined text, sentiment, and embedding
@@ -320,7 +328,6 @@ def process_sentiment_stream(
         
         # Initialize state if None
         if current_state is None:
-            print("  🆕 Initializing new cluster state")
             current_state = {
                 'clusters': {},  # {cluster_id: cluster_data}
                 'next_cluster_id': 0,
@@ -354,8 +361,6 @@ def process_sentiment_stream(
         if not new_posts:
             return current_state
         
-        print(f"  🔄 Processing {len(new_posts)} new posts for symbol: {symbol}")
-        
         clusters = current_state['clusters']
         
         # Process each new post
@@ -376,7 +381,6 @@ def process_sentiment_stream(
             # Assign to existing cluster or create new
             if best_similarity >= SIMILARITY_THRESHOLD and best_cluster_id is not None:
                 # Update existing cluster
-                print(f"  ➕ Assigned to existing cluster {best_cluster_id} (similarity: {best_similarity:.3f})")
                 cluster = clusters[best_cluster_id]
                 count = cluster['count']
                 
@@ -406,7 +410,6 @@ def process_sentiment_stream(
             else:
                 # Create new cluster
                 new_cluster_id = current_state['next_cluster_id']
-                print(f"  🆕 Created new cluster {new_cluster_id}")
                 clusters[new_cluster_id] = {
                     'cluster_id': new_cluster_id,
                     'centroid': post_embedding,
@@ -507,24 +510,6 @@ def process_sentiment_stream(
         )
     )
     
-    # Debug: Log when cluster state changes
-    @pw.udf
-    def debug_cluster_state(symbol: str, cluster_state: pw.Json) -> str:
-        try:
-            state_dict = cluster_state.as_dict()
-            if state_dict and 'clusters' in state_dict:
-                num_clusters = len(state_dict['clusters'])
-                print(f"  🔍 DEBUG: Cluster state for {symbol} has {num_clusters} clusters")
-            else:
-                print(f"  ⚠️  DEBUG: No clusters in state for {symbol}")
-        except Exception as e:
-            print(f"  ❌ DEBUG: Error accessing cluster state: {e}")
-        return symbol
-    
-    _ = clustered_table.select(
-        debug_symbol=debug_cluster_state(pw.this.symbol, pw.this.cluster_state)
-    )
-    
     # STEP 3: Flatten cluster state into individual cluster rows
     @pw.udf
     def extract_cluster_id(cluster_dict: pw.Json) -> int:
@@ -573,11 +558,8 @@ def process_sentiment_stream(
     @pw.udf
     def extract_clusters(cluster_state: pw.Json) -> list:
         """Extract list of clusters from state"""
-        print(f"  🔧 extract_clusters called")
-        
         # Convert Pathway Json to Python dict using as_dict()
         if cluster_state is None:
-            print(f"  ⚠️  cluster_state is None")
             return []
         
         try:
@@ -585,13 +567,10 @@ def process_sentiment_stream(
             state_dict = cluster_state.as_dict()
             
             if not state_dict or 'clusters' not in state_dict:
-                print(f"  ⚠️  No 'clusters' key in state")
                 return []
             
             clusters_dict = state_dict['clusters']
-            print(f"  🔄 Successfully accessed clusters dict with {len(clusters_dict)} clusters")
         except Exception as e:
-            print(f"  ❌ Failed to access clusters: {e}")
             return []
         
         clusters_list = []
@@ -613,14 +592,7 @@ def process_sentiment_stream(
                     'created_at': str(cluster_data.get('created_at', '')),
                     'last_updated': str(cluster_data.get('last_updated', ''))
                 })
-            
-            print(f"  📦 Extracted {len(clusters_list)} clusters from state")
-            print(f"     Clusters with summaries: {sum(1 for c in clusters_list if c.get('summary'))}")
-            print(f"     Clusters without summaries: {sum(1 for c in clusters_list if not c.get('summary'))}")
         except Exception as e:
-            print(f"  ❌ Error iterating clusters: {e}")
-            import traceback
-            traceback.print_exc()
             return []
         
         return clusters_list
@@ -653,11 +625,9 @@ def process_sentiment_stream(
         )
         
         if not needs_generation:
-            print(f"  ♻️  Reusing existing summary for cluster {cluster_id} (count: {count})")
             return current_summary
         
         # Generate new summary using LLM
-        print(f"  📝 Generating LLM summary for {symbol} cluster {cluster_id} with {count} posts")
         
         cluster_data = {
             'posts': posts,
@@ -666,10 +636,8 @@ def process_sentiment_stream(
         
         try:
             summary = report_updater._generate_cluster_summary(symbol, cluster_id, cluster_data)
-            print(f"  ✅ Generated summary: {summary[:100]}...")
             return summary
         except Exception as e:
-            print(f"  ❌ Error generating summary: {e}")
             # Fallback: Create descriptive summary from post content
             company = report_updater.symbol_mapping.get(symbol, symbol)
             
@@ -711,10 +679,7 @@ def process_sentiment_stream(
             valid_summaries = [s for s in summaries if s.get('summary', '').strip()]
             
             if not valid_summaries:
-                print(f"  ⚠️  No valid cluster summaries for {symbol}")
                 return []
-            
-            print(f"\n  📋 Preparing to generate report for {symbol} from {len(valid_summaries)} cluster summaries")
             
             # Load current report
             current_report = report_updater._load_report(symbol)
@@ -726,9 +691,6 @@ def process_sentiment_stream(
             
             return messages
         except Exception as e:
-            print(f"  ❌ Error collecting summaries for {symbol}: {e}")
-            import traceback
-            traceback.print_exc()
             return []
     
     # Aggregate summaries by symbol
@@ -783,10 +745,7 @@ def process_sentiment_stream(
         report_path = report_updater._get_report_path(symbol)
         with open(report_path, "w", encoding="utf-8") as f:
             f.write(report_content)
-        print(f"\n{'='*60}")
-        print(f"  💾 [{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC] Saved sentiment report for {symbol}")
-        print(f"  📁 Location: {report_path}")
-        print(f"  📊 Report length: {len(report_content)} characters")
+        print(f"💾 [{symbol}] Saved sentiment report")
         
         # 2. Calculate overall sentiment from cluster data and trigger alert
         try:
@@ -803,15 +762,13 @@ def process_sentiment_stream(
                 alert_cooldown = int(os.getenv("SENTIMENT_ALERT_COOLDOWN", "300"))
                 bullbear_url = os.getenv("BULLBEAR_API_URL", "http://localhost:8000")
                 
-                print(f"  🎯 Alert check: sentiment={overall_sentiment:.3f}, range=[{alert_min}, {alert_max}]")
-                
                 if alerts_enabled and (overall_sentiment < alert_min or overall_sentiment > alert_max):
                     # Check cooldown
                     now = dt.now()
                     last = _alert_cooldowns.get(symbol)
                     if not last or (now - last).total_seconds() >= alert_cooldown:
                         direction = "bearish" if overall_sentiment < alert_min else "bullish"
-                        print(f"  🚨 TRIGGERING BullBear API ({direction})...")
+                        print(f"🚨 [{symbol}] Triggering BullBear alert ({direction}, sentiment={overall_sentiment:.3f})")
                         try:
                             response = httpx.post(
                                 f"{bullbear_url}/debate/{symbol}",
@@ -819,25 +776,15 @@ def process_sentiment_stream(
                                 timeout=10.0
                             )
                             _alert_cooldowns[symbol] = now
-                            print(f"  ✅ BullBear API called (status: {response.status_code})")
-                        except httpx.ConnectError:
-                            print(f"  ⚠️ BullBear API not reachable at {bullbear_url}")
-                        except Exception as e:
-                            print(f"  ⚠️ BullBear API error: {e}")
-                    else:
-                        remaining = alert_cooldown - (now - last).total_seconds()
-                        print(f"  ⏳ Alert cooldown active ({remaining:.0f}s remaining)")
-                else:
-                    print(f"  ✅ Sentiment within range, no alert needed")
-        except Exception as e:
-            print(f"  ⚠️ Alert check error: {e}")
+                        except Exception:
+                            pass
+        except Exception:
+            pass
         
-        print(f"{'='*60}\n")
         return report_content
     
     # Generate reports conditionally based on API key availability
     if report_updater.has_valid_api_key:
-        print("  🔑 Generating reports with LLM")
         response_table = filtered_prompts_table.join(
             summaries_by_symbol, pw.left.symbol == pw.right.symbol
         ).select(
@@ -849,7 +796,6 @@ def process_sentiment_stream(
             )
         )
     else:
-        print("  ⚠️  No valid API key - generating basic reports")
         @pw.udf
         def generate_basic_report(symbol: str, prompts: list) -> str:
             """Generate a basic report without LLM when no API key is available"""
