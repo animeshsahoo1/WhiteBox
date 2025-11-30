@@ -1,11 +1,13 @@
 """
-RAG API combining Pathway DocumentStore + LangGraph workflow
-Serves on port 7001
+Enhanced Agentic RAG API with Pathway MCP Server
+Features: ReAct reasoning, MCP tool calling, self-reflection
+Serves on port 8000, MCP on port 8766
 """
 import os
 import asyncio
 import threading
-from typing import List, Literal
+import json
+from typing import List, Literal, Annotated, Sequence
 from dotenv import load_dotenv
 
 from fastapi import FastAPI, HTTPException, APIRouter
@@ -18,7 +20,10 @@ from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.documents import Document
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, BaseMessage
+from langchain_core.tools import tool
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
 import requests
 
@@ -28,14 +33,15 @@ from pathway.xpacks.llm.document_store import DocumentStore
 from pathway.xpacks.llm.servers import DocumentStoreServer
 from pathway.xpacks.llm.llms import LiteLLMChat
 from pathway.xpacks.llm.embedders import LiteLLMEmbedder
+from pathway.xpacks.llm.mcp_server import PathwayMcp
 
 load_dotenv()
-
+pw.set_license_key(os.getenv("PATHWAY_LICENSE_KEY", ""))
 # ==================== Pathway DocumentStore Setup ====================
 
 # Initialize LLM for contextual summarization
 summary_llm = LiteLLMChat(
-    model="openrouter/google/gemini-2.5-flash-lite",
+    model="openrouter/google/gemini-2.0-flash-lite-001",
     api_key=os.getenv('OPENROUTER_API_KEY'),
     api_base="https://openrouter.ai/api/v1",
     temperature=0.0
@@ -156,6 +162,15 @@ def start_pathway_docstore():
         document_store=store,
     )
     
+    # MCP Server - exposes DocumentStore as MCP tools
+    mcp_server = PathwayMcp(
+        name="RAG Document Store MCP",
+        transport="streamable-http",
+        host="127.0.0.1",
+        port=8766,
+        serve=[store],  # DocumentStore inherits McpServable
+    )
+    
     # server.run() internally calls pw.run() - no need to call it separately
     server.run(threaded=False, with_cache=False)
 
@@ -163,26 +178,25 @@ def start_pathway_docstore():
 pathway_thread = threading.Thread(target=start_pathway_docstore, daemon=True)
 pathway_thread.start()
 
-# ==================== LangGraph Workflow Setup ====================
+# MCP Server URL for tool calls
+MCP_SERVER_URL = "http://127.0.0.1:8766/mcp/"
 
-# Pydantic models
-class RouteQuery(BaseModel):
-    datasource: Literal["vectorstore", "web_search"] = Field(description="Route to vectorstore or web_search")
+# ==================== LangGraph Agentic Workflow Setup ====================
 
-class GradeDocuments(BaseModel):
-    binary_score: Literal["yes", "no"] = Field(description="Documents are relevant to the question, 'yes' or 'no'")
+# Pydantic models for reflection
+class ReflectionResult(BaseModel):
+    is_grounded: bool = Field(description="Is the answer grounded in the retrieved context?")
+    is_complete: bool = Field(description="Does the answer fully address the question?")
+    needs_more_info: bool = Field(description="Does the agent need to retrieve more information?")
+    critique: str = Field(description="Brief critique of the answer")
 
-class GradeHallucinations(BaseModel):
-    binary_score: Literal["yes", "no"] = Field(description="Answer is grounded in the facts, 'yes' or 'no'")
-
-class GradeAnswer(BaseModel):
-    binary_score: Literal["yes", "no"] = Field(description="Answer addresses the question, 'yes' or 'no'")
-
-class GraphState(TypedDict):
+# Enhanced Agent State
+class AgentState(TypedDict):
+    messages: Annotated[Sequence[BaseMessage], add_messages]
     question: str
-    documents: List[Document]
+    context: List[Document]
     generation: str
-    attempts: int
+    iteration: int
 
 # LLM setup
 llm = ChatOpenAI(
@@ -192,140 +206,306 @@ llm = ChatOpenAI(
     base_url="https://openrouter.ai/api/v1"
 )
 
-# Prompts
-router_prompt = ChatPromptTemplate.from_messages([
-    ("system", "Route user question to vectorstore or web_search. Use vectorstore for financial documents questions. Use web_search for current events or general knowledge."),
-    ("human", "{question}")
-])
-route_llm = router_prompt | llm.with_structured_output(RouteQuery)
+# ==================== MCP Tools ====================
 
-retrieval_grader_prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are a grader assessing relevance of a retrieved document to a user question. If the document contains keyword(s) or semantic meaning related to the user question, grade it as relevant. Give a binary score 'yes' or 'no'."),
-    ("human", "Question: {question}\n\nDocument: {document}")
-])
-retrieval_grader = retrieval_grader_prompt | llm.with_structured_output(GradeDocuments)
-
-hallucination_grader_prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are a grader assessing whether an LLM generation is grounded in / supported by a set of retrieved facts. Give a binary score 'yes' or 'no'. 'yes' means that the answer is grounded in / supported by the set of facts."),
-    ("human", "Facts: {documents}\n\nGeneration: {generation}")
-])
-hallucination_grader = hallucination_grader_prompt | llm.with_structured_output(GradeHallucinations)
-
-answer_grader_prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are a grader assessing whether an answer addresses / resolves a question. Give a binary score 'yes' or 'no'. 'yes' means that the answer resolves the question."),
-    ("human", "Question: {question}\n\nAnswer: {generation}")
-])
-answer_grader = answer_grader_prompt | llm.with_structured_output(GradeAnswer)
-
-rag_prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are an assistant for question-answering tasks. Use the following pieces of retrieved context to answer the question. If you don't know the answer, just say that you don't know. Use three sentences maximum and keep the answer concise."),
-    ("human", "Question: {question}\n\nContext: {context}")
-])
-
-# Retrieval functions
-def retrieve(question: str) -> List[Document]:
-    """Retrieve from Pathway DocumentStore."""
-    url = "http://127.0.0.1:8765/v1/retrieve"
-    payload = {"query": question, "k": 3}
+@tool
+def retrieve_documents(query: str, k: int = 5) -> str:
+    """
+    Retrieve relevant financial documents from the Pathway knowledge base via MCP.
+    Use this tool to get context about financial reports, earnings, company data.
     
+    Args:
+        query: The search query to find relevant documents
+        k: Number of documents to retrieve (default 5)
+    """
     try:
-        r = requests.post(url, json=payload, timeout=5)
+        # Call Pathway MCP Server
+        url = "http://127.0.0.1:8765/v1/retrieve"
+        payload = {"query": query, "k": k}
+        r = requests.post(url, json=payload, timeout=10)
         r.raise_for_status()
         results = r.json()
         
-        docs = []
-        for result in results:
-            text = result.get("text", "")
-            metadata = result.get("metadata", {})
-            metadata["dist"] = result.get("dist", 0)
-            docs.append(Document(page_content=text, metadata=metadata))
+        if not results:
+            return "No documents found for the query."
         
-        print(f"Retrieved {len(docs)} documents from Pathway")
-        return docs
+        # Format results for LLM
+        formatted = []
+        for i, result in enumerate(results, 1):
+            text = result.get("text", "")[:500]
+            metadata = result.get("metadata", {})
+            formatted.append(f"[Doc {i}] {text}\nMetadata: {json.dumps(metadata)}")
+        
+        return "\n\n".join(formatted)
     except Exception as e:
-        print(f"Error retrieving from Pathway: {e}")
-        return []
+        return f"Error retrieving documents: {str(e)}"
 
-def web_search(question: str) -> List[Document]:
-    """Search the web using Serpex API."""
+@tool
+def web_search(query: str) -> str:
+    """
+    Search the web for current events, news, and real-time information.
+    Use this tool for recent news, current stock prices, or information not in documents.
+    
+    Args:
+        query: The search query for web search
+    """
     serpex_api_key = os.getenv("SERPEX_API_KEY")
     
     if not serpex_api_key:
-        return [Document(page_content="Web search unavailable.", metadata={"source": "web"})]
+        return "Web search unavailable - API key not configured."
     
     try:
         url = "https://api.serpex.dev/api/search"
         headers = {"Authorization": f"Bearer {serpex_api_key}"}
-        params = {"q": question, "engine": "auto", "category": "web", "time_range": "week"}
+        params = {"q": query, "engine": "auto", "category": "web", "time_range": "week"}
         
         response = requests.get(url, headers=headers, params=params, timeout=10)
         response.raise_for_status()
         result = response.json()
         
-        docs = []
-        for item in result.get("results", [])[:5]:
-            content = item.get("description", "") or item.get("snippet", "")
+        formatted = []
+        for item in result.get("results", [])[:7]:
             title = item.get("title", "")
-            full_content = f"{title}\n{content}" if title else content
-            
-            if full_content.strip():
-                docs.append(Document(
-                    page_content=full_content,
-                    metadata={"source": "web_search", "url": item.get("url", ""), "title": title}
-                ))
+            snippet = item.get("description", "") or item.get("snippet", "")
+            url = item.get("url", "")
+            if title or snippet:
+                formatted.append(f"**{title}**\n{snippet}\nSource: {url}")
         
-        return docs if docs else [Document(page_content="No results found.", metadata={"source": "web"})]
+        return "\n\n".join(formatted) if formatted else "No web results found."
     except Exception as e:
-        print(f"Error in web search: {e}")
-        return [Document(page_content="Web search failed.", metadata={"source": "web"})]
+        return f"Web search failed: {str(e)}"
 
-# Workflow nodes
-def retrieve_node(state):
-    documents = retrieve(state["question"])
-    filtered_docs = []
-    for doc in documents:
-        score = retrieval_grader.invoke({"question": state["question"], "document": doc.page_content})
-        if score.binary_score == "yes":
-            filtered_docs.append(doc)
-    return {"documents": filtered_docs, "question": state["question"], "attempts": state.get("attempts", 0)}
+@tool
+def refine_query(original_query: str, context: str) -> str:
+    """
+    Refine a search query based on initial results to get better information.
+    Use this when initial retrieval didn't give enough relevant results.
+    
+    Args:
+        original_query: The original search query
+        context: What information is still missing or needed
+    """
+    refinement_prompt = f"""Based on this original query: "{original_query}"
+And the need for: {context}
+Generate a more specific search query (just the query, nothing else):"""
+    
+    response = llm.invoke(refinement_prompt)
+    return f"Refined query: {response.content}"
 
-def web_search_node(state):
-    documents = web_search(state["question"])
-    return {"documents": documents, "question": state["question"], "attempts": state.get("attempts", 0)}
+# List of tools available to agent
+agent_tools = [retrieve_documents, web_search, refine_query]
 
-def generate_node(state):
-    context = "\n\n".join([doc.page_content for doc in state["documents"]])
-    chain = rag_prompt | llm
-    generation = chain.invoke({"question": state["question"], "context": context})
-    return {"documents": state["documents"], "question": state["question"], "generation": generation.content, "attempts": state["attempts"] + 1}
+# Bind tools to LLM
+llm_with_tools = llm.bind_tools(agent_tools)
 
-def route_question_node(state):
-    source = route_llm.invoke({"question": state["question"]})
-    return "web_search" if source.datasource == "web_search" else "vectorstore"
+# Reflection LLM
+reflection_prompt = ChatPromptTemplate.from_messages([
+    ("system", """You are a critical evaluator. Assess if the generated answer is:
+1. Grounded in the retrieved context (no hallucinations)
+2. Completely addresses the user's question
+3. Needs more information retrieval
 
-def grade_generation_node(state):
-    docs_content = [doc.page_content for doc in state["documents"]]
-    score = hallucination_grader.invoke({"documents": docs_content, "generation": state["generation"]})
-    if score.binary_score == "yes":
-        score = answer_grader.invoke({"question": state["question"], "generation": state["generation"]})
-        if score.binary_score == "yes":
-            return "useful"
-    return "max_retries" if state["attempts"] >= 2 else "not_useful"
+Be strict but fair. If the answer makes claims not supported by context, mark as not grounded."""),
+    ("human", "Question: {question}\n\nContext: {context}\n\nAnswer: {answer}")
+])
+reflection_llm = reflection_prompt | llm.with_structured_output(ReflectionResult)
 
-# Build workflow
-workflow = StateGraph(GraphState)
-workflow.add_node("retrieve", retrieve_node)
-workflow.add_node("web_search", web_search_node)
-workflow.add_node("generate", generate_node)
-workflow.add_conditional_edges(START, route_question_node, {"web_search": "web_search", "vectorstore": "retrieve"})
-workflow.add_edge("retrieve", "generate")
-workflow.add_edge("web_search", "generate")
-workflow.add_conditional_edges("generate", grade_generation_node, {"useful": END, "not_useful": "web_search", "max_retries": END})
+# ==================== Agent System Prompt ====================
+
+AGENT_SYSTEM_PROMPT = """You are an intelligent financial research assistant with access to tools.
+
+Your approach (ReAct reasoning):
+1. THINK: Analyze what information you need to answer the question
+2. ACT: Use tools to gather information
+   - retrieve_documents: For financial reports, earnings, company data from knowledge base
+   - web_search: For current news, real-time prices, recent events
+   - refine_query: To improve search if initial results are insufficient
+3. OBSERVE: Review the tool results
+4. REPEAT: If needed, use more tools to fill gaps
+5. ANSWER: When you have enough context, provide a comprehensive answer
+
+Guidelines:
+- Always start by retrieving relevant documents for financial questions
+- Use web search for current/recent information
+- If retrieval results seem incomplete, use refine_query and try again
+- Cite your sources in the answer
+- Be concise but thorough
+- If you truly cannot find the information, say so honestly
+
+IMPORTANT: When you have gathered enough information, provide your final answer directly WITHOUT calling any more tools.
+"""
+
+# ==================== Agentic Workflow Nodes ====================
+
+def agent_node(state: AgentState) -> AgentState:
+    """Main agent node - reasons and decides actions using ReAct pattern."""
+    messages = state["messages"]
+    
+    # Add system prompt if first message
+    if len(messages) == 1:  # Only user question
+        messages = [HumanMessage(content=AGENT_SYSTEM_PROMPT)] + list(messages)
+    
+    # Call LLM with tools
+    response = llm_with_tools.invoke(messages)
+    
+    return {
+        "messages": [response],
+        "question": state["question"],
+        "context": state.get("context", []),
+        "generation": state.get("generation", ""),
+        "iteration": state.get("iteration", 0)
+    }
+
+def tool_node(state: AgentState) -> AgentState:
+    """Execute tools called by agent."""
+    messages = state["messages"]
+    last_message = messages[-1]
+    
+    tool_results = []
+    context_docs = state.get("context", [])
+    
+    for tool_call in last_message.tool_calls:
+        tool_name = tool_call["name"]
+        tool_args = tool_call["args"]
+        
+        # Execute the appropriate tool
+        if tool_name == "retrieve_documents":
+            result = retrieve_documents.invoke(tool_args)
+            # Track retrieved content as context
+            context_docs.append(Document(page_content=result, metadata={"source": "pathway_mcp"}))
+        elif tool_name == "web_search":
+            result = web_search.invoke(tool_args)
+            context_docs.append(Document(page_content=result, metadata={"source": "web"}))
+        elif tool_name == "refine_query":
+            result = refine_query.invoke(tool_args)
+        else:
+            result = f"Unknown tool: {tool_name}"
+        
+        tool_results.append(
+            ToolMessage(content=str(result), tool_call_id=tool_call["id"])
+        )
+    
+    return {
+        "messages": tool_results,
+        "question": state["question"],
+        "context": context_docs,
+        "generation": state.get("generation", ""),
+        "iteration": state["iteration"] + 1
+    }
+
+def synthesize_node(state: AgentState) -> AgentState:
+    """Generate final answer from accumulated context."""
+    messages = state["messages"]
+    last_message = messages[-1]
+    
+    # The last AI message content is the final answer
+    generation = last_message.content if hasattr(last_message, 'content') else str(last_message)
+    
+    return {
+        "messages": messages,
+        "question": state["question"],
+        "context": state.get("context", []),
+        "generation": generation,
+        "iteration": state["iteration"]
+    }
+
+def reflect_node(state: AgentState) -> AgentState:
+    """Self-reflection on generated answer."""
+    context_text = "\n".join([doc.page_content[:500] for doc in state.get("context", [])])
+    
+    try:
+        reflection = reflection_llm.invoke({
+            "question": state["question"],
+            "context": context_text if context_text else "No context retrieved",
+            "answer": state["generation"]
+        })
+        
+        # If needs more info and under iteration limit, add message to trigger more retrieval
+        if reflection.needs_more_info and state["iteration"] < 3:
+            return {
+                "messages": [HumanMessage(content=f"The answer needs improvement: {reflection.critique}. Please retrieve more information and try again.")],
+                "question": state["question"],
+                "context": state.get("context", []),
+                "generation": state["generation"],
+                "iteration": state["iteration"]
+            }
+    except Exception as e:
+        print(f"Reflection failed: {e}")
+    
+    return state
+
+# ==================== Routing Functions ====================
+
+def should_continue(state: AgentState) -> str:
+    """Decide if agent should continue (call tools) or finish."""
+    messages = state["messages"]
+    last_message = messages[-1]
+    
+    # If max iterations reached, go to synthesize
+    if state.get("iteration", 0) >= 3:
+        return "synthesize"
+    
+    # If LLM wants to call tools, route to tool_node
+    if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+        return "tools"
+    
+    # Otherwise, synthesize the answer
+    return "synthesize"
+
+def should_retry(state: AgentState) -> str:
+    """After reflection, decide if we need to retry or finish."""
+    messages = state["messages"]
+    last_message = messages[-1]
+    
+    # If reflection added a retry message, go back to agent
+    if isinstance(last_message, HumanMessage) and "needs improvement" in last_message.content:
+        return "retry"
+    
+    return "end"
+
+# ==================== Build Agentic Workflow ====================
+
+workflow = StateGraph(AgentState)
+
+# Add nodes
+workflow.add_node("agent", agent_node)
+workflow.add_node("tools", tool_node)
+workflow.add_node("synthesize", synthesize_node)
+workflow.add_node("reflect", reflect_node)
+
+# Define edges
+workflow.add_edge(START, "agent")
+workflow.add_conditional_edges(
+    "agent",
+    should_continue,
+    {
+        "tools": "tools",
+        "synthesize": "synthesize"
+    }
+)
+workflow.add_edge("tools", "agent")  # After tools, back to agent
+workflow.add_edge("synthesize", "reflect")  # After synthesis, reflect
+workflow.add_conditional_edges(
+    "reflect",
+    should_retry,
+    {
+        "retry": "agent",
+        "end": END
+    }
+)
+
+# Compile
 graph_app = workflow.compile()
 
 async def run_workflow(question: str):
-    """Execute the LangGraph workflow."""
-    inputs = {"question": question, "documents": [], "generation": "", "attempts": 0}
+    """Execute the agentic LangGraph workflow."""
+    inputs = {
+        "messages": [HumanMessage(content=question)],
+        "question": question,
+        "context": [],
+        "generation": "",
+        "iteration": 0
+    }
     result = await graph_app.ainvoke(inputs)
     return result
 
@@ -369,7 +549,7 @@ async def query_endpoint(req: QueryRequest):
         return {
             "question": req.question,
             "answer": output_check.message,
-            "sources": [{"metadata": doc.metadata, "content": doc.page_content[:200]} for doc in result.get('documents', [])]
+            "sources": [{"metadata": doc.metadata, "content": doc.page_content[:200]} for doc in result.get('context', [])]
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
