@@ -33,10 +33,27 @@ def main():
     print("  3️⃣  Create reports from cluster summaries")
     print("  4️⃣  Stream to Redis cache")
     print("  5️⃣  Export to visualization pipeline")
+    print("  6️⃣  Trigger BullBear alerts if sentiment outside range")
     
     updated_sentiment_reports, cluster_viz_table = process_sentiment_stream(
         sentiment_table, reports_directory=reports_directory
     )
+    
+    # === SENTIMENT ALERT SYSTEM ===
+    # Alerts are triggered inside _save_report_and_alert UDF when reports are saved
+    alert_min = float(os.getenv("SENTIMENT_ALERT_MIN", "-0.5"))
+    alert_max = float(os.getenv("SENTIMENT_ALERT_MAX", "0.5"))
+    alerts_enabled = os.getenv("SENTIMENT_ALERT_ENABLED", "true").lower() == "true"
+    alert_cooldown = int(os.getenv("SENTIMENT_ALERT_COOLDOWN", "300"))
+    bullbear_url = os.getenv("BULLBEAR_API_URL", "http://localhost:8000")
+    
+    if alerts_enabled:
+        print(f"\n🔔 Sentiment alerts ENABLED (triggered when reports are saved):")
+        print(f"   Range: [{alert_min}, {alert_max}] (outside triggers BullBear debate)")
+        print(f"   Cooldown: {alert_cooldown}s per symbol")
+        print(f"   API: {bullbear_url}/debate/{{symbol}}")
+    else:
+        print("\n🔕 Sentiment alerts DISABLED (set SENTIMENT_ALERT_ENABLED=true to enable)")
 
     # Stream updates to Redis cache via pw.io.python observer
     sentiment_observer = get_report_observer("sentiment")
