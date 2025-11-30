@@ -11,6 +11,10 @@ from dotenv import load_dotenv
 
 from .tools import retrieve_from_pathway
 
+from event_publisher import publish_agent_status, publish_report
+from redis_cache import get_redis_client
+
+
 load_dotenv()
 
 # JSON output contract for Bull
@@ -93,6 +97,11 @@ def create_bull_researcher(llm, bull_memory):
             print(f"[A-MEM ERROR] Failed to save bull memory: {e}")
 
     def bull_node(state, name):
+
+        client = get_redis_client()
+        room_id = state.get("room_id", "default")
+        publish_agent_status(room_id, "Bull Agent", "RUNNING", redis_sync=client)
+
         company = state["company_of_interest"]
         inv = state["investment_debate_state"]
 
@@ -194,6 +203,10 @@ Your turn. Bull Round {inv['count']}.
             context=f"round {inv['count']}",
             tags=["bull_research", company],
         )
+
+        publish_agent_status(room_id, "Bull Agent", "UPLOADING BULL REPORT", redis_sync=client)
+        publish_report(room_id, "Bull Agent", final_answer, redis_sync=client, event_type="bull_chat")
+        publish_agent_status(room_id, "Bull Agent", "CLOSED", redis_sync=client)
 
         # UPDATE STATE
         inv2 = {

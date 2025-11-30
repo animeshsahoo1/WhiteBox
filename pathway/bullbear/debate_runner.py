@@ -51,6 +51,7 @@ class BullBearState(TypedDict):
     investment_debate_state: Annotated[InvestDebateState, "Debate state"]
     sender: Annotated[str, "Current sender"]
     max_rounds: Annotated[int, "Maximum debate rounds"]
+    room_id: Annotated[str, "Room ID for pub/sub events"]
 
 
 # ============================================================
@@ -320,7 +321,8 @@ def save_facilitator_report(symbol: str, report: str, reports_dir: str = None):
 def run_debate_and_generate_report(
     symbol: str,
     max_rounds: int = 2,
-    background: bool = False
+    background: bool = False,
+    room_id: str = None
 ) -> Dict[str, Any]:
     """
     Run bull-bear debate and generate facilitator report.
@@ -329,12 +331,16 @@ def run_debate_and_generate_report(
         symbol: Stock symbol (e.g., "AAPL")
         max_rounds: Number of debate rounds (default 2)
         background: If True, run in background thread (returns immediately)
+        room_id: Room ID for pub/sub events (defaults to symbol)
         
     Returns:
         Dict with status, facilitator_report, recommendation, etc.
         If background=True, returns immediately with status="started"
     """
     symbol = symbol.upper()
+    if room_id is None:
+        room_id = symbol
+        print(f"Room id is None so making room_id = {symbol}")
     
     if background:
         # Initialize progress and start background thread
@@ -351,19 +357,21 @@ def run_debate_and_generate_report(
         
         thread = threading.Thread(
             target=_run_debate_sync,
-            args=(symbol, max_rounds),
+            args=(symbol, max_rounds, room_id),
             daemon=True
         )
         thread.start()
         
         return {"status": "started", "symbol": symbol, "max_rounds": max_rounds}
     
-    return _run_debate_sync(symbol, max_rounds)
+    return _run_debate_sync(symbol, max_rounds, room_id)
 
 
-def _run_debate_sync(symbol: str, max_rounds: int) -> Dict[str, Any]:
+def _run_debate_sync(symbol: str, max_rounds: int, room_id: str = None) -> Dict[str, Any]:
     """Internal sync debate execution with progress tracking."""
     symbol = symbol.upper()
+    if room_id is None:
+        room_id = symbol
     started_at = datetime.utcnow().isoformat()
     
     # Progress tracking callback
@@ -459,6 +467,7 @@ def _run_debate_sync(symbol: str, max_rounds: int) -> Dict[str, Any]:
         },
         "sender": "",
         "max_rounds": max_rounds,
+        "room_id": room_id,  # Use room_id for pub/sub events
     }
     
     try:

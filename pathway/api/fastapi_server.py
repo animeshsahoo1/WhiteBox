@@ -23,6 +23,7 @@ from .historical_analysis_api import router as historical_router
 from .rag_api import router as rag_router
 from .bullbear_api import router as bullbear_router
 from .orchestrator_api import router as orchestrator_router
+from .workflow_api import router as workflow_router
 
 REPORT_TYPES = ["fundamental", "market", "news", "sentiment", "facilitator"]
 
@@ -44,6 +45,7 @@ app.include_router(historical_router, tags=["Historical Analysis"])
 app.include_router(rag_router, tags=["RAG"])
 app.include_router(bullbear_router, tags=["Bull-Bear Debate"])
 app.include_router(orchestrator_router, tags=["Orchestrator"])
+app.include_router(workflow_router, tags=["Workflow"])
 
 
 class ReportsResponse(BaseModel):
@@ -130,11 +132,15 @@ async def list_symbols() -> dict:
         "timestamp": datetime.utcnow().isoformat(),
     }
 
+from event_publisher import publish_agent_status  # Ensure import after edits
 
 @app.get("/reports/{symbol}", response_model=ReportsResponse)
 async def get_all_reports(symbol: str) -> ReportsResponse:
     client = get_redis_client()
     normalized_symbol = symbol.upper()
+
+    publish_agent_status("1234", "Analyst Agent", f"Fetching all reports for {normalized_symbol}", redis_sync=client)
+
 
     print(f"\n{'=' * 60}")
     print(f"📥 Request for all reports: {normalized_symbol}")
