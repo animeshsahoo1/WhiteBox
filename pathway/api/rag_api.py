@@ -9,6 +9,9 @@ from typing import List, Literal
 from dotenv import load_dotenv
 
 from fastapi import FastAPI, HTTPException, APIRouter
+
+# Guardrails
+from guardrails import guard_input, guard_output
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -345,12 +348,27 @@ def health():
 
 @router.post("/query", response_model=QueryResponse)
 async def query_endpoint(req: QueryRequest):
-    """Main RAG query endpoint."""
+    """Main RAG query endpoint with guardrails."""
     try:
-        result = await run_workflow(req.question)
+        # INPUT GUARDRAILS: Check for jailbreaks, off-topic, PII
+        input_check = guard_input(req.question)
+        if not input_check.allowed:
+            return {
+                "question": req.question,
+                "answer": input_check.message,
+                "sources": []
+            }
+        
+        # Use guarded input (may have PII masked)
+        result = await run_workflow(input_check.message)
+        answer = result.get('generation', 'No answer generated')
+        
+        # OUTPUT GUARDRAILS: Add disclaimer, mask PII
+        output_check = guard_output(answer)
+        
         return {
             "question": req.question,
-            "answer": result.get('generation', 'No answer generated'),
+            "answer": output_check.message,
             "sources": [{"metadata": doc.metadata, "content": doc.page_content[:200]} for doc in result.get('documents', [])]
         }
     except Exception as e:
