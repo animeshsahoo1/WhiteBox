@@ -1,3 +1,0 @@
-"""
-Trading Agents API module
-"""
