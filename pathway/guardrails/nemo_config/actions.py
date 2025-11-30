@@ -179,3 +179,53 @@ async def check_guarantee(output: str) -> bool:
             return True
     
     return False
+
+
+# ========== BULL-BEAR DEBATE SPECIFIC ACTIONS ==========
+
+@action()
+async def check_disclaimer(bot_message: str) -> bool:
+    """Check if the bot message contains appropriate disclaimers."""
+    disclaimer_keywords = [
+        "not financial advice",
+        "informational purposes",
+        "consult a financial advisor",
+        "past performance",
+        "investment risks",
+        "do your own research",
+        "disclaimer",
+        "no guarantee"
+    ]
+    
+    message_lower = bot_message.lower()
+    return any(keyword in message_lower for keyword in disclaimer_keywords)
+
+
+@action()
+async def check_toxicity(text: str) -> bool:
+    """Check if text contains toxic or unprofessional content."""
+    toxic_patterns = [
+        "idiot", "stupid", "dumb", "moron",
+        "garbage", "trash", "worthless",
+        "hate", "terrible person"
+    ]
+    
+    text_lower = text.lower()
+    return any(pattern in text_lower for pattern in toxic_patterns)
+
+
+@action()
+async def check_financial_safety(text: str) -> bool:
+    """Check if text contains unsafe financial claims."""
+    unsafe_patterns = [
+        "guaranteed return",
+        "will definitely",
+        "100% certain",
+        "can't lose",
+        "risk-free",
+        "sure thing",
+        "guaranteed profit"
+    ]
+    
+    text_lower = text.lower()
+    return any(pattern in text_lower for pattern in unsafe_patterns)

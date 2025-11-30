@@ -11,7 +11,13 @@ from dotenv import load_dotenv
 
 from .tools import retrieve_from_pathway
 
+# from event_publisher import publish_agent_status, publish_report
+from guardrails import get_bull_guardrails
+
 load_dotenv()
+
+# Initialize guardrails
+_guardrails = get_bull_guardrails()
 
 # JSON output contract for Bull
 SYSTEM_JSON = """
@@ -93,6 +99,9 @@ def create_bull_researcher(llm, bull_memory):
             print(f"[A-MEM ERROR] Failed to save bull memory: {e}")
 
     def bull_node(state, name):
+
+        # publish_agent_status("1234", "bull_researcher", "running")
+
         company = state["company_of_interest"]
         inv = state["investment_debate_state"]
 
@@ -187,6 +196,24 @@ Your turn. Bull Round {inv['count']}.
 
         final_answer = safe_str(final_answer)
 
+        # ========== GUARDRAILS OUTPUT CHECK ==========
+        if _guardrails.enabled:
+            print("🛡️  [GUARDRAILS] Checking Bull output...")
+            original_answer = final_answer  # Keep backup
+            try:
+                guardrails_result = _guardrails.check_output_sync(final_answer)
+                guarded_message = guardrails_result.get("message", "")
+                if guarded_message and guarded_message != final_answer:
+                    print("🛡️  [GUARDRAILS] Output was modified by guardrails")
+                    final_answer = guarded_message
+                elif not guarded_message:
+                    print("⚠️  [GUARDRAILS] Empty response, keeping original")
+                    final_answer = original_answer
+            except Exception as e:
+                print(f"⚠️  [GUARDRAILS] Error: {e}, keeping original")
+                final_answer = original_answer
+        # =============================================
+
         # SAVE MEMORY
         safe_mem(
             final_answer,
@@ -194,6 +221,8 @@ Your turn. Bull Round {inv['count']}.
             context=f"round {inv['count']}",
             tags=["bull_research", company],
         )
+
+        # publish_agent_status("1234", "bull_researcher", "closed")
 
         # UPDATE STATE
         inv2 = {

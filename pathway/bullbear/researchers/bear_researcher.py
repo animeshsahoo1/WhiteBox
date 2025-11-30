@@ -11,7 +11,13 @@ from dotenv import load_dotenv
 
 from .tools import retrieve_from_pathway
 
+# from event_publisher import publish_agent_status, publish_report
+from guardrails import get_bear_guardrails
+
 load_dotenv()
+
+# Initialize guardrails
+_guardrails = get_bear_guardrails()
 
 # JSON output contract for Bear
 SYSTEM_JSON = """
@@ -93,6 +99,9 @@ def create_bear_researcher(llm, bear_memory):
             print(f"[A-MEM ERROR] Failed to save bear memory: {e}")
 
     def bear_node(state, name):
+
+        # publish_agent_status("1234", "bear_researcher", "running")
+
         company = state["company_of_interest"]
         inv = state["investment_debate_state"]
 
@@ -187,6 +196,24 @@ Your turn. Bear Round {inv["count"]}.
 
         final_answer = safe_str(final_answer)
 
+        # ========== GUARDRAILS OUTPUT CHECK ==========
+        if _guardrails.enabled:
+            print("🛡️  [GUARDRAILS] Checking Bear output...")
+            original_answer = final_answer  # Keep backup
+            try:
+                guardrails_result = _guardrails.check_output_sync(final_answer)
+                guarded_message = guardrails_result.get("message", "")
+                if guarded_message and guarded_message != final_answer:
+                    print("🛡️  [GUARDRAILS] Output was modified by guardrails")
+                    final_answer = guarded_message
+                elif not guarded_message:
+                    print("⚠️  [GUARDRAILS] Empty response, keeping original")
+                    final_answer = original_answer
+            except Exception as e:
+                print(f"⚠️  [GUARDRAILS] Error: {e}, keeping original")
+                final_answer = original_answer
+        # =============================================
+
         # SAVE MEMORY
         safe_mem(
             final_answer,
@@ -194,6 +221,8 @@ Your turn. Bear Round {inv["count"]}.
             context=f"round {inv['count']}",
             tags=["bear_research", company],
         )
+
+        # publish_agent_status("1234", "bear_researcher", "closed")
 
         # UPDATE DEBATE STATE
         inv2 = {
