@@ -11,6 +11,9 @@ from dotenv import load_dotenv
 
 from .tools import retrieve_from_pathway
 
+from event_publisher import publish_agent_status, publish_report
+from redis_cache import get_redis_client
+
 load_dotenv()
 
 # JSON output contract for Bear
@@ -93,6 +96,11 @@ def create_bear_researcher(llm, bear_memory):
             print(f"[A-MEM ERROR] Failed to save bear memory: {e}")
 
     def bear_node(state, name):
+
+        client = get_redis_client()
+        room_id = state.get("room_id", "default")
+        publish_agent_status(room_id, "Bear Agent", "RUNNING", redis_sync=client)
+
         company = state["company_of_interest"]
         inv = state["investment_debate_state"]
 
@@ -194,6 +202,11 @@ Your turn. Bear Round {inv["count"]}.
             context=f"round {inv['count']}",
             tags=["bear_research", company],
         )
+
+        publish_agent_status(room_id, "Bear Agent", "UPLOADING BEAR REPORT", redis_sync=client)
+        publish_report(room_id, "Bear Agent", final_answer, redis_sync=client, event_type="bear_chat")
+        publish_agent_status(room_id, "Bear Agent", "CLOSED", redis_sync=client)
+
 
         # UPDATE DEBATE STATE
         inv2 = {

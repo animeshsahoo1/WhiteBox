@@ -27,8 +27,9 @@ def get_redis_client() -> redis.Redis:
 
     url = os.getenv("REDIS_URL")
     if url:
+        print("############## Using REDIS_URL for Redis connection ################")
         return redis.Redis.from_url(url, decode_responses=True)
-
+    
     host = os.getenv("REDIS_HOST", REDIS_DEFAULT_HOST)
     port = int(os.getenv("REDIS_PORT", str(REDIS_DEFAULT_PORT)))
     db = int(os.getenv("REDIS_DB", str(REDIS_DEFAULT_DB)))
