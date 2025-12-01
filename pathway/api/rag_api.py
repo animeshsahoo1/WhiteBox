@@ -7,7 +7,7 @@ import os
 import asyncio
 import threading
 import json
-from turtle import pd
+from datetime import datetime
 from typing import List, Literal, Annotated, Sequence
 from dotenv import load_dotenv
 
@@ -116,7 +116,7 @@ def prechunked_json_parser(data: bytes) -> list[tuple[str, dict]]:
             continue
         chunk = json.loads(line)
         text = chunk.get("text", "")
-        timestamp = chunk.get("timestamp", pd.Timestamp.now().isoformat())
+        timestamp = chunk.get("timestamp", datetime.now().isoformat())
         # Generate contextual summary using helper function
         summary = helper(text, full_text)
         
