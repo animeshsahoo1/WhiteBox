@@ -121,7 +121,7 @@ def prechunked_json_parser(data: bytes) -> list[tuple[str, dict]]:
         summary = helper(text, full_text)
         
         metadata = {
-            "symbol" : chunk.get("symbol", "UNKNOWN"),
+            "symbol" : chunk.get("symbol", "AAPL"), #todo add the correct symbol using the path or metadata
             "timestamp": timestamp,
             "summary": summary,
         }
