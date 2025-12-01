@@ -71,7 +71,7 @@ class NewsProducer(BaseProducer):
         
         # Priority 0: NewsAPI
         if self.newsapi_key:
-            self.register_source("NewsAPI", self._fetch_from_newsapi, priority=0)
+            self.register_source("NewsAPI", self._fetch_from_newsapi, priority=2)
 
         # Priority 1: Alpha Vantage
         if self.alpha_vantage_key:
@@ -79,7 +79,7 @@ class NewsProducer(BaseProducer):
         
         # Priority 2: Financial Modeling Prep
         if self.fmp_key:
-            self.register_source("FMP", self._fetch_from_fmp, priority=2)
+            self.register_source("FMP", self._fetch_from_fmp, priority=0)
         
 
     
