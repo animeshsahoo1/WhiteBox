@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from sec_api import PdfGeneratorApi
-from fundamental_utils.fmp_api_client import FmpApiClient
+from utils.fmp_api_client import FmpApiClient
 from producers.pdf_parser import PDFParser
 
 load_dotenv()

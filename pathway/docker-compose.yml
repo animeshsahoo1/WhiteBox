@@ -50,10 +50,7 @@ services:
       - ./reports/news:/app/reports/news
       - ./reports/sentiment:/app/reports/sentiment
       - ./reports/market_demo:/app/reports/market_demo
-      - ./api:/app/api
-      - ./guardrails:/app/guardrails
       - ./historical_reports:/app/historical_reports
-      - ./agents:/app/agents
       - ../knowledge_base:/app/knowledge_base
     restart: unless-stopped
     healthcheck:
