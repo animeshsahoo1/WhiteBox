@@ -1,0 +1,5 @@
+services:
+  redis-test:
+    build: .
+    environment:
+      REDIS_URL: rediss://default:AUONAAIncDI5MmNjYTVlM2U2YzQ0Mzk1YjU0MmI3OTUzNGIzOWExMnAyMTcyOTM@improved-grouse-17293.upstash.io:6379

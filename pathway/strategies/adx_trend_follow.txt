@@ -1,0 +1,39 @@
+def strategy(indicators):
+    """
+    ADX Trend Following Strategy
+    
+    Entry: ADX > 25 (strong trend) AND +DI > -DI (bullish)
+    Exit: ADX < 20 (weak trend) OR -DI > +DI (bearish)
+    SL: 2% fixed
+    TP: None (let winners run with trailing)
+    Trailing: 2.5%
+    """
+    import numpy as np
+    
+    adx = indicators.get('adx')
+    plus_di = indicators.get('plus_di')
+    minus_di = indicators.get('minus_di')
+    close = indicators.get('close')
+    
+    if any(v is None or np.isnan(v) for v in [adx, plus_di, minus_di, close]):
+        return None
+    
+    strong_trend = adx > 25
+    bullish = plus_di > minus_di
+    bearish = minus_di > plus_di
+    weak_trend = adx < 20
+    
+    # Enter on strong bullish trend
+    if strong_trend and bullish:
+        return {
+            'action': 'BUY',
+            'stop_loss': close * 0.98,    # 2% hard stop
+            'trailing_stop': 0.025,       # 2.5% trailing
+            'size': 0.6
+        }
+    
+    # Exit on weak trend or bearish reversal
+    if weak_trend or bearish:
+        return {'action': 'SELL'}
+    
+    return None

@@ -36,7 +36,11 @@ streaming/
 │   ├── market_data_producer.py    # Real-time price data
 │   ├── news_producer.py           # News articles
 │   ├── sentiment_producer.py      # Social media sentiment
-│   └── fundamental_data_producer.py   # Company fundamentals
+│   ├── fundamental_data_producer.py   # Company fundamentals
+│   └── candle_producer.py         # OHLCV candles for backtesting
+│
+├── data/                   # Data files
+│   └── candles.csv            # Historical OHLCV data for backtesting
 │
 ├── fundamental_utils/      # Utilities for fundamental data
 │   ├── fmp_api_client.py      # FMP API wrapper

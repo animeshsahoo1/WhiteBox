@@ -1,0 +1,351 @@
+"""
+Workflow API Router
+Provides POST /run_workflow endpoint that:
+1. Fetches all reports for a symbol
+2. Prints them to console
+3. Runs Bull-Bear debate
+4. Returns status updates throughout
+"""
+import sys
+import json
+import threading
+from pathlib import Path
+from datetime import datetime
+from typing import Optional, Dict, Any, List
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+# Add parent to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from redis_cache import get_redis_client, get_reports_for_symbol
+from event_publisher import publish_agent_status, publish_event, publish_report
+from bullbear.debate_runner import run_debate_and_generate_report, get_debate_progress
+
+router = APIRouter(prefix="/workflow", tags=["Workflow"])
+
+# Track workflow status
+_workflow_status: Dict[str, Dict[str, Any]] = {}
+
+
+class WorkflowRequest(BaseModel):
+    """Request body for workflow."""
+    room_id: str
+    user_id: str
+    symbol: str
+    max_rounds: Optional[int] = 2
+
+
+class WorkflowResponse(BaseModel):
+    """Response from workflow endpoint."""
+    room_id: str
+    user_id: str
+    symbol: str
+    status: str
+    steps_completed: List[str]
+    current_step: Optional[str]
+    reports_found: Dict[str, bool]
+    debate_status: Optional[str]
+    recommendation: Optional[str]
+    error: Optional[str]
+    started_at: str
+    updated_at: str
+
+
+def _update_workflow_status(
+    room_id: str,
+    status: str,
+    current_step: str = None,
+    step_completed: str = None,
+    reports_found: Dict[str, bool] = None,
+    debate_status: str = None,
+    recommendation: str = None,
+    error: str = None
+):
+    """Update workflow status in memory."""
+    if room_id not in _workflow_status:
+        return
+    
+    _workflow_status[room_id]["status"] = status
+    _workflow_status[room_id]["updated_at"] = datetime.utcnow().isoformat()
+    
+    if current_step:
+        _workflow_status[room_id]["current_step"] = current_step
+    if step_completed:
+        _workflow_status[room_id]["steps_completed"].append(step_completed)
+    if reports_found:
+        _workflow_status[room_id]["reports_found"] = reports_found
+    if debate_status:
+        _workflow_status[room_id]["debate_status"] = debate_status
+    if recommendation:
+        _workflow_status[room_id]["recommendation"] = recommendation
+    if error:
+        _workflow_status[room_id]["error"] = error
+
+
+def _run_workflow_background(room_id: str, user_id: str, symbol: str, max_rounds: int):
+    """Run the complete workflow in background."""
+    redis_client = get_redis_client()
+    
+    try:
+        # ============================================================
+        # STEP 1: Fetch Reports
+        # ============================================================
+        _update_workflow_status(room_id, "in_progress", current_step="fetching_reports")
+        publish_agent_status(room_id, "workflow", "RUNNING", redis_client)
+        publish_agent_status(room_id, "Analyst Agent", "FETCHING_REPORTS", redis_client)
+        
+        print(f"\n{'='*60}")
+        print(f"🚀 WORKFLOW STARTED - Room: {room_id}, User: {user_id}, Symbol: {symbol}")
+        print(f"{'='*60}\n")
+        
+        reports = get_reports_for_symbol(symbol)
+        
+        report_types = ["market", "sentiment", "news", "fundamental", "facilitator"]
+        reports_found = {}
+        
+        for report_type in report_types:
+            report_data = reports.get(report_type, {})
+            content = report_data.get("content", "")
+            has_content = bool(content and len(str(content)) > 10)
+            reports_found[report_type] = has_content
+            
+            print(f"\n{'='*60}")
+            print(f"📊 {report_type.upper()} REPORT for {symbol}")
+            print(f"{'='*60}")
+            
+            if has_content:
+                # Print first 500 chars of report
+                content_str = str(content)
+                print(content_str[:500])
+                if len(content_str) > 500:
+                    print(f"... [truncated, total {len(content_str)} chars]")
+                publish_agent_status(room_id, "Analyst Agent", f"{report_type}_REPORT RECEIVED", redis_client)
+                # Publish the actual report content to Redis
+                publish_report(room_id, "Analyst Agent", {
+                    "report_type": report_type,
+                    "symbol": symbol,
+                    "content": content_str
+                }, redis_client)
+            else:
+                print(f"❌ No {report_type} report found")
+                publish_agent_status(room_id, "Analyst Agent", f"{report_type}_REPORT NOT_FOUND", redis_client)
+        
+        _update_workflow_status(
+            room_id, 
+            "in_progress", 
+            step_completed="fetching_reports",
+            reports_found=reports_found
+        )
+        
+        # Check if we have minimum required reports
+        if not any(reports_found.values()):
+            error_msg = f"No reports found for {symbol}. Cannot proceed with debate."
+            print(f"\n❌ ERROR: {error_msg}")
+            _update_workflow_status(room_id, "error", error=error_msg)
+            publish_agent_status(room_id, "Analyst Agent", "ERROR", redis_client)
+            return
+        
+        print(f"\n✅ Reports Summary: {reports_found}")
+        
+        # ============================================================
+        # STEP 2: Run Bull-Bear Debate
+        # ============================================================
+        _update_workflow_status(room_id, "in_progress", current_step="bull_bear_debate")
+        
+        print(f"\n{'='*60}")
+        print(f"🐂🐻 STARTING BULL-BEAR DEBATE for {symbol}")
+        print(f"Max Rounds: {max_rounds}")
+        print(f"{'='*60}\n")
+        
+        try:
+            # Run debate (blocking)
+            debate_result = run_debate_and_generate_report(
+                symbol=symbol,
+                max_rounds=max_rounds,
+                background=False,  # Run synchronously
+                room_id=room_id  # Pass room_id for pub/sub events
+            )
+            
+            _update_workflow_status(
+                room_id,
+                "in_progress",
+                step_completed="bull_bear_debate",
+                debate_status=debate_result.get("status", "completed")
+            )
+            
+            print(f"\n{'='*60}")
+            print(f"📋 DEBATE COMPLETED")
+            print(f"{'='*60}")
+            print(f"Status: {debate_result.get('status')}")
+            print(f"Rounds: {debate_result.get('rounds_completed')}")
+            print(f"Exchanges: {debate_result.get('total_exchanges')}")
+            
+            # Print Bull History
+            print(f"\n{'='*60}")
+            print(f"🐂 BULL ARGUMENTS:")
+            print(f"{'='*60}")
+            bull_history = debate_result.get("bull_history", "")
+            print(bull_history[:1000] if bull_history else "No bull arguments")
+            
+            # Print Bear History
+            print(f"\n{'='*60}")
+            print(f"🐻 BEAR ARGUMENTS:")
+            print(f"{'='*60}")
+            bear_history = debate_result.get("bear_history", "")
+            print(bear_history[:1000] if bear_history else "No bear arguments")
+            
+            publish_agent_status(room_id, "bull_bear_debate", "CLOSED", redis_client)
+            
+        except ValueError as e:
+            error_msg = f"Debate failed: {str(e)}"
+            print(f"\n❌ DEBATE ERROR: {error_msg}")
+            _update_workflow_status(room_id, "error", debate_status="error", error=error_msg)
+            return
+        
+        # ============================================================
+        # STEP 3: Generate Facilitator Report
+        # ============================================================
+        _update_workflow_status(room_id, "in_progress", current_step="facilitator_report")
+        publish_agent_status(room_id, "Facilitator Agent", "RUNNING", redis_client)
+        
+        recommendation = debate_result.get("recommendation", "N/A")
+        facilitator_report = debate_result.get("facilitator_report", "")
+        
+        print(f"\n{'='*60}")
+        print(f"📝 FACILITATOR REPORT")
+        print(f"{'='*60}")
+        print(f"Recommendation: {recommendation}")
+        print(f"\n{facilitator_report[:1500] if facilitator_report else 'No facilitator report'}")
+        
+        _update_workflow_status(
+            room_id,
+            "completed",
+            step_completed="facilitator_report",
+            recommendation=recommendation
+        )
+        
+        # Publish the facilitator report
+        publish_report(room_id, "Facilitator Agent", {
+            "report_type": "facilitator",
+            "symbol": symbol,
+            "recommendation": recommendation,
+            "content": facilitator_report
+        }, redis_client, event_type="report")
+        publish_agent_status(room_id, "Facilitator Agent", "CLOSED", redis_client)
+        publish_agent_status(room_id, "workflow", "CLOSED", redis_client)
+        
+        print(f"\n{'='*60}")
+        print(f"✅ WORKFLOW COMPLETED - Room: {room_id}")
+        print(f"Final Recommendation: {recommendation}")
+        print(f"{'='*60}\n")
+        
+    except Exception as e:
+        error_msg = f"Workflow error: {str(e)}"
+        print(f"\n❌ WORKFLOW ERROR: {error_msg}")
+        _update_workflow_status(room_id, "error", error=error_msg)
+        publish_agent_status(room_id, "workflow", "ERROR", redis_client)
+
+
+@router.post("/run_workflow")
+async def run_workflow(request: WorkflowRequest):
+    """
+    Run complete workflow:
+    1. Fetch all reports for symbol
+    2. Print reports to console
+    3. Run Bull-Bear debate
+    4. Return status
+    
+    Publishes events to Redis pub/sub for real-time updates.
+    """
+    room_id = request.room_id
+    user_id = request.user_id
+    symbol = request.symbol.upper()
+    max_rounds = max(1, min(request.max_rounds or 2, 5))
+    
+    # Initialize workflow status
+    _workflow_status[room_id] = {
+        "room_id": room_id,
+        "user_id": user_id,
+        "symbol": symbol,
+        "status": "started",
+        "steps_completed": [],
+        "current_step": "initializing",
+        "reports_found": {},
+        "debate_status": None,
+        "recommendation": None,
+        "error": None,
+        "started_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    
+    # Start workflow in background
+    thread = threading.Thread(
+        target=_run_workflow_background,
+        args=(room_id, user_id, symbol, max_rounds),
+        daemon=True
+    )
+    thread.start()
+    
+    return {
+        "status": "started",
+        "room_id": room_id,
+        "user_id": user_id,
+        "symbol": symbol,
+        "max_rounds": max_rounds,
+        "message": f"Workflow started. Poll GET /workflow/{room_id}/status for updates.",
+    }
+
+
+@router.get("/{room_id}/status")
+async def get_workflow_status(room_id: str):
+    """
+    Get workflow status and progress.
+    
+    Returns:
+    - status: started, in_progress, completed, error
+    - steps_completed: List of completed steps
+    - current_step: Current step being executed
+    - reports_found: Which reports were found
+    - debate_status: Bull-Bear debate status
+    - recommendation: Final recommendation (if complete)
+    """
+    if room_id not in _workflow_status:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Workflow {room_id} not found. Start one with POST /workflow/run_workflow"
+        )
+    
+    return _workflow_status[room_id]
+
+
+@router.get("/{room_id}/reports")
+async def get_workflow_reports(room_id: str):
+    """Get the reports that were fetched for this workflow."""
+    if room_id not in _workflow_status:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Workflow {room_id} not found"
+        )
+    
+    status = _workflow_status[room_id]
+    symbol = status.get("symbol")
+    
+    if not symbol:
+        raise HTTPException(status_code=400, detail="No symbol found for workflow")
+    
+    reports = get_reports_for_symbol(symbol)
+    
+    return {
+        "room_id": room_id,
+        "symbol": symbol,
+        "reports": {
+            report_type: {
+                "found": bool(data.get("content")),
+                "content": data.get("content", "")[:500] if data.get("content") else None,
+                "timestamp": data.get("timestamp")
+            }
+            for report_type, data in reports.items()
+        }
+    }

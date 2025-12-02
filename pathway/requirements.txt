@@ -15,9 +15,17 @@ litellm>=1.0.0
 yfinance>=0.2.0
 TA-Lib>=0.4.0
 
-# Bull-Bear Debate
+# Bull-Bear Debate dependencies
 chromadb>=0.4.0
 sentence-transformers>=2.2.0
 rank-bm25>=0.2.2
 nltk>=3.8.0
 transformers>=4.30.0
+
+# Orchestrator / MCP Server dependencies
+fastmcp>=2.0.0
+langchain-mcp-adapters>=0.1.0
+mem0ai>=1.0.0
+google-search-results  # SerpAPI
+beautifulsoup4
+lxml

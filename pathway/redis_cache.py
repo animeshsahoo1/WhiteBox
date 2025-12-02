@@ -27,8 +27,9 @@ def get_redis_client() -> redis.Redis:
 
     url = os.getenv("REDIS_URL")
     if url:
+        print("############## Using REDIS_URL for Redis connection ################")
         return redis.Redis.from_url(url, decode_responses=True)
-
+    
     host = os.getenv("REDIS_HOST", REDIS_DEFAULT_HOST)
     port = int(os.getenv("REDIS_PORT", str(REDIS_DEFAULT_PORT)))
     db = int(os.getenv("REDIS_DB", str(REDIS_DEFAULT_DB)))
@@ -276,8 +277,70 @@ class RedisImageObserver(pw.io.python.ConnectorObserver):
         pass
 
 
+class RedisBacktestingObserver(pw.io.python.ConnectorObserver):
+    """Pathway observer that writes backtesting metrics into Redis."""
+    
+    BACKTESTING_KEY_PREFIX = "backtesting:"
+    STRATEGIES_SET_KEY = "backtesting:strategies"
+    
+    def __init__(self, ttl_seconds: Optional[int] = None):
+        self.ttl_seconds = ttl_seconds
+        self.redis = get_redis_client()
+    
+    def on_change(self, key: Any, row: Dict[str, Any], time: int, is_addition: bool) -> None:
+        strategy = row.get("strategy")
+        if not strategy:
+            return
+        
+        strategy = str(strategy).upper()
+        strategy_key = f"{self.BACKTESTING_KEY_PREFIX}{strategy}"
+        
+        if not is_addition:
+            self.redis.delete(strategy_key)
+            self.redis.srem(self.STRATEGIES_SET_KEY, strategy)
+            return
+        
+        # Extract metrics from row
+        metrics = row.get("metrics")
+        if metrics is None:
+            return
+        
+        # Store as JSON string if not already
+        if isinstance(metrics, dict):
+            metrics_json = json.dumps(metrics)
+        else:
+            metrics_json = str(metrics)
+        
+        entry = {
+            "strategy": strategy,
+            "metrics": metrics_json,
+            "last_updated": row.get("last_updated", time),
+            "received_at": datetime.utcnow().isoformat(),
+        }
+        
+        self.redis.set(strategy_key, json.dumps(entry))
+        self.redis.sadd(self.STRATEGIES_SET_KEY, strategy)
+        
+        if self.ttl_seconds:
+            self.redis.expire(strategy_key, self.ttl_seconds)
+    
+    def on_time_end(self, time: int) -> None:
+        pass
+    
+    def on_end(self) -> None:
+        pass
+
+
 def get_report_observer(report_type: str) -> RedisReportObserver:
     """Return a singleton observer for the given report type."""
+    
+    # Special case for backtesting
+    if report_type == "backtesting":
+        if "backtesting" not in _observer_cache:
+            ttl_env = os.getenv("REDIS_BACKTESTING_TTL")
+            ttl_value = int(ttl_env) if ttl_env else None
+            _observer_cache["backtesting"] = RedisBacktestingObserver(ttl_value)
+        return _observer_cache["backtesting"]
     
     # Special case for clusters
     if report_type == "clusters":

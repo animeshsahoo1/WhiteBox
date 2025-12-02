@@ -1,0 +1,67 @@
+def strategy(indicators):
+    """
+    Trading strategy based on RSI levels.
+    
+    Buy when RSI drops below 25 and sell when it goes above 65.
+    A stop loss of 2% is applied to manage risk.
+    
+    Parameters:
+    indicators (dict): A dictionary containing the following keys:
+        - sma_10: Simple Moving Average (10)
+        - sma_50: Simple Moving Average (50)
+        - rsi_14: Relative Strength Index (14)
+        - bb_upper: Upper Bollinger Band
+        - bb_middle: Middle Bollinger Band
+        - bb_lower: Lower Bollinger Band
+        - close: Current closing price
+        - open: Current opening price
+        - high: Current high price
+        - low: Current low price
+        - volume: Current trading volume
+        - position: Current position (e.g., 'LONG', 'SHORT', or None)
+        - entry_price: Price at which the position was entered
+        - adx: Average Directional Index
+        - plus_di: Positive Directional Indicator
+        - minus_di: Negative Directional Indicator
+        - macd: Moving Average Convergence Divergence
+        - macd_signal: MACD signal line
+        - stoch_k: Stochastic %K
+        - stoch_d: Stochastic %D
+
+    Returns:
+    dict: A dictionary containing the trading action and optional parameters:
+        - action: 'BUY', 'SELL', 'SHORT', 'COVER', or None
+        - stop_loss: Price level for stop loss
+        - take_profit: Price level for take profit (optional)
+        - trailing_stop: Price level for trailing stop (optional)
+        - size: Size of the trade (optional)
+    """
+    
+    rsi = indicators.get('rsi_14')
+    position = indicators.get('position')
+    close_price = indicators.get('close')
+    
+    if rsi is None or close_price is None:
+        return {'action': None}
+    
+    stop_loss = None
+    take_profit = None
+    size = None
+    
+    if position is None:  # No current position
+        if rsi < 25:
+            action = 'BUY'
+            stop_loss = close_price * 0.98  # 2% stop loss
+            size = 1  # Example size, can be adjusted
+        else:
+            action = None
+    elif position == 'LONG':  # Currently holding a long position
+        if rsi > 65:
+            action = 'SELL'
+            take_profit = close_price  # Can be adjusted based on strategy
+        else:
+            action = None
+    else:
+        action = None  # No action for other positions (e.g., SHORT)
+    
+    return {'action': action, 'stop_loss': stop_loss, 'take_profit': take_profit, 'size': size}

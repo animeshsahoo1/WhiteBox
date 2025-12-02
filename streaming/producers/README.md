@@ -9,6 +9,7 @@ Each producer implements multi-source fallback with circuit breaker pattern for 
 ## 🗂️ Files
 
 - **base_producer.py** - Abstract base class with fallback logic and circuit breaker
+- **candle_producer.py** - OHLCV candle data from yfinance with CSV fallback
 - **market_data_producer.py** - Real-time stock prices from Finnhub/FMP/AlphaVantage
 - **news_producer.py** - News articles from NewsAPI/FMP/Finnhub
 - **sentiment_producer.py** - Social media sentiment from Reddit/Twitter
@@ -46,6 +47,33 @@ for source in sorted(sources, key=lambda x: x.priority):
 - Circuit breaker → Prevent cascade failures
 
 ## 📊 Producer Implementations
+
+### Candle Producer (NEW)
+**Topic**: `candles`  
+**Interval**: 60 seconds (configurable)  
+**Sources**: yfinance → CSV fallback
+
+Streams OHLCV candle data for backtesting. Supports historical backfill and live polling.
+
+**Output**:
+```json
+{
+  "timestamp": "2025-11-11 10:00:00",
+  "open": 177.00,
+  "high": 179.20,
+  "low": 176.80,
+  "close": 178.50,
+  "volume": 45678900,
+  "symbol": "AAPL",
+  "interval": "1h",
+  "source": "yfinance"
+}
+```
+
+**Usage**:
+```bash
+python producers/candle_producer.py --symbol AAPL --interval 1h --period 1mo
+```
 
 ### Market Data Producer
 **Topic**: `market-data`  

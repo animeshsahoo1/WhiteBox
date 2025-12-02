@@ -14,10 +14,13 @@ from .tools import retrieve_from_pathway
 # from event_publisher import publish_agent_status, publish_report
 from guardrails import get_bear_guardrails
 
-load_dotenv()
-
 # Initialize guardrails
 _guardrails = get_bear_guardrails()
+
+from event_publisher import publish_agent_status, publish_report
+from redis_cache import get_redis_client
+
+load_dotenv()
 
 # JSON output contract for Bear
 SYSTEM_JSON = """
@@ -100,7 +103,9 @@ def create_bear_researcher(llm, bear_memory):
 
     def bear_node(state, name):
 
-        # publish_agent_status("1234", "bear_researcher", "running")
+        client = get_redis_client()
+        room_id = state.get("room_id", "default")
+        publish_agent_status(room_id, "Bear Agent", "RUNNING", redis_sync=client)
 
         company = state["company_of_interest"]
         inv = state["investment_debate_state"]
@@ -222,7 +227,10 @@ Your turn. Bear Round {inv["count"]}.
             tags=["bear_research", company],
         )
 
-        # publish_agent_status("1234", "bear_researcher", "closed")
+        publish_agent_status(room_id, "Bear Agent", "UPLOADING BEAR REPORT", redis_sync=client)
+        publish_report(room_id, "Bear Agent", final_answer, redis_sync=client, event_type="bear_chat")
+        publish_agent_status(room_id, "Bear Agent", "CLOSED", redis_sync=client)
+
 
         # UPDATE DEBATE STATE
         inv2 = {

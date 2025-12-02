@@ -10,6 +10,7 @@ from typing import Dict, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from event_publisher import publish_agent_status  # Ensure import after edits
 
 # Add parent directory to path to import redis_cache
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -26,10 +27,15 @@ from .orchestrator_api import router as orchestrator_router
 from .report_fetch_api import router as report_router, REPORT_TYPES
 from .sentiment_cluster_api import router as cluster_router
 
+from .backtesting_api import router as backtesting_router
+from .workflow_api import router as workflow_router
+from .strategist_api import router as strategist_router
+
+
 app = FastAPI(
     title="Pathway Unified API",
-    version="7.0.0",
-    description="Unified API for Reports, RAG, Bull-Bear Debate, and Orchestrator",
+    version="8.0.0",
+    description="Unified API for Reports, RAG, Backtesting, Bull-Bear Debate, Orchestrator, and Strategist Agent",
 )
 
 app.add_middleware(
@@ -46,7 +52,9 @@ app.include_router(bullbear_router, tags=["Bull-Bear Debate"])
 app.include_router(orchestrator_router, tags=["Orchestrator"])
 app.include_router(report_router, tags=["Reports"])
 app.include_router(cluster_router, tags=["Clusters"])
-
+app.include_router(backtesting_router, tags=["Backtesting"])
+app.include_router(workflow_router, tags=["Workflow"])
+app.include_router(strategist_router, tags=["Strategist Agent"])
 
 class HealthResponse(BaseModel):
     status: str
@@ -78,8 +86,8 @@ def _compute_report_counts() -> Dict[str, int]:
 async def root() -> dict:
     return {
         "message": "Pathway Unified API",
-        "version": "7.0.0",
-        "architecture": "Unified Server for Reports, RAG, Bull-Bear Debate, and Orchestrator",
+        "version": "8.0.0",
+        "architecture": "Unified Server for Reports, RAG, Backtesting, Bull-Bear Debate, Orchestrator, and Strategist Agent",
         "endpoints": {
             "GET /reports/{symbol}": "Get all cached reports (includes facilitator)",
             "GET /reports/{symbol}/{report_type}": "Get specific report",
@@ -89,9 +97,25 @@ async def root() -> dict:
             "GET /health": "Health check",
             "POST /analyze": "Historical Analysis",
             "POST /query": "RAG Query",
+            "GET /backtesting/": "Backtesting service status",
+            "GET /backtesting/metrics": "Get all strategy metrics (from Redis cache)",
+            "GET /backtesting/metrics/{strategy}": "Get metrics for specific strategy",
+            "GET /backtesting/strategies": "List all strategies",
+            "GET /backtesting/strategies/{name}": "Get strategy code and metrics",
+            "POST /backtesting/strategies": "Create strategy from natural language (LLM)",
+            "DELETE /backtesting/strategies/{name}": "Delete a strategy",
+            "POST /backtesting/strategies/search": "Semantic search strategies",
             "POST /debate/{symbol}": "Run bull-bear debate",
             "GET /debate/{symbol}/status": "Check facilitator report exists",
-            "POST /orchestrator/query": "Smart query with auto context gathering"
+            "POST /orchestrator/query": "Smart query with auto context gathering",
+            "# Strategist Agent (LangGraph + Mem0)": "---",
+            "GET /strategist/status": "Check if Strategist agent is ready",
+            "POST /strategist/chat": "Send message and get response",
+            "POST /strategist/chat/stream": "SSE streaming chat response",
+            "POST /strategist/new": "Start new conversation (preserves memories)",
+            "GET /strategist/memory/{user_id}": "Get user's stored memories",
+            "DELETE /strategist/memory/{user_id}": "Clear user memories",
+            "GET /strategist/threads/{user_id}": "Get current thread info"
         },
     }
 

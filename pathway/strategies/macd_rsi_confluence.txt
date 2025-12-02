@@ -1,0 +1,39 @@
+def strategy(indicators):
+    """
+    MACD + RSI Confluence Strategy
+    
+    Entry: MACD bullish AND RSI not overbought (< 60)
+    Exit: MACD bearish OR RSI overbought (> 75)
+    SL: 1.5x ATR below entry
+    TP: 3x ATR above entry (2:1 reward/risk)
+    Trailing: 2% once in profit
+    """
+    import numpy as np
+    
+    macd_line = indicators.get('macd_line')
+    macd_signal = indicators.get('macd_signal')
+    rsi = indicators.get('rsi_14')
+    atr = indicators.get('atr_14')
+    close = indicators.get('close')
+    
+    if any(v is None or np.isnan(v) for v in [macd_line, macd_signal, rsi, atr, close]):
+        return None
+    
+    macd_bullish = macd_line > macd_signal
+    macd_bearish = macd_line < macd_signal
+    
+    # Entry: MACD bullish crossover with RSI confirmation
+    if macd_bullish and rsi < 60 and rsi > 30:
+        return {
+            'action': 'BUY',
+            'stop_loss': close - (1.5 * atr),     # 1.5 ATR stop
+            'take_profit': close + (3 * atr),    # 3 ATR target (2:1 R/R)
+            'trailing_stop': 0.02,                # 2% trailing once in profit
+            'size': 0.5
+        }
+    
+    # Exit: MACD bearish or RSI overbought
+    if macd_bearish or rsi > 75:
+        return {'action': 'SELL'}
+    
+    return None

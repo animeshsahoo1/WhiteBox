@@ -62,6 +62,7 @@ This layer transforms raw streaming data into actionable intelligence using:
 pathway/
 ├── consumers/              # Pathway Kafka consumers
 │   ├── base_consumer.py       # Base consumer class
+│   ├── candle_consumer.py     # Candle data for backtesting
 │   ├── market_data_consumer.py    # Market data stream
 │   ├── news_consumer.py           # News stream
 │   ├── sentiment_consumer.py      # Sentiment stream
@@ -73,8 +74,21 @@ pathway/
 │   ├── sentiment_agent.py     # Sentiment interpretation
 │   └── fundamental_agent.py   # Fundamental evaluation
 │
+├── backtesting_lib/        # O(1) Incremental Backtesting Engine
+│   ├── indicators.py          # Technical indicator calculations
+│   ├── metrics.py             # Performance metrics (Sharpe, Sortino, etc.)
+│   ├── reducers.py            # Pathway reducers for trading state
+│   ├── schemas.py             # Data schemas for candles/strategies
+│   └── trading_state.py       # Core trading logic (T+1 execution)
+│
+├── strategies/             # Trading strategy definitions (.txt files)
+│   ├── sma_crossover.txt
+│   ├── rsi_mean_reversion.txt
+│   └── ...
+│
 ├── api/                    # FastAPI server
 │   ├── fastapi_server.py      # REST API endpoints
+│   ├── backtesting_api.py     # Backtesting API endpoints
 │   └── __init__.py
 │
 ├── reports/                # Generated reports (mounted volume)
@@ -87,6 +101,7 @@ pathway/
 ├── main_news.py            # News pipeline entry point
 ├── main_sentiment.py       # Sentiment pipeline entry point
 ├── main_fundamental.py     # Fundamentals pipeline entry point
+├── main_backtesting.py     # Backtesting pipeline entry point
 ├── redis_cache.py          # Redis integration utilities
 ├── Dockerfile
 ├── docker-compose.yml
@@ -318,6 +333,60 @@ revenue_growth, earnings_growth
 - Valuation assessment
 - Growth outlook
 - Investment thesis
+
+### 5. Backtesting Pipeline (O(1) Incremental)
+
+**Consumer**: `candle_consumer.py`  
+**Library**: `backtesting_lib/`  
+**Entry Point**: `main_backtesting.py`
+
+**Process Flow**:
+```
+Kafka (candles) → CandleConsumer → Strategy Evaluation → 
+Trading Reducer (O(1)) → Metrics Calculation → Redis Cache
+```
+
+**Key Innovation**: Unlike traditional backtesting that reprocesses all historical data on each update, our system uses **Pathway reducers** to maintain incremental state, achieving O(1) complexity per candle.
+
+**Features**:
+- **T+1 Execution**: Signal generated at bar N close, executed at bar N+1 open (no look-ahead bias)
+- **Position Management**: LONG/SHORT with SL/TP/Trailing stops
+- **Position Sizing**: Percentage of capital (compounding supported)
+- **Metrics**: Sharpe, Sortino, Max Drawdown, Win Rate, Profit Factor, etc.
+
+**Strategy Format** (text files in `strategies/`):
+```python
+# strategies/sma_crossover.txt
+name = "SMA Crossover"
+short_window = 10
+long_window = 20
+
+sma_short = sma(close, short_window)
+sma_long = sma(close, long_window)
+
+if cross_above(sma_short, sma_long):
+    signal = BUY
+    size = 1.0
+    stop_loss = 0.02
+    take_profit = 0.05
+
+if cross_below(sma_short, sma_long):
+    signal = SELL
+```
+
+**API Endpoints** (`/api/backtesting/`):
+- `GET /strategies` - List all strategies and their metrics
+- `GET /strategy/{name}` - Get specific strategy metrics
+- `POST /strategy` - Create new strategy (supports LLM generation)
+- `GET /embeddings` - Get strategy embeddings for similarity search
+- `POST /query` - Natural language strategy search
+
+**Redis Cache Structure**:
+```
+backtesting:{STRATEGY_NAME}   → Strategy metrics (JSON)
+backtesting:strategies        → Set of all strategy names
+backtesting:embeddings        → Strategy embeddings for RAG
+```
 
 ## 🔄 Pathway Windowing
 

@@ -358,6 +358,46 @@ GET report:sentiment:AAPL # View sentiment report
 EXIT
 ```
 
+### 4.5 - Test Backtesting API (Optional)
+
+```powershell
+# Start backtesting pipeline
+cd pathway
+docker-compose up -d backtesting-pipeline
+
+# Start candle producer (in streaming folder)
+cd ..\streaming
+docker-compose up -d candle-producer
+
+# List all strategies
+Invoke-RestMethod http://localhost:8000/api/backtesting/strategies | ConvertTo-Json -Depth 10
+
+# Get metrics for a specific strategy
+Invoke-RestMethod http://localhost:8000/api/backtesting/strategy/sma_crossover | ConvertTo-Json
+
+# Create a new strategy using LLM
+$body = @{ description = "RSI oversold bounce with 30/70 levels" } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/backtesting/strategy -Body $body -ContentType "application/json"
+```
+
+**Expected response for strategies:**
+```json
+{
+  "strategies": [
+    {
+      "strategy": "sma_crossover",
+      "metrics": {
+        "total_pnl": -350.27,
+        "win_rate": 0.667,
+        "sharpe_ratio": -0.23,
+        "max_drawdown": 0.05,
+        ...
+      }
+    }
+  ]
+}
+```
+
 ---
 
 ## 📊 Step 5: Understanding the Data Flow
@@ -365,7 +405,7 @@ EXIT
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  WEBHOOK RECEIVER (streaming/webhook_receiver.py)               │
-│  - Runs on localhost:5001-> ngrok hhtp 5001                     │
+│  - Runs on localhost:5001-> ngrok http 5001                     │
 │  - Receives real-time tweets from TwitterAPI.io                 │
 │  - Buffers tweets in memory (1000 per stock)                    │
 │  - Provides /tweets/<stock> endpoint for producers              │
@@ -378,31 +418,30 @@ EXIT
 │  - news-producer: News articles every 300s                       │
 │  - sentiment-producer: Fetches from webhook + Reddit every 60s   │
 │  - fundamental-producer: Company data every 10 hours             │
+│  - candle-producer: OHLCV candles for backtesting               │
 └────────────────────────┬────────────────────────────────────────┘
                          │
                          ▼
                     ┌─────────┐
-                    │  KAFKA  │ (4 topics: market, news,
-                    │         │  sentiment, fundamental)
+                    │  KAFKA  │ (5 topics: market, news,
+                    │         │  sentiment, fundamental, candles)
                     └────┬────┘
                          │
-                         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  PATHWAY CONSUMERS (pathway/)                                    │
-│  - sentiment-consumer: Clusters posts, generates summaries       │
-│  - market-consumer: Analyzes price trends                        │
-│  - news-consumer: Summarizes news sentiment                      │
-│  - fundamental-consumer: Analyzes financials                     │
-│                                                                   │
-│  Uses VADER for sentiment scoring (-1 to +1)                     │
-│  Uses cosine similarity for clustering (threshold 0.75)          │
-│  Generates LLM summaries every 10 posts per cluster              │
-└────────────────────────┬────────────────────────────────────────┘
+        ┌────────────────┼────────────────┐
+        │                │                │
+        ▼                ▼                ▼
+┌───────────────┐ ┌─────────────┐ ┌─────────────────┐
+│   PATHWAY     │ │  PATHWAY    │ │   PATHWAY       │
+│  CONSUMERS    │ │ BACKTESTER  │ │   REPORTS API   │
+│  (AI Reports) │ │  O(1)       │ │   (FastAPI)     │
+└───────┬───────┘ └──────┬──────┘ └────────┬────────┘
+        │                │                  │
+        └────────────────┼──────────────────┘
                          │
                          ▼
                     ┌─────────┐
-                    │  REDIS  │ (Caches reports & clusters,
-                    │         │  1-hour TTL)
+                    │  REDIS  │ (Caches reports, clusters,
+                    │         │  backtesting metrics)
                     └────┬────┘
                          │
                          ▼
@@ -412,6 +451,8 @@ EXIT
 │  - GET /clusters: All clusters + market sentiment                │
 │  - GET /clusters/{symbol}: Stock-specific clusters               │
 │  - GET /reports/{symbol}: AI-generated reports                   │
+│  - GET /api/backtesting/strategies: All strategy metrics         │
+│  - POST /api/backtesting/strategy: Create new strategy (LLM)     │
 │  Port: 8000                                                       │
 └─────────────────────────────────────────────────────────────────┘
                          │
@@ -437,5 +478,11 @@ EXIT
 - [ ] Pathway health check passes (`GET http://localhost:8000/health` returns "healthy")
 - [ ] Clusters endpoint returns data (`GET /clusters` has clusters)
 - [ ] Can fetch stock-specific data (`GET /clusters/AAPL` works)
+
+### Optional: Backtesting
+- [ ] Candle producer running (`docker-compose up -d candle-producer` in streaming/)
+- [ ] Backtesting pipeline running (`docker-compose up -d backtesting-pipeline` in pathway/)
+- [ ] Strategies endpoint works (`GET /api/backtesting/strategies`)
+- [ ] Can create strategy via LLM (`POST /api/backtesting/strategy`)
 
 **If all items checked, you're ready to build your frontend! 🎉**

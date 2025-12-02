@@ -38,10 +38,18 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: 0
-      # API keys for potential future agent integration
+      # API keys for agent integration
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_API_BASE: ${OPENAI_API_BASE:-https://openrouter.ai/api/v1}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENAI_MODEL_AGENT: ${OPENAI_MODEL_AGENT:-openai/gpt-4o-mini}
       KNOWLEDGE_BASE_PATH: /app/knowledge_base
+      # MCP Server for Strategist
+      MCP_SERVER_HOST: mcp-server
+      MCP_SERVER_PORT: 9004
+      # Mem0 Redis
+      MEM0_REDIS_HOST: redis
+      MEM0_REDIS_PORT: 6379
     ports:
       - "8000:8000"
     volumes:
@@ -52,6 +60,8 @@ services:
       - ./reports/market_demo:/app/reports/market_demo
       - ./historical_reports:/app/historical_reports
       - ../knowledge_base:/app/knowledge_base
+      - ./strategies:/app/strategies  # For strategy creation/management
+      - ./orchestrator_2:/app/orchestrator_2  # Strategist agent module
     restart: unless-stopped
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
@@ -181,6 +191,106 @@ services:
     restart: "no" # Don't auto-restart when CSV replay finishes
     profiles:
       - demo # Only start when explicitly requested with --profile demo
+
+  # Backtesting Pipeline - O(1) incremental strategy backtesting
+  backtesting-pipeline:
+    build: .
+    container_name: pathway-backtesting
+    command: python main_backtesting.py
+    networks:
+      - stock-network
+    env_file:
+      - .env
+    environment:
+      KAFKA_BROKER: kafka:29092
+      CANDLE_KAFKA_TOPIC: candles
+      STRATEGIES_DIR: /app/strategies
+      CONSUMER_GROUP: pathway-backtester
+      PYTHONUNBUFFERED: 1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+    volumes:
+      - ./strategies:/app/strategies
+      - ./backtesting_lib:/app/backtesting_lib
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ============================================
+  # ORCHESTRATOR SERVICES
+  # ============================================
+
+  # MCP Server - Exposes trading tools via Model Context Protocol
+  mcp-server:
+    build: .
+    container_name: pathway-mcp-server
+    command: python orchestrator_2/server.py
+    networks:
+      - stock-network
+    env_file:
+      - .env
+    environment:
+      PYTHONUNBUFFERED: 1
+      MCP_SERVER_HOST: 0.0.0.0
+      MCP_SERVER_PORT: 9004
+      # API connections (internal Docker network)
+      REPORTS_API_URL: http://reports-api:8000
+      BACKTESTING_API_URL: http://reports-api:8000/backtesting
+      # LLM settings
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_API_BASE: ${OPENAI_API_BASE:-https://openrouter.ai/api/v1}
+      OPENAI_MODEL_RISK: ${OPENAI_MODEL_RISK:-google/gemini-2.0-flash-lite-001}
+      SERPAPI_API_KEY: ${SERPAPI_API_KEY:-}
+    ports:
+      - "9004:9004"
+    volumes:
+      - ./orchestrator_2:/app/orchestrator_2
+    restart: unless-stopped
+    depends_on:
+      reports-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9004/mcp"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Orchestrator 2 - LangGraph + Mem0 ReAct agent
+  orchestrator2:
+    build: .
+    container_name: pathway-orchestrator2
+    command: python orchestrator_2/langgraph_agent.py
+    networks:
+      - stock-network
+    env_file:
+      - .env
+    environment:
+      PYTHONUNBUFFERED: 1
+      # MCP server connection
+      MCP_SERVER_HOST: mcp-server
+      MCP_SERVER_PORT: 9004
+      # LLM settings
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_API_BASE: ${OPENAI_API_BASE:-https://openrouter.ai/api/v1}
+      OPENAI_MODEL_AGENT: ${OPENAI_MODEL_AGENT:-openai/gpt-4o-mini}
+      # Mem0 Redis persistence
+      MEM0_REDIS_HOST: redis
+      MEM0_REDIS_PORT: 6379
+    volumes:
+      - ./orchestrator_2:/app/orchestrator_2
+    restart: unless-stopped
+    stdin_open: true  # Keep stdin open for interactive mode
+    tty: true         # Allocate pseudo-TTY
+    depends_on:
+      mcp-server:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    profiles:
+      - agent  # Only start when explicitly requested with --profile agent
 
 volumes:
   redis-data:

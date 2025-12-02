@@ -14,10 +14,14 @@ from .tools import retrieve_from_pathway
 # from event_publisher import publish_agent_status, publish_report
 from guardrails import get_bull_guardrails
 
-load_dotenv()
-
 # Initialize guardrails
 _guardrails = get_bull_guardrails()
+
+from event_publisher import publish_agent_status, publish_report
+from redis_cache import get_redis_client
+
+
+load_dotenv()
 
 # JSON output contract for Bull
 SYSTEM_JSON = """
@@ -100,7 +104,9 @@ def create_bull_researcher(llm, bull_memory):
 
     def bull_node(state, name):
 
-        # publish_agent_status("1234", "bull_researcher", "running")
+        client = get_redis_client()
+        room_id = state.get("room_id", "default")
+        publish_agent_status(room_id, "Bull Agent", "RUNNING", redis_sync=client)
 
         company = state["company_of_interest"]
         inv = state["investment_debate_state"]
@@ -222,7 +228,9 @@ Your turn. Bull Round {inv['count']}.
             tags=["bull_research", company],
         )
 
-        # publish_agent_status("1234", "bull_researcher", "closed")
+        publish_agent_status(room_id, "Bull Agent", "UPLOADING BULL REPORT", redis_sync=client)
+        publish_report(room_id, "Bull Agent", final_answer, redis_sync=client, event_type="bull_chat")
+        publish_agent_status(room_id, "Bull Agent", "CLOSED", redis_sync=client)
 
         # UPDATE STATE
         inv2 = {
