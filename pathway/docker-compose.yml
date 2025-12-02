@@ -50,8 +50,10 @@ services:
       - ./reports/news:/app/reports/news
       - ./reports/sentiment:/app/reports/sentiment
       - ./reports/market_demo:/app/reports/market_demo
+      - ./reports/metrics:/app/reports/metrics
       - ./reports/bullbear:/app/reports/bullbear
       - ./api:/app/api
+      - ./metrics:/app/metrics
       - ./historical_reports:/app/historical_reports
       - ./agents:/app/agents
       - ../knowledge_base:/app/knowledge_base
@@ -147,9 +149,12 @@ services:
       # API keys for clustering and LLM
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      LATENCY_METRICS_DIR: /app/reports/metrics
     volumes:
       - ./reports/sentiment:/app/reports/sentiment
+      - ./reports/metrics:/app/reports/metrics
       - ./sentiment_cluster_state:/app/sentiment_cluster_state
+      - ./metrics:/app/metrics
     restart: unless-stopped
     depends_on:
       redis:
@@ -184,6 +189,30 @@ services:
     restart: "no" # Don't auto-restart when CSV replay finishes
     profiles:
       - demo # Only start when explicitly requested with --profile demo
+
+  # DEMO: News Data from CSV (no Kafka) - Tests story clustering
+  news-demo:
+    build: .
+    container_name: pathway-news-demo
+    command: python demo_news_pipeline.py --data-dir /app/demo_data
+    networks:
+      - stock-network
+    env_file:
+      - .env
+    environment:
+      PYTHONUNBUFFERED: 1
+      # Demo configuration
+      NEWS_DEMO_RATE: ${NEWS_DEMO_RATE:-0.5}
+      # API keys for headline generation
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    volumes:
+      - ./reports/demo_news:/app/reports/demo_news
+      - ./demo_kb:/app/demo_kb
+      - ../streaming/producers/demo_data:/app/demo_data:ro
+    restart: "no"
+    profiles:
+      - demo
 
 volumes:
   redis-data:
