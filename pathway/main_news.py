@@ -48,6 +48,11 @@ def main():
     pw.io.csv.write(updated_news_reports, output_path)
     print(f"📝 Writing reports stream to CSV: {output_path}")
 
+    # Enable Pathway persistence for news clustering state
+    persistence_path = os.path.join(os.path.dirname(__file__), "pathway_state")
+    os.makedirs(persistence_path, exist_ok=True)
+    print(f"💾 Persistence enabled at: {persistence_path}")
+
     # Optional: Write cluster visualization data to CSV
     clusters_output_path = os.path.join(reports_directory, "story_clusters.csv")
     pw.io.csv.write(cluster_viz_table, clusters_output_path)
@@ -56,7 +61,12 @@ def main():
     print(f"📚 News articles stored in knowledge base: {knowledge_base_dir}/<symbol>/jsons/news_articles.jsonl")
 
     print("\n✅ News pipeline with story clustering initialized. Starting stream processing...")
-    pw.run()
+    pw.run(
+        persistence_config=pw.persistence.Config.simple_config(
+            pw.persistence.Backend.filesystem(persistence_path),
+            snapshot_interval_ms=60000  # Snapshot every 60 seconds
+        )
+    )
 
 if __name__ == "__main__":
     load_dotenv()

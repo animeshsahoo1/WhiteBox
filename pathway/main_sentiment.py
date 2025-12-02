@@ -89,7 +89,7 @@ def main():
     print("=" * 70)
     
     # Enable Pathway persistence for cluster state
-    persistence_path = os.path.join(os.path.dirname(__file__), "sentiment_cluster_state")
+    persistence_path = os.path.join(os.path.dirname(__file__), "pathway_state")
     os.makedirs(persistence_path, exist_ok=True)
     print(f"💾 Persistence enabled at: {persistence_path}")
     

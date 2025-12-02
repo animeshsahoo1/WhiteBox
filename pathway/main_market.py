@@ -88,12 +88,22 @@ def main():
     )
     print(f"📝 Writing analysis stream to CSV: {output_path}")
 
+    # Enable Pathway persistence for market state
+    persistence_path = os.path.join(os.path.dirname(__file__), "pathway_state")
+    os.makedirs(persistence_path, exist_ok=True)
+    print(f"💾 Persistence enabled at: {persistence_path}")
+
     print("\n✅ Multi-Agent Market Pipeline with Redis initialized")
     print("   - Market reports cached in Redis (key: reports:{SYMBOL})")
     print("   - Indicator images cached in Redis (key: images:{SYMBOL}:{TIMESTAMP})")
     print("   - Endpoint: /api/market/images/{symbol} or /api/market/images/{symbol}/{timestamp}")
     print("\n🚀 Starting stream processing...")
-    pw.run()
+    pw.run(
+        persistence_config=pw.persistence.Config.simple_config(
+            pw.persistence.Backend.filesystem(persistence_path),
+            snapshot_interval_ms=60000  # Snapshot every 60 seconds
+        )
+    )
 
 if __name__ == "__main__":
     load_dotenv()
