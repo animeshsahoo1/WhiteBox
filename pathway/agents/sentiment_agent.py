@@ -8,6 +8,12 @@ import numpy as np
 from typing import Optional
 import litellm
 
+# Import PostgreSQL save function
+try:
+    from redis_cache import save_report_to_postgres
+except ImportError:
+    from .redis_cache import save_report_to_postgres
+
 load_dotenv()
 
 
@@ -741,13 +747,26 @@ def process_sentiment_stream(
         import httpx
         from datetime import datetime as dt
         
-        # 1. Save report (original functionality)
+        # 1. Save report to file (original functionality)
         report_path = report_updater._get_report_path(symbol)
         with open(report_path, "w", encoding="utf-8") as f:
             f.write(report_content)
         print(f"💾 [{symbol}] Saved sentiment report")
         
-        # 2. Calculate overall sentiment from cluster data and trigger alert
+        # 2. Save to PostgreSQL for historical storage
+        try:
+            entry = {
+                "symbol": symbol,
+                "report_type": "sentiment",
+                "content": report_content,
+                "last_updated": dt.utcnow().isoformat(),
+                "cluster_data": cluster_data_json,
+            }
+            save_report_to_postgres(symbol, "sentiment", entry)
+        except Exception as e:
+            print(f"⚠️ [{symbol}] Failed to save to PostgreSQL: {e}")
+        
+        # 3. Calculate overall sentiment from cluster data and trigger alert
         try:
             clusters = json.loads(cluster_data_json)
             if clusters:

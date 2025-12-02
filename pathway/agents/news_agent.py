@@ -5,6 +5,12 @@ from datetime import datetime
 from dotenv import load_dotenv
 import json
 
+# Import PostgreSQL save function
+try:
+    from redis_cache import save_report_to_postgres
+except ImportError:
+    from .redis_cache import save_report_to_postgres
+
 load_dotenv()
 
 
@@ -208,6 +214,19 @@ def process_news_stream(
         print(
             f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] Saved report for {symbol} to {report_path}"
         )
+        
+        # Save to PostgreSQL for historical storage
+        try:
+            entry = {
+                "symbol": symbol,
+                "report_type": "news",
+                "content": report_content,
+                "last_updated": datetime.utcnow().isoformat(),
+            }
+            save_report_to_postgres(symbol, "news", entry)
+        except Exception as e:
+            print(f"⚠️ [{symbol}] Failed to save news to PostgreSQL: {e}")
+        
         return report_content
 
     prompts_table = news_table.groupby(pw.this.symbol).reduce(

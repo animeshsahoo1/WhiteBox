@@ -9,7 +9,7 @@ def retrieve_from_pathway(question: str) -> List[Dict[str, Any]]:
     Retrieve documents from Pathway RAG API.
     Returns a list of JSON-serializable dictionaries.
     """
-    rag_url = os.getenv("RAG_API_URL", "http://localhost:8001")
+    rag_url = os.getenv("RAG_API_URL", "http://localhost:8000")
     try:
         r = requests.post(f"{rag_url}/query", json={"question": question}, timeout=30)
         r.raise_for_status()

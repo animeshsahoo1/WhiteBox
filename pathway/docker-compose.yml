@@ -50,6 +50,7 @@ services:
       - ./reports/news:/app/reports/news
       - ./reports/sentiment:/app/reports/sentiment
       - ./reports/market_demo:/app/reports/market_demo
+      - ./reports/bullbear:/app/reports/bullbear
       - ./api:/app/api
       - ./historical_reports:/app/historical_reports
       - ./agents:/app/agents
