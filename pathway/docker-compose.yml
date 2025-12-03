@@ -274,6 +274,38 @@ services:
       redis:
         condition: service_healthy
 
+  # Drift Detection Pipeline - Concept drift monitoring with River
+  drift-detection:
+    build: .
+    container_name: pathway-drift-detection
+    command: python main_drift.py
+    networks:
+      - stock-network
+    env_file:
+      - .env
+    environment:
+      KAFKA_BROKER: kafka:29092
+      MARKET_TOPIC: market-data
+      PYTHONUNBUFFERED: 1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      # Drift detection thresholds
+      DRIFT_SPIKE_THRESHOLD: ${DRIFT_SPIKE_THRESHOLD:-3.0}
+      DRIFT_GRADUAL_THRESHOLD: ${DRIFT_GRADUAL_THRESHOLD:-0.05}
+      DRIFT_VARIANCE_THRESHOLD: ${DRIFT_VARIANCE_THRESHOLD:-1.0}
+      DRIFT_ADWIN_DELTA: ${DRIFT_ADWIN_DELTA:-0.002}
+      DRIFT_PH_THRESHOLD: ${DRIFT_PH_THRESHOLD:-50}
+      DRIFT_ALERT_COOLDOWN: ${DRIFT_ALERT_COOLDOWN:-10}
+    volumes:
+      - ./agents:/app/agents
+      - ./consumers:/app/consumers
+      - ./pathway_state:/app/pathway_state
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+
   # ============================================
   # ORCHESTRATOR SERVICES
   # ============================================
