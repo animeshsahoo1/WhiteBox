@@ -19,6 +19,15 @@ from langchain_openai import ChatOpenAI
 from openai import RateLimitError
 from dotenv import load_dotenv
 
+# Import PostgreSQL save function
+try:
+    from redis_cache import save_report_to_postgres
+except ImportError:
+    try:
+        from .redis_cache import save_report_to_postgres
+    except ImportError:
+        save_report_to_postgres = None  # Will be None if import fails
+
 try:
     from Pathway_InterIIT.pathway.agents.utils.tool_creation import TechnicalTools
 except ImportError:
@@ -709,6 +718,19 @@ The following chart images have been saved separately:
                 f.write(comprehensive_content)
             
             print(f"✅ Comprehensive report saved: {comprehensive_report_path}")
+            
+            # Save to PostgreSQL for historical storage
+            if save_report_to_postgres:
+                try:
+                    entry = {
+                        "symbol": symbol,
+                        "report_type": "market",
+                        "content": comprehensive_content,
+                        "last_updated": datetime.utcnow().isoformat(),
+                    }
+                    save_report_to_postgres(symbol, "market", entry)
+                except Exception as e:
+                    print(f"⚠️ [{symbol}] Failed to save market to PostgreSQL: {e}")
             
             # Save individual agent reports (for backward compatibility) - NO IMAGE EMBEDS
             agent_reports = [

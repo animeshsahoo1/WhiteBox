@@ -14,7 +14,6 @@ from uuid import uuid4
 
 from langgraph.graph import StateGraph, END, START
 from dotenv import load_dotenv
-from pathway.xpacks.llm import llms
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -22,9 +21,66 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from agentic_memory.memory_system import AgenticMemorySystem
 from bullbear.researchers.bull_researcher import create_bull_researcher
 from bullbear.researchers.bear_researcher import create_bear_researcher
+from bullbear.researchers.facilitator import (
+    generate_facilitator_report,
+    extract_recommendation,
+    start_facilitator_stream,
+    stop_facilitator_stream,
+    get_facilitator_status,
+)
 from redis_cache import get_redis_client, get_reports_for_symbol, _build_symbol_key
 
 load_dotenv()
+
+# Reports directory for debate files
+REPORTS_DIR = os.environ.get("REPORTS_DIR", "./reports/bullbear")
+
+
+def clear_debate_files(symbol: str):
+    """Clear/reset all debate files for a new debate session.
+    
+    Clears bull_debate.md, bear_debate.md, and facilitator_report.md
+    so each debate starts fresh.
+    """
+    symbol = symbol.upper()
+    symbol_dir = os.path.join(REPORTS_DIR, symbol)
+    os.makedirs(symbol_dir, exist_ok=True)
+    
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Reset bull_debate.md
+    bull_path = os.path.join(symbol_dir, "bull_debate.md")
+    bull_template = f"""# Bull Analyst Debate History - {symbol}
+
+## Debate Rounds
+*No rounds yet...*
+
+---
+*Last Updated: {timestamp} UTC*
+"""
+    with open(bull_path, "w", encoding="utf-8") as f:
+        f.write(bull_template)
+    
+    # Reset bear_debate.md  
+    bear_path = os.path.join(symbol_dir, "bear_debate.md")
+    bear_template = f"""# Bear Analyst Debate History - {symbol}
+
+## Debate Rounds
+*No rounds yet...*
+
+---
+*Last Updated: {timestamp} UTC*
+"""
+    with open(bear_path, "w", encoding="utf-8") as f:
+        f.write(bear_template)
+    
+    # Reset facilitator_report.md
+    facilitator_path = os.path.join(symbol_dir, "facilitator_report.md")
+    with open(facilitator_path, "w", encoding="utf-8") as f:
+        f.write(f"<!-- Round: 0 -->\n\n# Facilitator Report - {symbol}\n\n*Waiting for debate to start...*\n")
+    
+    print(f"🗑️  [DEBATE] Cleared all debate files for {symbol}")
+
 
 # Track active debates
 _active_debates: Dict[str, Dict] = {}
@@ -141,99 +197,8 @@ def create_bull_bear_graph(llm, max_rounds: int = 2, on_turn: Callable = None):
 
 
 # ============================================================
-# FACILITATOR REPORT GENERATOR
+# PROGRESS TRACKING
 # ============================================================
-def generate_facilitator_report(
-    symbol: str,
-    bull_history: str,
-    bear_history: str,
-    total_exchanges: int,
-    max_rounds: int
-) -> str:
-    """Generate facilitator report using LLM."""
-    
-    llm = llms.LiteLLMChat(
-        model="openrouter/openai/gpt-4o-mini",
-        temperature=0.3,
-        api_key=os.getenv("OPENAI_API_KEY"),
-        api_base="https://openrouter.ai/api/v1",
-    )
-    
-    current_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-    
-    system_prompt = f"""You are a Senior Financial Analyst acting as a Debate Facilitator for {symbol}.
-
-Your role is to:
-1. **Summarize** the bull-bear debate objectively
-2. **Identify** key arguments from both sides
-3. **Highlight** consensus points and major disagreements
-4. **Assess** the strength of each position
-5. **Provide** a balanced market outlook based on the debate
-6. **Recommend** actionable insights with a clear BUY/HOLD/SELL recommendation
-
-Output a well-structured markdown report with these sections:
-- Executive Summary
-- Bull Arguments (top 3-5 points)
-- Bear Arguments (top 3-5 points)
-- Areas of Agreement
-- Major Disagreements
-- Facilitator's Assessment (with BUY/HOLD/SELL recommendation)
-- Risk Considerations
-- Action Items
-
-Be objective and balanced. Include confidence level (High/Medium/Low).
-"""
-
-    user_prompt = f"""Analyze this bull-bear debate for {symbol}:
-
-**BULL ARGUMENTS:**
-{bull_history}
-
-**BEAR ARGUMENTS:**
-{bear_history}
-
-**Debate Info:**
-- Total Exchanges: {total_exchanges}
-- Rounds Completed: {max_rounds}
-- Timestamp: {current_time} UTC
-
-Generate a comprehensive facilitator report in markdown format.
-End with "Last Analysis: {current_time} UTC"
-"""
-
-    import pandas as pd
-    import pathway as pw
-    
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt}
-    ]
-    
-    df = pw.debug.table_to_pandas(
-        pw.debug.table_from_pandas(pd.DataFrame({"m": [messages]}))
-        .select(reply=llm(pw.this.m))
-    )
-    
-    report = df["reply"].iloc[0]
-    return report
-
-
-def extract_recommendation(report: str) -> str:
-    """Extract BUY/HOLD/SELL recommendation from report."""
-    report_upper = report.upper()
-    
-    if "STRONG BUY" in report_upper:
-        return "STRONG BUY"
-    elif "STRONG SELL" in report_upper:
-        return "STRONG SELL"
-    elif "BUY" in report_upper and "SELL" not in report_upper:
-        return "BUY"
-    elif "SELL" in report_upper and "BUY" not in report_upper:
-        return "SELL"
-    elif "HOLD" in report_upper:
-        return "HOLD"
-    else:
-        return "HOLD"
 
 
 def _save_error(symbol: str, error: str, started_at: str):
@@ -276,43 +241,6 @@ def get_debate_progress(symbol: str) -> Optional[Dict[str, Any]]:
         with open(progress_path, "r", encoding="utf-8") as f:
             return json.load(f)
     return None
-
-
-def save_facilitator_report(symbol: str, report: str, reports_dir: str = None):
-    """Save facilitator report to Redis and file."""
-    
-    # Save to Redis
-    try:
-        client = get_redis_client()
-        symbol_key = _build_symbol_key(symbol)
-        
-        entry = {
-            "symbol": symbol,
-            "report_type": "facilitator",
-            "content": report,
-            "last_updated": datetime.utcnow().isoformat(),
-            "received_at": datetime.utcnow().isoformat(),
-        }
-        
-        client.hset(symbol_key, "facilitator", json.dumps(entry))
-        client.sadd("reports:symbols", symbol)
-        print(f"✅ Saved facilitator report to Redis for {symbol}")
-    except Exception as e:
-        print(f"⚠️  Failed to save to Redis: {e}")
-    
-    # Save to file
-    if reports_dir is None:
-        reports_dir = os.path.join(os.path.dirname(__file__), "..", "reports", "facilitator")
-    
-    symbol_dir = os.path.join(reports_dir, symbol)
-    os.makedirs(symbol_dir, exist_ok=True)
-    
-    report_path = os.path.join(symbol_dir, "facilitator_report.md")
-    with open(report_path, "w", encoding="utf-8") as f:
-        f.write(report)
-    
-    print(f"✅ Saved facilitator report to {report_path}")
-    return report_path
 
 
 # ============================================================
@@ -379,7 +307,9 @@ def _run_debate_sync(symbol: str, max_rounds: int, room_id: str = None) -> Dict[
         debate_state = state.get("investment_debate_state", {})
         count = debate_state.get("count", 0)
         last_speaker = debate_state.get("last_speaker", "")
-        current_round = (count + 1) // 2
+        # Round number: (count // 2) + 1
+        # count=0 -> round 1, count=1 -> round 1, count=2 -> round 2, count=3 -> round 2
+        current_round = (count // 2) + 1
         
         progress = {
             "symbol": symbol,
@@ -442,14 +372,16 @@ def _run_debate_sync(symbol: str, max_rounds: int, room_id: str = None) -> Dict[
     # Step 2: Run LangGraph debate
     print(f"\n🎭 Running debate ({max_rounds} rounds)...")
     
-    llm = llms.LiteLLMChat(
-        model="openrouter/openai/gpt-4o-mini",
-        temperature=0.7,
-        api_key=os.getenv("OPENAI_API_KEY"),
-        api_base="https://openrouter.ai/api/v1",
-    )
+    # Clear old debate files before starting new debate
+    clear_debate_files(symbol)
     
-    graph = create_bull_bear_graph(llm, max_rounds, on_turn=on_turn)
+    # Start facilitator stream BEFORE debate begins
+    # It will watch bear_debate.md and auto-generate facilitator reports after each round
+    print(f"🎬 Starting facilitator stream for {symbol}...")
+    start_facilitator_stream(symbol, room_id)
+    
+    # Note: llm param is kept for API compatibility but bull/bear use litellm directly
+    graph = create_bull_bear_graph(llm=None, max_rounds=max_rounds, on_turn=on_turn)
     
     initial_state: BullBearState = {
         "company_of_interest": symbol,
@@ -481,25 +413,22 @@ def _run_debate_sync(symbol: str, max_rounds: int, room_id: str = None) -> Dict[
     print(f"\n✅ Debate completed!")
     print(f"   Total exchanges: {debate_state['count']}")
     
-    # Step 3: Generate facilitator report
-    print(f"\n📝 Generating facilitator report...")
+    # Facilitator report is auto-generated by streaming watcher
+    # Just wait a moment for it to process
+    import time
+    time.sleep(3)  # Give facilitator stream time to generate
     
-    facilitator_report = generate_facilitator_report(
-        symbol=symbol,
-        bull_history=debate_state["bull_history"],
-        bear_history=debate_state["bear_history"],
-        total_exchanges=debate_state["count"],
-        max_rounds=max_rounds
-    )
+    # Get facilitator status (report generated by stream)
+    facilitator_status = get_facilitator_status(symbol)
+    facilitator_report = facilitator_status.get("report", "") if facilitator_status else ""
+    recommendation = facilitator_status.get("recommendation", "PENDING") if facilitator_status else "PENDING"
     
-    recommendation = extract_recommendation(facilitator_report)
     print(f"   Recommendation: {recommendation}")
     
-    # Step 4: Save report
-    print(f"\n💾 Saving facilitator report...")
-    report_path = save_facilitator_report(symbol, facilitator_report)
+    # Stop the facilitator stream now that debate is done
+    stop_facilitator_stream(symbol)
     
-    # Step 5: Save final completed status
+    # Save final completed status
     final_progress = {
         "symbol": symbol,
         "status": "completed",
@@ -527,7 +456,6 @@ def _run_debate_sync(symbol: str, max_rounds: int, room_id: str = None) -> Dict[
         "total_exchanges": debate_state["count"],
         "recommendation": recommendation,
         "facilitator_report": facilitator_report,
-        "report_path": report_path,
     }
 
 

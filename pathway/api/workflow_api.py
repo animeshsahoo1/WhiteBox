@@ -205,10 +205,11 @@ def _run_workflow_background(room_id: str, user_id: str, symbol: str, max_rounds
             return
         
         # ============================================================
-        # STEP 3: Generate Facilitator Report
+        # STEP 3: Facilitator Report (already published via facilitator.py)
         # ============================================================
         _update_workflow_status(room_id, "in_progress", current_step="facilitator_report")
-        publish_agent_status(room_id, "Facilitator Agent", "RUNNING", redis_client)
+        # Note: Facilitator Agent status (RUNNING/CLOSED) and report are published 
+        # in real-time by facilitator.py, so we don't duplicate here
         
         recommendation = debate_result.get("recommendation", "N/A")
         facilitator_report = debate_result.get("facilitator_report", "")
@@ -226,15 +227,7 @@ def _run_workflow_background(room_id: str, user_id: str, symbol: str, max_rounds
             recommendation=recommendation
         )
         
-        # Publish the facilitator report
-        publish_report(room_id, "Facilitator Agent", {
-            "report_type": "facilitator",
-            "symbol": symbol,
-            "recommendation": recommendation,
-            "content": facilitator_report
-        }, redis_client, event_type="report")
-        publish_agent_status(room_id, "Facilitator Agent", "CLOSED", redis_client)
-        publish_agent_status(room_id, "workflow", "CLOSED", redis_client)
+        # Workflow completion - only publish workflow CLOSED status
         
         print(f"\n{'='*60}")
         print(f"✅ WORKFLOW COMPLETED - Room: {room_id}")
