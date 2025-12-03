@@ -1,6 +1,8 @@
 """
 Bull-Bear Debate API Router
 Provides POST /debate/{symbol} endpoint for running debates with live status.
+
+Uses the new LangGraph-based implementation with mem0 memory persistence.
 """
 import sys
 from pathlib import Path
@@ -20,8 +22,9 @@ router = APIRouter(prefix="/debate", tags=["Bull-Bear Debate"])
 
 class DebateRequest(BaseModel):
     """Request body for starting a debate."""
-    max_rounds: Optional[int] = 2
+    max_rounds: Optional[int] = 5  # Default to 5 rounds (new implementation)
     background: Optional[bool] = True  # Run in background by default
+    use_dummy: Optional[bool] = False  # Use dummy data for testing
 
 
 class DebateResponse(BaseModel):
@@ -31,6 +34,7 @@ class DebateResponse(BaseModel):
     rounds_completed: int
     total_exchanges: int
     recommendation: str
+    conclusion_reason: str
     facilitator_report: str
     timestamp: str
 
@@ -53,14 +57,23 @@ async def run_debate(symbol: str, request: DebateRequest = DebateRequest()):
     """
     symbol = symbol.upper()
     
-    max_rounds = max(1, min(request.max_rounds or 2, 5))
+    # Limit rounds to 1-10 (new implementation supports more)
+    max_rounds = max(1, min(request.max_rounds or 5, 10))
     
     try:
         result = run_debate_and_generate_report(
             symbol=symbol,
             max_rounds=max_rounds,
-            background=request.background
+            background=request.background,
+            use_dummy=request.use_dummy,
         )
+        
+        # Check if busy
+        if result.get("status") == "busy":
+            raise HTTPException(
+                status_code=409,  # Conflict
+                detail=result.get("error", "A debate is already in progress")
+            )
         
         if request.background:
             return DebateStartResponse(
@@ -73,10 +86,11 @@ async def run_debate(symbol: str, request: DebateRequest = DebateRequest()):
         return DebateResponse(
             status=result["status"],
             symbol=result["symbol"],
-            rounds_completed=result["rounds_completed"],
-            total_exchanges=result["total_exchanges"],
-            recommendation=result["recommendation"],
-            facilitator_report=result["facilitator_report"],
+            rounds_completed=result.get("rounds_completed", 0),
+            total_exchanges=result.get("total_exchanges", 0),
+            recommendation=result.get("recommendation", "HOLD"),
+            conclusion_reason=result.get("conclusion_reason", "unknown"),
+            facilitator_report=result.get("facilitator_report", ""),
             timestamp=datetime.utcnow().isoformat()
         )
         
@@ -103,14 +117,14 @@ async def run_debate(symbol: str, request: DebateRequest = DebateRequest()):
 @router.get("/{symbol}/status")
 async def get_debate_status(symbol: str):
     """
-    Get live debate progress with Bull/Bear conversation.
+    Get live debate progress.
     
     Returns the current state including:
     - status: "started", "in_progress", "completed", "error", or "not_found"
-    - bull_history: All Bull arguments so far
-    - bear_history: All Bear arguments so far
     - current_round: Which round we're on
-    - last_speaker: Who spoke last ("bull_researcher" or "bear_researcher")
+    - total_points: Total debate points (bull + bear)
+    - recommendation: Final recommendation (when completed)
+    - conclusion_reason: Why debate ended (consensus/exhaustion/max_rounds/early_end)
     """
     symbol = symbol.upper()
     
@@ -123,12 +137,12 @@ async def get_debate_status(symbol: str):
                 "status": progress.get("status", "unknown"),
                 "max_rounds": progress.get("max_rounds"),
                 "current_round": progress.get("current_round"),
-                "total_exchanges": progress.get("total_exchanges", 0),
-                "last_speaker": progress.get("last_speaker"),
-                "bull_history": progress.get("bull_history", ""),
-                "bear_history": progress.get("bear_history", ""),
-                "current_response": progress.get("current_response", ""),
+                "total_points": progress.get("total_points", 0),
+                "bull_points": progress.get("bull_points", 0),
+                "bear_points": progress.get("bear_points", 0),
+                "last_node": progress.get("last_node"),
                 "recommendation": progress.get("recommendation"),
+                "conclusion_reason": progress.get("conclusion_reason"),
                 "error": progress.get("error"),
                 "started_at": progress.get("started_at"),
                 "updated_at": progress.get("updated_at"),
