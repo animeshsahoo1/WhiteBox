@@ -1,4 +1,4 @@
-"""Utilities for sharing AI reports via Redis."""
+"""Utilities for sharing AI reports via Redis and PostgreSQL."""
 from __future__ import annotations
 
 import json
@@ -9,6 +9,8 @@ from typing import Any, Dict, Optional
 
 import pathway as pw
 import redis
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 REDIS_DEFAULT_HOST = "localhost"
 REDIS_DEFAULT_PORT = 6379
@@ -19,6 +21,79 @@ REPORT_KEY_PREFIX = "reports"
 
 def _build_symbol_key(symbol: str) -> str:
     return f"{REPORT_KEY_PREFIX}:{symbol}"
+
+
+# =====================================================================
+# POSTGRESQL CONNECTION
+# =====================================================================
+
+@lru_cache(maxsize=1)
+def get_postgres_connection():
+    """Return a PostgreSQL connection configured via DATABASE_URL."""
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        print("⚠️  DATABASE_URL not set - PostgreSQL saving disabled")
+        return None
+    
+    try:
+        conn = psycopg2.connect(database_url)
+        conn.autocommit = True
+        print("✅ PostgreSQL connection established")
+        return conn
+    except Exception as e:
+        print(f"❌ PostgreSQL connection failed: {e}")
+        return None
+
+
+def save_report_to_postgres(symbol: str, report_type: str, entry: Dict[str, Any]) -> bool:
+    """Save a report to the analyst_reports PostgreSQL table."""
+    conn = get_postgres_connection()
+    if not conn:
+        return False
+    
+    try:
+        # Generate unique ID: {symbol}_{report_type}_{timestamp}_{random}
+        import uuid
+        timestamp_str = entry.get("last_updated", datetime.utcnow().isoformat())
+        # Clean timestamp for ID (remove special chars)
+        timestamp_clean = timestamp_str.replace(":", "").replace("-", "").replace("T", "_").replace(".", "")[:15]
+        # Add short UUID to ensure uniqueness even for same-second reports
+        unique_suffix = str(uuid.uuid4())[:8]
+        report_id = f"{symbol}_{report_type}_{timestamp_clean}_{unique_suffix}"
+        
+        # Parse timestamp for the timestamp column
+        try:
+            if isinstance(timestamp_str, str):
+                report_timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+            else:
+                report_timestamp = datetime.utcnow()
+        except:
+            report_timestamp = datetime.utcnow()
+        
+        # Prepare report body as JSON string
+        report_body = json.dumps(entry)
+        
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO analyst_reports (id, symbol, report_type, timestamp, score, report_body, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+            """, (report_id, symbol, report_type, report_timestamp, None, report_body))
+        
+        print("=" * 60)
+        print(f"✅ [POSTGRESQL] Report saved to analyst_reports table!")
+        print(f"   📌 ID: {report_id}")
+        print(f"   📈 Symbol: {symbol}")
+        print(f"   📋 Report Type: {report_type}")
+        print(f"   🕐 Timestamp: {report_timestamp}")
+        print(f"   📦 Body Size: {len(report_body)} chars")
+        print("=" * 60)
+        return True
+        
+    except Exception as e:
+        print(f"❌ Failed to save to PostgreSQL: {e}")
+        # Try to reconnect on next call
+        get_postgres_connection.cache_clear()
+        return False
 
 
 @lru_cache(maxsize=1)

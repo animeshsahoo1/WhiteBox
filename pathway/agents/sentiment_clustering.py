@@ -27,6 +27,7 @@ from typing import Optional
 import litellm
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
+
 load_dotenv()
 
 # Initialize VADER sentiment analyzer

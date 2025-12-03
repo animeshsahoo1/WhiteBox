@@ -21,6 +21,13 @@ import litellm
 import uuid
 import hashlib
 
+
+# Import PostgreSQL save function
+try:
+    from redis_cache import save_report_to_postgres
+except ImportError:
+    from .redis_cache import save_report_to_postgres
+
 load_dotenv()
 
 # =============================================================================
@@ -636,6 +643,19 @@ def process_news_stream(
             new_cluster_count = sum(1 for c in clusters if str(c['cluster_id']) not in prev)
             trigger_news_alert(symbol, len(clusters), new_cluster_count)
             
+            # Save to PostgreSQL for historical storage
+            try:
+                entry = {
+                    "symbol": symbol,
+                    "report_type": "news",
+                    "content": new_report,
+                    "last_updated": datetime.utcnow().isoformat(),
+                }
+                save_report_to_postgres(symbol, "news", entry)
+                print(f"✈️ [{symbol}] Saved news report to PostgreSQL")
+            except Exception as e:
+                print(f"⚠️ [{symbol}] Failed to save news to PostgreSQL: {e}")
+
             state['report'] = new_report
             state['cluster_states'] = {
                 str(c['cluster_id']): {'headline': c['headline'], 'article_count': c['article_count']} 

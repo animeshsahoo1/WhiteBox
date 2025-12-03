@@ -24,6 +24,13 @@ import json
 import time
 from typing import Optional
 
+# Import PostgreSQL save function
+try:
+    from redis_cache import save_report_to_postgres
+except ImportError:
+    from .redis_cache import save_report_to_postgres
+
+
 load_dotenv()
 
 # Default clusters input directory (same as Phase 1 output)
@@ -306,6 +313,20 @@ def process_sentiment_reports(
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write(new_report)
             print(f"📝 [{symbol}] Generated sentiment report")
+                    # 2. Save to PostgreSQL for historical storage
+            try:
+                entry = {
+                    "symbol": symbol,
+                    "report_type": "sentiment",
+                    "content": report_content,
+                    "last_updated": dt.utcnow().isoformat(),
+                    "cluster_data": cluster_data_json,
+                }
+                save_report_to_postgres(symbol, "sentiment", entry)
+            except Exception as e:
+                print(f"⚠️ [{symbol}] Failed to save to PostgreSQL: {e}")
+        
+
         else:
             # Reset time if generation failed so we retry sooner
             _last_report_time[symbol] = last_time
