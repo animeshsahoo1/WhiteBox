@@ -14,6 +14,7 @@ from pydantic import BaseModel
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from bullbear.debate_runner import run_debate_and_generate_report, get_debate_progress
+from bullbear.researchers.facilitator import get_facilitator_status, is_stream_active
 
 router = APIRouter(prefix="/debate", tags=["Bull-Bear Debate"])
 
@@ -145,4 +146,57 @@ async def get_debate_status(symbol: str):
         raise HTTPException(
             status_code=500,
             detail=f"Error checking status: {str(e)}"
+        )
+
+
+# ============================================================
+# FACILITATOR API
+# ============================================================
+
+@router.get("/facilitator/{symbol}/status")
+async def get_facilitator_report_status(symbol: str):
+    """
+    Get current facilitator report status for a symbol.
+    
+    The facilitator auto-generates reports when bear_debate.md changes.
+    This endpoint returns the latest facilitator report.
+    
+    Returns:
+    - status: "watching", "processing", "completed", "error", "stopped", or "not_found"
+    - report: The latest facilitator report (markdown)
+    - recommendation: BUY/HOLD/SELL extracted from report
+    - stream_active: Whether facilitator is still watching for changes
+    """
+    symbol = symbol.upper()
+    
+    try:
+        status = get_facilitator_status(symbol)
+        stream_active = is_stream_active(symbol)
+        
+        if status:
+            return {
+                "symbol": symbol,
+                "status": status.get("status", "unknown"),
+                "round": status.get("round", 0),
+                "report": status.get("report", ""),
+                "recommendation": status.get("recommendation"),
+                "stream_active": stream_active,
+                "updated_at": status.get("updated_at"),
+                "source": status.get("source", "memory"),
+            }
+        else:
+            return {
+                "symbol": symbol,
+                "status": "not_found",
+                "round": 0,
+                "report": "",
+                "recommendation": None,
+                "stream_active": stream_active,
+                "message": "No facilitator report found. Start a debate with POST /debate/{symbol}"
+            }
+            
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error checking facilitator status: {str(e)}"
         )

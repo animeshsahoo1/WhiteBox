@@ -1,22 +1,44 @@
 """
-Sentiment Cluster API Router
-Handles cluster visualization data and sentiment metrics from Redis.
+Sentiment API Router
+Handles sentiment clusters with overall scores from Redis.
 """
 import sys
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import List
 
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from redis_cache import get_redis_client
 
-router = APIRouter(prefix="/clusters")
+
+class SentimentClusterItem(BaseModel):
+    cluster_id: int
+    summary: str
+    avg_sentiment: float
+    count: int
 
 
-@router.get("")
+class SentimentClustersResponse(BaseModel):
+    symbol: str
+    overall_sentiment: float
+    cluster_count: int
+    total_posts: int
+    clusters: List[SentimentClusterItem]
+    timestamp: str
+
+
+router = APIRouter(prefix="/sentiment")
+
+
+# =============================================================================
+# CLUSTER VISUALIZATION ENDPOINTS (from sentiment_cluster_api)
+# =============================================================================
+@router.get("/clusters")
 def get_all_clusters():
     """
     Get all cluster visualization data from Redis cache.
@@ -97,7 +119,7 @@ def get_all_clusters():
     }
 
 
-@router.get("/{symbol}")
+@router.get("/clusters/symbol/{symbol}")
 def get_symbol_clusters(symbol: str):
     """
     Get cluster data for a specific symbol from Redis cache.
@@ -155,3 +177,47 @@ def get_symbol_clusters(symbol: str):
         "posts": total_posts,
         "timestamp": datetime.utcnow().isoformat()
     }
+
+
+# =============================================================================
+# SENTIMENT SCORE ENDPOINTS
+# =============================================================================
+def _get_sentiment_data(symbol: str) -> dict:
+    """Get sentiment cluster data from Redis."""
+    client = get_redis_client()
+    
+    # Try sentiment_clusters key
+    data = client.get(f"sentiment_clusters:{symbol}")
+    if data:
+        parsed = json.loads(data)
+        if 'clusters_json' in parsed:
+            return json.loads(parsed['clusters_json'])
+        return parsed
+    
+    return {}
+
+
+@router.get("/clusters/{symbol}", response_model=SentimentClustersResponse)
+async def get_sentiment_clusters(symbol: str):
+    """Get sentiment clusters with overall score for a symbol."""
+    symbol = symbol.upper()
+    data = _get_sentiment_data(symbol)
+    
+    clusters = [
+        SentimentClusterItem(
+            cluster_id=c.get('cluster_id', 0),
+            summary=c.get('summary', '')[:200],
+            avg_sentiment=c.get('avg_sentiment', 0.0),
+            count=c.get('count', 0)
+        )
+        for c in data.get('clusters', [])
+    ]
+    
+    return SentimentClustersResponse(
+        symbol=symbol,
+        overall_sentiment=data.get('overall_sentiment', 0.0),
+        cluster_count=data.get('cluster_count', 0),
+        total_posts=data.get('total_posts', 0),
+        clusters=clusters,
+        timestamp=data.get('timestamp', datetime.now(timezone.utc).isoformat())
+    )

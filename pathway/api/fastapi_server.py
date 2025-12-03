@@ -1,30 +1,31 @@
 """
-FastAPI server exposing cached AI reports stored in Redis.
+Pathway Unified API Server
+==========================
+Serves AI-generated reports and real-time sentiment from Redis cache.
+
+Architecture:
+- Phase 1 (Fast): Real-time sentiment scores from sentiment_clustering.py
+- Phase 2 (Slow): LLM-generated reports from sentiment_reports.py
 """
+
 import sys
-import json
+import os
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from event_publisher import publish_agent_status  # Ensure import after edits
 
-# Add parent directory to path to import redis_cache
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from redis_cache import (
-    get_redis_client,
-    get_reports_for_symbol,
-    list_symbols as redis_list_symbols,
-)
+from redis_cache import get_redis_client, list_symbols as redis_list_symbols
 from .historical_analysis_api import router as historical_router
 from .rag_api import router as rag_router
 from .bullbear_api import router as bullbear_router
-from .report_fetch_api import router as report_router, REPORT_TYPES
-from .sentiment_cluster_api import router as cluster_router
+from .report_fetch_api import router as report_router
+from .sentiment_api import router as sentiment_router
+from .news_api import router as news_router
 
 from .backtesting_api import router as backtesting_router
 from .workflow_api import router as workflow_router
@@ -45,43 +46,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include routers
 app.include_router(historical_router, tags=["Historical Analysis"])
 app.include_router(rag_router, tags=["RAG"])
 app.include_router(bullbear_router, tags=["Bull-Bear Debate"])
 app.include_router(report_router, tags=["Reports"])
-app.include_router(cluster_router, tags=["Clusters"])
+app.include_router(sentiment_router, tags=["Sentiment"])
+app.include_router(news_router, tags=["News"])
 app.include_router(backtesting_router, tags=["Backtesting"])
 app.include_router(workflow_router, tags=["Workflow"])
 app.include_router(strategist_router)  # Tags defined in router
 
-class HealthResponse(BaseModel):
-    status: str
-    timestamp: str
-    cached_symbols: list[str]
-    report_counts: Dict[str, int]
 
-
-def _compute_report_counts() -> Dict[str, int]:
-    client = get_redis_client()
-    counts: Dict[str, int] = {report_type: 0 for report_type in REPORT_TYPES}
-    
-    # Add cluster count
-    clusters_key = "clusters:all"
-    cluster_count = client.hlen(clusters_key) if client.exists(clusters_key) else 0
-    counts["clusters"] = cluster_count
-
-    symbols = redis_list_symbols(client)
-    for symbol in symbols:
-        reports = get_reports_for_symbol(symbol, client)
-        for report_type in REPORT_TYPES:
-            if reports.get(report_type) and reports[report_type].get("content"):
-                counts[report_type] += 1
-
-    return counts
-
-
-@app.get("/", response_model=dict)
-async def root() -> dict:
+# =============================================================================
+# CORE ENDPOINTS
+# =============================================================================
+@app.get("/")
+async def root():
     return {
         "message": "Pathway Unified API",
         "version": "8.0.0",
@@ -112,41 +93,40 @@ async def root() -> dict:
             "POST /strategist/new": "Start new conversation (preserves memories)",
             "GET /strategist/memory/{user_id}": "Get user's stored memories",
             "DELETE /strategist/memory/{user_id}": "Clear user memories",
-            "GET /strategist/threads/{user_id}": "Get current thread info"
-        },
+            "GET /strategist/threads/{user_id}": "Get current thread info",
+            "Clusters": {
+                "/sentiment/clusters/{symbol}": "Sentiment clusters with overall score",
+                "/news/clusters/{symbol}": "News story clusters",
+            },
+        }
     }
 
 
-@app.get("/health", response_model=HealthResponse)
-async def health() -> HealthResponse:
+@app.get("/health")
+async def health():
     client = get_redis_client()
     symbols = redis_list_symbols(client)
-    report_counts = _compute_report_counts()
-
-    return HealthResponse(
-        status="ok",
-        timestamp=datetime.utcnow().isoformat(),
-        cached_symbols=symbols,
-        report_counts=report_counts,
-    )
+    return {
+        "status": "ok",
+        "timestamp": datetime.utcnow().isoformat(),
+        "cached_symbols": symbols,
+        "symbol_count": len(symbols)
+    }
 
 
 @app.get("/symbols")
-async def list_symbols() -> dict:
+async def list_symbols():
     client = get_redis_client()
     symbols = redis_list_symbols(client)
-
-    return {
-        "symbols": symbols,
-        "count": len(symbols),
-        "timestamp": datetime.utcnow().isoformat(),
-    }
+    return {"symbols": symbols, "count": len(symbols)}
 
 
+# =============================================================================
+# MAIN
+# =============================================================================
 if __name__ == "__main__":
     import uvicorn
-    import json  # Add json import
-
-    print("🚀 Starting FastAPI server (Redis Cache)")
-    print("📡 Serving AI reports directly from Redis")
+    print("🚀 Starting Pathway API Server")
+    print("⚡ Phase 1: /sentiment/score, /sentiment/clusters (fast)")
+    print("📝 Phase 2: /reports (LLM-generated)")
     uvicorn.run(app, host="0.0.0.0", port=8000)

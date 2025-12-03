@@ -5,6 +5,12 @@ from datetime import datetime
 from dotenv import load_dotenv
 import json
 
+# Import PostgreSQL save function
+try:
+    from redis_cache import save_report_to_postgres
+except ImportError:
+    from .redis_cache import save_report_to_postgres
+
 load_dotenv()
 
 # Import agentic RAG report generator
@@ -483,6 +489,19 @@ def process_fundamental_stream(
         print(
             f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] ✓ Saved fundamental report for {symbol} to {report_path}"
         )
+        
+        # Save to PostgreSQL for historical storage
+        try:
+            entry = {
+                "symbol": symbol,
+                "report_type": "fundamental",
+                "content": report_content,
+                "last_updated": datetime.utcnow().isoformat(),
+            }
+            save_report_to_postgres(symbol, "fundamental", entry)
+        except Exception as e:
+            print(f"⚠️ [{symbol}] Failed to save fundamental to PostgreSQL: {e}")
+        
         return report_content
 
     print(f"[STREAM] Starting fundamental stream processing...")
