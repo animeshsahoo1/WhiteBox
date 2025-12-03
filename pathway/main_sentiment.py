@@ -3,7 +3,8 @@ import os
 import logging
 from dotenv import load_dotenv
 from consumers.sentiment_consumer import SentimentConsumer
-from agents.sentiment_agent import process_sentiment_stream
+from agents.sentiment_clustering import process_sentiment_clustering
+from agents.sentiment_reports import process_sentiment_reports
 try:  # Allow running as `python pathway/main_sentiment.py` or as module
     from .redis_cache import get_report_observer
 except ImportError:  # pragma: no cover - fallback for script execution
@@ -26,17 +27,19 @@ def main():
 
     # Process sentiment data with clustering pipeline
     reports_directory = "/app/reports/sentiment"
+    clusters_directory = os.path.join(reports_directory, "clusters")
     
     print("\n📊 Processing Steps:")
     print("  1️⃣  Assign posts to clusters (per-symbol)")
-    print("  2️⃣  Generate LLM summaries for each cluster")
-    print("  3️⃣  Create reports from cluster summaries")
+    print("  2️⃣  Calculate VADER sentiment scores")
+    print("  3️⃣  Apply time-based sentiment decay")
     print("  4️⃣  Stream to Redis cache")
     print("  5️⃣  Export to visualization pipeline")
     print("  6️⃣  Trigger BullBear alerts if sentiment outside range")
     
-    updated_sentiment_reports, cluster_viz_table = process_sentiment_stream(
-        sentiment_table, reports_directory=reports_directory
+    # Phase 1: Fast clustering pipeline
+    sentiment_scores_table, cluster_viz_table = process_sentiment_clustering(
+        sentiment_table, clusters_directory=clusters_directory
     )
     
     # === SENTIMENT ALERT SYSTEM ===
@@ -58,16 +61,11 @@ def main():
     # Stream updates to Redis cache via pw.io.python observer
     sentiment_observer = get_report_observer("sentiment")
     pw.io.python.write(
-        updated_sentiment_reports,
+        sentiment_scores_table,
         sentiment_observer,
-        name="sentiment_reports_stream",
+        name="sentiment_scores_stream",
     )
-    print("\n📤 Streaming cluster-based sentiment updates to Redis cache")
-
-    # Optional: Write to CSV
-    output_path = os.path.join(reports_directory, "reports_stream.csv")
-    pw.io.csv.write(updated_sentiment_reports, output_path)
-    print(f"📝 Writing reports stream to CSV: {output_path}")
+    print("\n📤 Streaming cluster-based sentiment scores to Redis cache")
     
     # Export cluster visualization data to JSON for dashboard
     viz_directory = os.path.join(reports_directory, "visualizations")

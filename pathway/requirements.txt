@@ -16,6 +16,9 @@ yfinance>=0.2.0
 TA-Lib>=0.4.0
 vaderSentiment>=3.3.2
 
+# PDF/Document Parsing
+landingai-ade  # Primary PDF/image parser
+
 # PostgreSQL
 psycopg2-binary>=2.9.0
 
