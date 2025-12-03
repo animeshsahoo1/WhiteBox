@@ -46,7 +46,7 @@ async def get_strategist():
     
     async with _strategist_lock:
         if _strategist is None:
-            from orchestrator_2.langgraph_agent import Strategist
+            from orchestrator.langgraph_agent import Strategist
             _strategist = Strategist()
             await _strategist.initialize()
         return _strategist

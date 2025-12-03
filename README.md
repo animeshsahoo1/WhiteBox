@@ -132,7 +132,7 @@ REDIS_DB=0
 **trading_agents/.env**
 ```bash
 OPENAI_API_KEY=your_openai_key
-PATHWAY_API_URL=http://pathway-reports-api:8000
+PATHWAY_API_URL=http://pathway-unified-api:8000
 REDIS_HOST=redis
 REDIS_PORT=6379
 REDIS_DB=1

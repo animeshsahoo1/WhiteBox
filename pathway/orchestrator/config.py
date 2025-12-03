@@ -22,8 +22,8 @@ MCP_SERVER_HOST = os.getenv("MCP_SERVER_HOST", "0.0.0.0")
 MCP_SERVER_PORT = int(os.getenv("MCP_SERVER_PORT", 9004))
 
 # API URLs (use Docker internal network names)
-REPORTS_API_URL = os.getenv("REPORTS_API_URL", "http://reports-api:8000")
-BACKTESTING_API_URL = os.getenv("BACKTESTING_API_URL", "http://reports-api:8000/backtesting")
+REPORTS_API_URL = os.getenv("REPORTS_API_URL", "http://unified-api:8000")
+BACKTESTING_API_URL = os.getenv("BACKTESTING_API_URL", "http://unified-api:8000/backtesting")
 
 # Serpex API configuration (Web Search)
 SERPEX_API_KEY = os.getenv("SERPAPI_API_KEY", "").strip('"').strip("'")

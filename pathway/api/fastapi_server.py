@@ -23,7 +23,6 @@ from redis_cache import (
 from .historical_analysis_api import router as historical_router
 from .rag_api import router as rag_router
 from .bullbear_api import router as bullbear_router
-from .orchestrator_api import router as orchestrator_router
 from .report_fetch_api import router as report_router, REPORT_TYPES
 from .sentiment_cluster_api import router as cluster_router
 
@@ -35,7 +34,7 @@ from .strategist_api import router as strategist_router
 app = FastAPI(
     title="Pathway Unified API",
     version="8.0.0",
-    description="Unified API for Reports, RAG, Backtesting, Bull-Bear Debate, Orchestrator, and Strategist Agent",
+    description="Unified API for Reports, RAG, Backtesting, Bull-Bear Debate, and Strategist Agent",
 )
 
 app.add_middleware(
@@ -49,7 +48,6 @@ app.add_middleware(
 app.include_router(historical_router, tags=["Historical Analysis"])
 app.include_router(rag_router, tags=["RAG"])
 app.include_router(bullbear_router, tags=["Bull-Bear Debate"])
-app.include_router(orchestrator_router, tags=["Orchestrator"])
 app.include_router(report_router, tags=["Reports"])
 app.include_router(cluster_router, tags=["Clusters"])
 app.include_router(backtesting_router, tags=["Backtesting"])
@@ -87,7 +85,7 @@ async def root() -> dict:
     return {
         "message": "Pathway Unified API",
         "version": "8.0.0",
-        "architecture": "Unified Server for Reports, RAG, Backtesting, Bull-Bear Debate, Orchestrator, and Strategist Agent",
+        "architecture": "Unified Server for Reports, RAG, Backtesting, Bull-Bear Debate, and Strategist Agent",
         "endpoints": {
             "GET /reports/{symbol}": "Get all cached reports (includes facilitator)",
             "GET /reports/{symbol}/{report_type}": "Get specific report",
@@ -107,7 +105,6 @@ async def root() -> dict:
             "POST /backtesting/strategies/search": "Semantic search strategies",
             "POST /debate/{symbol}": "Run bull-bear debate",
             "GET /debate/{symbol}/status": "Check facilitator report exists",
-            "POST /orchestrator/query": "Smart query with auto context gathering",
             "# Strategist Agent (LangGraph + Mem0)": "---",
             "GET /strategist/status": "Check if Strategist agent is ready",
             "POST /strategist/chat": "Send message and get response",

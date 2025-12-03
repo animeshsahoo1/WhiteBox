@@ -148,7 +148,7 @@ docker-compose up -d
 
 # View logs
 docker-compose logs -f market-consumer
-docker-compose logs -f reports-api
+docker-compose logs -f unified-api
 
 # Check health
 curl http://localhost:8000/health

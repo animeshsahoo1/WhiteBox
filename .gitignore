@@ -47,3 +47,4 @@ backend_server
 pathway_state/
 reports
 streaming/sentiment_logs
+pathway/historical_reports

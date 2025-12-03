@@ -45,7 +45,7 @@ A production-ready orchestration layer that provides:
 
 ## API Endpoints
 
-The Strategist is integrated into the main FastAPI server (`reports-api`):
+The Strategist is integrated into the main FastAPI server (`unified-api`):
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
