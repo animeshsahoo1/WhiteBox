@@ -1,46 +1,42 @@
 """
-FastAPI server exposing cached AI reports stored in Redis.
+Pathway Unified API Server
+==========================
+Serves AI-generated reports and real-time sentiment from Redis cache.
+
+Architecture:
+- Phase 1 (Fast): Real-time sentiment scores from sentiment_clustering.py
+- Phase 2 (Slow): LLM-generated reports from sentiment_reports.py
 """
+
 import sys
 import json
+import os
 from pathlib import Path
-from datetime import datetime
-from typing import Dict, Optional
+from datetime import datetime, timezone
+from typing import Dict, Optional, List
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-# Add parent directory to path to import redis_cache
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from redis_cache import (
-    get_redis_client,
-    get_reports_for_symbol,
-    list_symbols as redis_list_symbols,
-)
+from redis_cache import get_redis_client, get_reports_for_symbol, list_symbols as redis_list_symbols
 from .historical_analysis_api import router as historical_router
 from .rag_api import router as rag_router
 from .bullbear_api import router as bullbear_router
 from .orchestrator_api import router as orchestrator_router
 from .workflow_api import router as workflow_router
 
+# =============================================================================
+# CONFIG
+# =============================================================================
 REPORT_TYPES = ["fundamental", "market", "news", "sentiment", "facilitator"]
 
-app = FastAPI(
-    title="Pathway Unified API",
-    version="7.0.0",
-    description="Unified API for Reports, RAG, Bull-Bear Debate, and Orchestrator",
-)
+app = FastAPI(title="Pathway Unified API", version="8.0.0")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
+# Include routers
 app.include_router(historical_router, tags=["Historical Analysis"])
 app.include_router(rag_router, tags=["RAG"])
 app.include_router(bullbear_router, tags=["Bull-Bear Debate"])
@@ -48,6 +44,9 @@ app.include_router(orchestrator_router, tags=["Orchestrator"])
 app.include_router(workflow_router, tags=["Workflow"])
 
 
+# =============================================================================
+# MODELS
+# =============================================================================
 class ReportsResponse(BaseModel):
     symbol: str
     fundamental_report: Optional[str] = None
@@ -59,309 +58,220 @@ class ReportsResponse(BaseModel):
     status: str
 
 
-class HealthResponse(BaseModel):
-    status: str
+class SentimentClusterItem(BaseModel):
+    cluster_id: int
+    summary: str
+    avg_sentiment: float
+    count: int
+
+
+class SentimentClustersResponse(BaseModel):
+    symbol: str
+    overall_sentiment: float
+    cluster_count: int
+    total_posts: int
+    clusters: List[SentimentClusterItem]
     timestamp: str
-    cached_symbols: list[str]
-    report_counts: Dict[str, int]
 
 
-def _compute_report_counts() -> Dict[str, int]:
-    client = get_redis_client()
-    counts: Dict[str, int] = {report_type: 0 for report_type in REPORT_TYPES}
-    
-    # Add cluster count
-    clusters_key = "clusters:all"
-    cluster_count = client.hlen(clusters_key) if client.exists(clusters_key) else 0
-    counts["clusters"] = cluster_count
-
-    symbols = redis_list_symbols(client)
-    for symbol in symbols:
-        reports = get_reports_for_symbol(symbol, client)
-        for report_type in REPORT_TYPES:
-            if reports.get(report_type) and reports[report_type].get("content"):
-                counts[report_type] += 1
-
-    return counts
+class NewsArticle(BaseModel):
+    title: str
+    source: str
 
 
-@app.get("/", response_model=dict)
-async def root() -> dict:
+class NewsStory(BaseModel):
+    headline: str
+    articles: List[NewsArticle]
+    links: List[str]
+
+
+class NewsResponse(BaseModel):
+    symbol: str
+    stories: List[NewsStory]
+    timestamp: str
+
+
+# =============================================================================
+# CORE ENDPOINTS
+# =============================================================================
+@app.get("/")
+async def root():
     return {
         "message": "Pathway Unified API",
-        "version": "7.0.0",
-        "architecture": "Unified Server for Reports, RAG, Bull-Bear Debate, and Orchestrator",
+        "version": "8.0.0",
         "endpoints": {
-            "GET /reports/{symbol}": "Get all cached reports (includes facilitator)",
-            "GET /reports/{symbol}/{report_type}": "Get specific report",
-            "GET /clusters": "Get cluster visualization data",
-            "GET /clusters/{symbol}": "Get symbol clusters",
-            "GET /symbols": "List symbols with cached reports",
-            "GET /health": "Health check",
-            "POST /analyze": "Historical Analysis",
-            "POST /query": "RAG Query",
-            "POST /debate/{symbol}": "Run bull-bear debate",
-            "GET /debate/{symbol}/status": "Check facilitator report exists",
-            "POST /orchestrator/query": "Smart query with auto context gathering"
-        },
+            "📝 Reports": {
+                "/reports/{symbol}": "All reports for symbol",
+                "/reports/{symbol}/{type}": "Specific report type (fundamental, market, news, sentiment)",
+            },
+            "📊 Clusters": {
+                "/sentiment/clusters/{symbol}": "Sentiment clusters with overall score",
+                "/news/clusters/{symbol}": "News story clusters",
+            },
+            "🔧 Other": {
+                "/symbols": "List tracked symbols",
+                "/health": "Health check",
+            }
+        }
     }
 
 
-@app.get("/health", response_model=HealthResponse)
-async def health() -> HealthResponse:
+@app.get("/health")
+async def health():
     client = get_redis_client()
     symbols = redis_list_symbols(client)
-    report_counts = _compute_report_counts()
-
-    return HealthResponse(
-        status="ok",
-        timestamp=datetime.utcnow().isoformat(),
-        cached_symbols=symbols,
-        report_counts=report_counts,
-    )
+    return {
+        "status": "ok",
+        "timestamp": datetime.utcnow().isoformat(),
+        "cached_symbols": symbols,
+        "symbol_count": len(symbols)
+    }
 
 
 @app.get("/symbols")
-async def list_symbols() -> dict:
+async def list_symbols():
     client = get_redis_client()
     symbols = redis_list_symbols(client)
+    return {"symbols": symbols, "count": len(symbols)}
 
-    return {
-        "symbols": symbols,
-        "count": len(symbols),
-        "timestamp": datetime.utcnow().isoformat(),
-    }
 
-from event_publisher import publish_agent_status  # Ensure import after edits
-
+# =============================================================================
+# REPORTS API (Phase 2)
+# =============================================================================
 @app.get("/reports/{symbol}", response_model=ReportsResponse)
-async def get_all_reports(symbol: str) -> ReportsResponse:
+async def get_all_reports(symbol: str):
+    """Get all cached reports for a symbol."""
     client = get_redis_client()
-    normalized_symbol = symbol.upper()
-
-    publish_agent_status("1234", "Analyst Agent", f"Fetching all reports for {normalized_symbol}", redis_sync=client)
-
-
-    print(f"\n{'=' * 60}")
-    print(f"📥 Request for all reports: {normalized_symbol}")
-    print(f"{'=' * 60}")
-
-    reports = get_reports_for_symbol(normalized_symbol, client)
+    symbol = symbol.upper()
+    reports = get_reports_for_symbol(symbol, client)
+    
     if not reports:
-        print(f"❌ No reports found for {normalized_symbol}\n")
-        raise HTTPException(
-            status_code=404,
-            detail=f"No cached reports found for symbol {normalized_symbol}",
-        )
-
-    fundamental_report = reports.get("fundamental", {}).get("content")
-    market_report = reports.get("market", {}).get("content")
-    news_report = reports.get("news", {}).get("content")
-    sentiment_report = reports.get("sentiment", {}).get("content")
-    facilitator_report = reports.get("facilitator", {}).get("content")
-
-    print(f"\n📊 Cached results for {normalized_symbol}:")
-    print(f"  Fundamental: {'✅' if fundamental_report else '❌'}")
-    print(f"  Market: {'✅' if market_report else '❌'}")
-    print(f"  News: {'✅' if news_report else '❌'}")
-    print(f"  Sentiment: {'✅' if sentiment_report else '❌'}")
-    print(f"  Facilitator: {'✅' if facilitator_report else '❌'}")
-    print(f"✅ Returning cached response for {normalized_symbol}\n")
-
+        raise HTTPException(status_code=404, detail=f"No reports found for {symbol}")
+    
     return ReportsResponse(
-        symbol=normalized_symbol,
-        fundamental_report=fundamental_report,
-        market_report=market_report,
-        news_report=news_report,
-        sentiment_report=sentiment_report,
-        facilitator_report=facilitator_report,
+        symbol=symbol,
+        fundamental_report=reports.get("fundamental", {}).get("content"),
+        market_report=reports.get("market", {}).get("content"),
+        news_report=reports.get("news", {}).get("content"),
+        sentiment_report=reports.get("sentiment", {}).get("content"),
+        facilitator_report=reports.get("facilitator", {}).get("content"),
         timestamp=datetime.utcnow().isoformat(),
         status="success",
     )
 
 
 @app.get("/reports/{symbol}/{report_type}")
-async def get_specific_report(symbol: str, report_type: str) -> dict:
-    normalized_symbol = symbol.upper()
-    normalized_report_type = report_type.lower()
-
-    if normalized_report_type not in REPORT_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid report type '{report_type}'. Must be one of {REPORT_TYPES}",
-        )
-
+async def get_specific_report(symbol: str, report_type: str):
+    """Get a specific report type for a symbol."""
+    symbol = symbol.upper()
+    report_type = report_type.lower()
+    
+    if report_type not in REPORT_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid type. Must be one of {REPORT_TYPES}")
+    
     client = get_redis_client()
-    reports = get_reports_for_symbol(normalized_symbol, client)
-
-    if normalized_report_type not in reports:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No cached {normalized_report_type} report found for {normalized_symbol}",
-        )
-
-    entry = reports[normalized_report_type]
-
+    reports = get_reports_for_symbol(symbol, client)
+    
+    if report_type not in reports:
+        raise HTTPException(status_code=404, detail=f"No {report_type} report for {symbol}")
+    
+    entry = reports[report_type]
     return {
-        "symbol": normalized_symbol,
-        "report_type": normalized_report_type,
+        "symbol": symbol,
+        "report_type": report_type,
         "content": entry.get("content"),
         "last_updated": entry.get("last_updated"),
-        "received_at": entry.get("received_at"),
-        "processing_time": entry.get("processing_time"),
-        "timestamp": datetime.utcnow().isoformat(),
     }
 
 
-# ============================================================================
-# CLUSTER VISUALIZATION ENDPOINTS (for frontend graph building)
-# ============================================================================
-
-@app.get("/clusters", response_model=None)
-def get_all_clusters():
-    """
-    Get all cluster visualization data from Redis cache.
-    Returns clusters grouped by symbol with aggregated sentiment metrics.
-    
-    This endpoint provides raw cluster data for frontend visualization.
-    Frontend developers can use this to build their own graphs and dashboards.
-    
-    Returns:
-        - clusters: List of all cluster objects
-        - market_sentiment_score: Weighted average sentiment across all posts
-        - total_posts: Total number of posts across all clusters
-        - total_clusters: Total number of active clusters
-        - by_symbol: Clusters grouped by stock symbol with aggregated metrics
-    """
+# =============================================================================
+# SENTIMENT CLUSTERS API
+# =============================================================================
+def _get_sentiment_data(symbol: str) -> dict:
+    """Get sentiment cluster data from Redis."""
     client = get_redis_client()
     
-    # Get all clusters from the aggregated hash
-    all_clusters_key = "clusters:all"
-    clusters_data = client.hgetall(all_clusters_key)
+    # Try sentiment_clusters key
+    data = client.get(f"sentiment_clusters:{symbol}")
+    if data:
+        parsed = json.loads(data)
+        if 'clusters_json' in parsed:
+            return json.loads(parsed['clusters_json'])
+        return parsed
     
-    if not clusters_data:
-        return {
-            "clusters": [],
-            "market_sentiment_score": 0.0,
-            "total_posts": 0,
-            "total_clusters": 0,
-            "by_symbol": {},
-            "timestamp": datetime.utcnow().isoformat()
-        }
+    return {}
+
+
+@app.get("/sentiment/clusters/{symbol}", response_model=SentimentClustersResponse)
+async def get_sentiment_clusters(symbol: str):
+    """Get sentiment clusters with overall score for a symbol."""
+    symbol = symbol.upper()
+    data = _get_sentiment_data(symbol)
     
-    # Parse cluster data
-    clusters = []
-    by_symbol = {}
-    total_posts = 0
-    all_sentiments = []
-    all_counts = []
+    clusters = [
+        SentimentClusterItem(
+            cluster_id=c.get('cluster_id', 0),
+            summary=c.get('summary', '')[:200],
+            avg_sentiment=c.get('avg_sentiment', 0.0),
+            count=c.get('count', 0)
+        )
+        for c in data.get('clusters', [])
+    ]
     
-    for cluster_key, cluster_json in clusters_data.items():
+    return SentimentClustersResponse(
+        symbol=symbol,
+        overall_sentiment=data.get('overall_sentiment', 0.0),
+        cluster_count=data.get('cluster_count', 0),
+        total_posts=data.get('total_posts', 0),
+        clusters=clusters,
+        timestamp=data.get('timestamp', datetime.now(timezone.utc).isoformat())
+    )
+
+
+# =============================================================================
+# NEWS CLUSTERS API
+# =============================================================================
+def _get_news_clusters(symbol: str) -> list:
+    """Get news clusters from Redis."""
+    client = get_redis_client()
+    
+    data = client.get(f"news_clusters:{symbol}")
+    if data:
         try:
-            cluster = json.loads(cluster_json)
-            clusters.append(cluster)
-            
-            symbol = cluster.get("symbol", "UNKNOWN")
-            if symbol not in by_symbol:
-                by_symbol[symbol] = {"clusters": [], "sentiment": 0.0, "posts": 0}
-            
-            by_symbol[symbol]["clusters"].append(cluster)
-            by_symbol[symbol]["posts"] += cluster.get("count", 0)
-            
-            total_posts += cluster.get("count", 0)
-            all_sentiments.append(cluster.get("avg_sentiment", 0.0))
-            all_counts.append(cluster.get("count", 0))
+            return json.loads(data)
         except:
-            continue
-    
-    # Calculate market sentiment score (weighted average)
-    market_sentiment_score = 0.0
-    if all_counts and sum(all_counts) > 0:
-        market_sentiment_score = sum(
-            s * c for s, c in zip(all_sentiments, all_counts)
-        ) / sum(all_counts)
-    
-    # Calculate per-symbol sentiment
-    for symbol, data in by_symbol.items():
-        if data["posts"] > 0:
-            data["sentiment"] = sum(
-                c["avg_sentiment"] * c["count"] for c in data["clusters"]
-            ) / data["posts"]
-    
-    return {
-        "clusters": clusters,
-        "market_sentiment_score": market_sentiment_score,
-        "total_posts": total_posts,
-        "total_clusters": len(clusters),
-        "by_symbol": by_symbol,
-        "timestamp": datetime.utcnow().isoformat()
-    }
+            pass
+    return []
 
 
-@app.get("/clusters/{symbol}", response_model=None)
-def get_symbol_clusters(symbol: str):
-    """
-    Get cluster data for a specific symbol from Redis cache.
+@app.get("/news/clusters/{symbol}", response_model=NewsResponse)
+async def get_news_clusters(symbol: str):
+    """Get news story clusters for a symbol."""
+    symbol = symbol.upper()
+    clusters = _get_news_clusters(symbol)
     
-    This endpoint provides cluster data for a single stock symbol,
-    useful for building symbol-specific visualizations.
+    stories = [
+        NewsStory(
+            headline=c.get('headline', 'Story'),
+            articles=[NewsArticle(title=a.get('title', ''), source=a.get('source', '')) for a in c.get('articles', [])[:10]],
+            links=c.get('links', [])
+        )
+        for c in clusters
+    ]
     
-    Args:
-        symbol: Stock ticker symbol (e.g., 'AAPL', 'TSLA')
-    
-    Returns:
-        - symbol: The stock ticker
-        - clusters: List of cluster objects for this symbol
-        - sentiment: Weighted average sentiment for the symbol
-        - posts: Total posts for this symbol
-    """
-    client = get_redis_client()
-    symbol_upper = symbol.upper()
-    
-    # Get all clusters for this symbol
-    pattern = f"clusters:{symbol_upper}:*"
-    cluster_keys = client.keys(pattern)
-    
-    if not cluster_keys:
-        return {
-            "symbol": symbol_upper,
-            "clusters": [],
-            "sentiment": 0.0,
-            "posts": 0,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-    
-    clusters = []
-    total_posts = 0
-    weighted_sentiment_sum = 0.0
-    
-    for key in cluster_keys:
-        cluster_json = client.get(key)
-        if cluster_json:
-            try:
-                cluster = json.loads(cluster_json)
-                clusters.append(cluster)
-                count = cluster.get("count", 0)
-                total_posts += count
-                weighted_sentiment_sum += cluster.get("avg_sentiment", 0.0) * count
-            except:
-                continue
-    
-    symbol_sentiment = weighted_sentiment_sum / total_posts if total_posts > 0 else 0.0
-    
-    return {
-        "symbol": symbol_upper,
-        "clusters": clusters,
-        "sentiment": symbol_sentiment,
-        "posts": total_posts,
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    return NewsResponse(
+        symbol=symbol,
+        stories=stories,
+        timestamp=datetime.now(timezone.utc).isoformat()
+    )
 
 
+# =============================================================================
+# MAIN
+# =============================================================================
 if __name__ == "__main__":
     import uvicorn
-    import json  # Add json import
-
-    print("🚀 Starting FastAPI server (Redis Cache)")
-    print("📡 Serving AI reports directly from Redis")
+    print("🚀 Starting Pathway API Server")
+    print("⚡ Phase 1: /sentiment/score, /sentiment/clusters (fast)")
+    print("📝 Phase 2: /reports (LLM-generated)")
     uvicorn.run(app, host="0.0.0.0", port=8000)

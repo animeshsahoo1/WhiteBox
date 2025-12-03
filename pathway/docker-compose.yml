@@ -124,6 +124,14 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: 0
+      # API keys for LLM
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # News alert config
+      NEWS_ALERT_ENABLED: ${NEWS_ALERT_ENABLED:-true}
+      NEWS_ALERT_COOLDOWN: ${NEWS_ALERT_COOLDOWN:-600}
+      NEWS_ALERT_MIN_CLUSTERS: ${NEWS_ALERT_MIN_CLUSTERS:-3}
+      BULLBEAR_API_URL: http://reports-api:8000
     volumes:
       - ./reports/news:/app/reports/news
     restart: unless-stopped
@@ -131,10 +139,11 @@ services:
       redis:
         condition: service_healthy
 
-  sentiment-consumer:
+  # Sentiment Phase 1: Fast Clustering & Scoring (no LLM)
+  sentiment-clustering:
     build: .
-    container_name: pathway-sentiment-consumer
-    command: python main_sentiment.py
+    container_name: pathway-sentiment-clustering
+    command: python main_sentiment_phase1.py
     networks:
       - stock-network
     env_file:
@@ -145,19 +154,55 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: 0
-      # API keys for clustering and LLM
+      # API keys for embeddings
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
-      LATENCY_METRICS_DIR: /app/reports/metrics
+      # Clusters output directory
+      SENTIMENT_CLUSTERS_DIR: /app/reports/sentiment/clusters
+      # Alert config
+      SENTIMENT_ALERT_ENABLED: ${SENTIMENT_ALERT_ENABLED:-true}
+      SENTIMENT_ALERT_MIN: ${SENTIMENT_ALERT_MIN:--0.3}
+      SENTIMENT_ALERT_MAX: ${SENTIMENT_ALERT_MAX:-0.3}
+      SENTIMENT_ALERT_COOLDOWN: ${SENTIMENT_ALERT_COOLDOWN:-300}
+      BULLBEAR_API_URL: http://reports-api:8000
     volumes:
       - ./reports/sentiment:/app/reports/sentiment
-      - ./reports/metrics:/app/reports/metrics
-      - ./sentiment_cluster_state:/app/sentiment_cluster_state
-      - ./metrics:/app/metrics
+      - ./sentiment_phase1_state:/app/sentiment_phase1_state
     restart: unless-stopped
     depends_on:
       redis:
         condition: service_healthy
+
+  # Sentiment Phase 2: LLM Report Generation (reads from Phase 1 cluster files)
+  sentiment-reports:
+    build: .
+    container_name: pathway-sentiment-reports
+    command: python main_sentiment_phase2.py
+    networks:
+      - stock-network
+    env_file:
+      - .env
+    environment:
+      PYTHONUNBUFFERED: 1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      # API keys for LLM reports
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # Clusters input directory (from Phase 1)
+      SENTIMENT_CLUSTERS_DIR: /app/reports/sentiment/clusters
+      # Report generation interval (seconds) - how often reports can be generated per symbol
+      REPORT_GENERATION_INTERVAL: ${REPORT_GENERATION_INTERVAL:-300}
+    volumes:
+      - ./reports/sentiment:/app/reports/sentiment
+      - ./sentiment_phase2_state:/app/sentiment_phase2_state
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      sentiment-clustering:
+        condition: service_started
 
   # DEMO: Market Data from CSV (no Kafka)
   market-demo:

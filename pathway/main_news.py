@@ -43,6 +43,15 @@ def main():
     )
     print("📤 Streaming news updates to Redis cache via pw.io.python")
 
+    # Stream news clusters to Redis for API access (bullish/bearish/neutral endpoint)
+    news_clusters_observer = get_report_observer("news_clusters")
+    pw.io.python.write(
+        cluster_viz_table,
+        news_clusters_observer,
+        name="news_clusters_stream",
+    )
+    print("📤 Streaming news clusters to Redis cache for API")
+
     # Optional: Write reports to CSV
     output_path = os.path.join(reports_directory, "reports_stream.csv")
     pw.io.csv.write(updated_news_reports, output_path)
