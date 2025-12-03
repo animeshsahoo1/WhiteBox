@@ -33,6 +33,7 @@ services:
       - stock-network
     environment:
       KAFKA_BROKER: kafka:29092
+      WEBHOOK_URL: http://twitter-webhook:5001
     env_file:
       - .env
     volumes:
@@ -62,4 +63,37 @@ services:
       - .env
     volumes:
       - ../knowledge_base:/knowledge_base
+    restart: unless-stopped
+
+  ##########################################
+  # ADD THIS: Webhook Receiver (Flask)
+  ##########################################
+  twitter-webhook:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "webhook_receiver.py"]
+    networks:
+      - stock-network
+    environment:
+      WEBHOOK_RECEIVER_PORT: 5001
+    ports:
+      - "5001:5001"
+    restart: unless-stopped
+    volumes:
+      - .:/app
+
+
+  ##########################################
+  # ADD THIS: Cloudflare Tunnel
+  ##########################################
+  cloudflare-tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./cloudflared:/etc/cloudflared
+    depends_on:
+      - twitter-webhook
+    networks:
+      - stock-network
     restart: unless-stopped

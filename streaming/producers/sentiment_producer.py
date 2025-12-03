@@ -420,7 +420,7 @@ class SentimentProducer(BaseProducer):
             company_name = self.ticker_to_company.get(stock_symbol, stock_symbol)
             
             # Fetch from local webhook receiver instead of TwitterAPI.io
-            webhook_receiver_url = os.getenv('WEBHOOK_RECEIVER_URL', 'http://localhost:5001')
+            webhook_receiver_url = os.getenv('WEBHOOK_RECEIVER_URL', 'http://twitter-webhook:5001')
             url = f"{webhook_receiver_url}/tweets/{stock_symbol}"
             
             print(f"\n  {'='*50}")
