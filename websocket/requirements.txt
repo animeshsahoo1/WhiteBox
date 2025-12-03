@@ -1,0 +1,5 @@
+fastapi
+uvicorn[standard]
+websockets
+redis[hiredis]>=5.0.0
+python-dotenv

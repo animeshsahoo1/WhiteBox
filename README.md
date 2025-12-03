@@ -4,18 +4,19 @@ A sophisticated, real-time stock analysis and intelligence system built with mic
 
 ## 🎯 Project Overview
 
-This system combines real-time data streaming, AI-powered analysis, and multi-agent reasoning to provide comprehensive stock market intelligence for retail traders, small hedge funds, and independent investors. The architecture consists of three main components:
+This system combines real-time data streaming, AI-powered analysis, and multi-agent reasoning to provide comprehensive stock market intelligence for retail traders, small hedge funds, and independent investors. The architecture consists of four main components:
 
 1. **Streaming Layer** - Collects real-time market data from multiple sources
 2. **Pathway Analysis Layer** - Processes streams and generates AI-powered reports
-3. **Intelligence Agents Layer** - Multi-agent system for investment analysis and hypothesis generation
+3. **Backtesting Engine** - O(1) incremental strategy backtesting with real-time metrics
+4. **Intelligence Agents Layer** - Multi-agent system for investment analysis and hypothesis generation
 
 ## 🏗️ Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    STREAMING PRODUCERS                           │
-│  (Market, News, Sentiment, Fundamental Data)                     │
+│  (Market, News, Sentiment, Fundamental, Candles)                 │
 └──────────────────────┬──────────────────────────────────────────┘
                        │
                        ▼
@@ -23,24 +24,24 @@ This system combines real-time data streaming, AI-powered analysis, and multi-ag
                   │  KAFKA  │
                   └────┬────┘
                        │
-                       ▼
-┌─────────────────────────────────────────────────────────────────┐
-│              PATHWAY CONSUMERS & AI AGENTS                       │
-│  (Real-time Analysis + Report Generation)                        │
-└──────────────────────┬──────────────────────────────────────────┘
-                       │
-                       ▼
-                  ┌─────────┐
-                  │  REDIS  │
-                  └────┬────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────────────────┐
-│              PATHWAY REPORTS API (FastAPI)                       │
-│  (Serves cached AI reports via HTTP)                             │
-└──────────────────────┬──────────────────────────────────────────┘
-                       │
-                       ▼
+        ┌──────────────┼──────────────┐
+        │              │              │
+        ▼              ▼              ▼
+┌───────────────┐ ┌─────────────┐ ┌─────────────────┐
+│   PATHWAY     │ │  PATHWAY    │ │   PATHWAY       │
+│  CONSUMERS    │ │ BACKTESTER  │ │   REPORTS API   │
+│  (AI Reports) │ │  O(1)       │ │   (FastAPI)     │
+└───────┬───────┘ └──────┬──────┘ └────────┬────────┘
+        │                │                  │
+        └────────────────┼──────────────────┘
+                         │
+                         ▼
+                    ┌─────────┐
+                    │  REDIS  │
+                    │ (Cache) │
+                    └────┬────┘
+                         │
+                         ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │       INTELLIGENCE AGENTS (LangGraph Multi-Agent)                │
 │  (Bull/Bear Debate → Hypothesis Generation → Risk Assessment)    │
@@ -68,6 +69,14 @@ This system combines real-time data streaming, AI-powered analysis, and multi-ag
 - **Risk Analysis**: Aggressive, Neutral, Conservative perspectives
 - **Risk Assessment**: Evaluates all inputs and provides risk analysis
 - **Hypothesis Generation**: Produces ranked investment hypotheses with supporting evidence and risk assessments
+
+### O(1) Incremental Backtesting Engine
+- **Real-time Processing**: Backtest strategies as candles stream in (no batch reprocessing)
+- **T+1 Execution**: Proper signal timing - signal at bar close, execute at next bar open
+- **Multiple Strategies**: Run 7+ strategies simultaneously
+- **Comprehensive Metrics**: Sharpe, Sortino, Max Drawdown, Win Rate, Profit Factor
+- **LLM Strategy Generation**: Natural language to trading strategy via API
+- **Semantic Search**: Find similar strategies using embeddings
 
 ### Production Features
 - **Redis caching**: Fast report retrieval and job queuing
@@ -123,7 +132,7 @@ REDIS_DB=0
 **trading_agents/.env**
 ```bash
 OPENAI_API_KEY=your_openai_key
-PATHWAY_API_URL=http://pathway-reports-api:8000
+PATHWAY_API_URL=http://pathway-unified-api:8000
 REDIS_HOST=redis
 REDIS_PORT=6379
 REDIS_DB=1
@@ -149,7 +158,7 @@ curl http://localhost:8001/health  # Trading Agents API
 
 | Service | Port | Description |
 |---------|------|-------------|
-| Pathway Reports API | 8000 | AI-generated analysis reports |
+| Pathway Reports API | 8000 | AI-generated analysis reports + Backtesting API |
 | Intelligence Agents API | 8001 | Investment analysis workflow execution |
 | Kafka | 9092 | Message streaming |
 | Redis | 6379 | Caching & job queue |
@@ -161,13 +170,26 @@ curl http://localhost:8001/health  # Trading Agents API
 .
 ├── streaming/              # Data collection producers
 │   ├── producers/          # Kafka producers for each data type
+│   │   ├── candle_producer.py  # OHLCV candle data for backtesting
+│   │   └── ...
+│   ├── data/              # CSV data files (candles.csv)
 │   ├── fundamental_utils/  # FMP API client & web scraping
 │   └── utils/             # Kafka utilities
 │
 ├── pathway/               # Stream processing & AI analysis
 │   ├── consumers/         # Kafka consumers (Pathway tables)
+│   │   ├── candle_consumer.py  # Candle data consumer for backtesting
+│   │   └── ...
 │   ├── agents/            # LLM analysis agents
+│   ├── backtesting_lib/   # O(1) Incremental Backtesting Engine
+│   │   ├── trading_state.py    # Core trading logic (T+1 execution)
+│   │   ├── indicators.py       # Technical indicators
+│   │   ├── metrics.py          # Performance metrics
+│   │   └── reducers.py         # Pathway reducers
+│   ├── strategies/        # Trading strategy files (.txt)
 │   ├── api/               # FastAPI server for reports
+│   │   ├── backtesting_api.py  # Backtesting endpoints
+│   │   └── ...
 │   └── reports/           # Generated analysis reports
 │
 ├── trading_agents/        # Multi-agent intelligence system
@@ -220,6 +242,15 @@ User Request → Fetch Reports → Multi-Agent Workflow → Ranked Hypotheses
 - MongoDB stores conversation checkpoints
 - Outputs ranked investment hypotheses with risk assessments
 
+### 5. Backtesting (O(1) Incremental)
+```
+Candle Producer → Kafka → Pathway Backtester → Redis Metrics
+```
+- Stream candles in real-time from CSV or live data
+- O(1) per-candle processing (no batch recomputation)
+- Multiple strategies evaluated simultaneously
+- Metrics cached in Redis for instant retrieval
+
 ## 🎛️ API Usage
 
 ### Get Stock Reports (Pathway API)
@@ -236,6 +267,26 @@ curl http://localhost:8000/reports/AAPL/fundamental
 
 # List available symbols
 curl http://localhost:8000/symbols
+```
+
+### Backtesting API
+
+```bash
+# List all strategies with metrics
+curl http://localhost:8000/api/backtesting/strategies
+
+# Get specific strategy metrics
+curl http://localhost:8000/api/backtesting/strategy/sma_crossover
+
+# Create new strategy (with LLM generation)
+curl -X POST http://localhost:8000/api/backtesting/strategy \
+  -H "Content-Type: application/json" \
+  -d '{"description": "RSI oversold bounce strategy with 30/70 levels"}'
+
+# Search strategies by natural language
+curl -X POST http://localhost:8000/api/backtesting/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "momentum strategies with stop loss"}'
 ```
 
 ### Execute Intelligence Workflow (Intelligence Agents API)

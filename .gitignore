@@ -44,6 +44,7 @@ pathway/reports/*/
 test.py
 knowledge_base    
 backend_server
-sentiment_cluster_state
+pathway_state/
 reports
 streaming/sentiment_logs
+pathway/historical_reports

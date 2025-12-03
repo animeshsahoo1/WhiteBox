@@ -38,14 +38,16 @@ class MarketDataProducer(BaseProducer):
     def setup_sources(self):
         """Setup all market data sources"""
         
-        # Priority 0: Finnhub
+        # Priority 0: fmp
+        if self.fmp_key:
+            self.register_source("FMP", self._fetch_from_fmp, priority=0)
+        
+
+        # Priority 1: finhub
         if self.finnhub_key:
             self.finnhub_client = finnhub.Client(api_key=self.finnhub_key)
-            self.register_source("Finnhub", self._fetch_from_finnhub, priority=0)
+            self.register_source("Finnhub", self._fetch_from_finnhub, priority=1)
         
-        # Priority 1: Financial Modeling Prep
-        if self.fmp_key:
-            self.register_source("FMP", self._fetch_from_fmp, priority=1)
         
         # Priority 2: Alpha Vantage
         if self.alpha_vantage_key:

@@ -11,8 +11,8 @@ from typing import Optional, Dict
 from dotenv import load_dotenv
 
 from producers.base_producer import BaseProducer
-from fundamental_utils.fmp_api_client import FmpApiClient
-from fundamental_utils.web_scraper import WebScraper
+from utils.fmp_api_client import FmpApiClient
+from utils.web_scraper import WebScraper
 
 load_dotenv()
 

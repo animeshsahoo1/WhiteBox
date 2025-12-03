@@ -1,4 +1,4 @@
-"""Utilities for sharing AI reports via Redis."""
+"""Utilities for sharing AI reports via Redis and PostgreSQL."""
 from __future__ import annotations
 
 import json
@@ -9,6 +9,8 @@ from typing import Any, Dict, Optional
 
 import pathway as pw
 import redis
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 REDIS_DEFAULT_HOST = "localhost"
 REDIS_DEFAULT_PORT = 6379
@@ -21,14 +23,88 @@ def _build_symbol_key(symbol: str) -> str:
     return f"{REPORT_KEY_PREFIX}:{symbol}"
 
 
+# =====================================================================
+# POSTGRESQL CONNECTION
+# =====================================================================
+
+@lru_cache(maxsize=1)
+def get_postgres_connection():
+    """Return a PostgreSQL connection configured via DATABASE_URL."""
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        print("⚠️  DATABASE_URL not set - PostgreSQL saving disabled")
+        return None
+    
+    try:
+        conn = psycopg2.connect(database_url)
+        conn.autocommit = True
+        print("✅ PostgreSQL connection established")
+        return conn
+    except Exception as e:
+        print(f"❌ PostgreSQL connection failed: {e}")
+        return None
+
+
+def save_report_to_postgres(symbol: str, report_type: str, entry: Dict[str, Any]) -> bool:
+    """Save a report to the analyst_reports PostgreSQL table."""
+    conn = get_postgres_connection()
+    if not conn:
+        return False
+    
+    try:
+        # Generate unique ID: {symbol}_{report_type}_{timestamp}_{random}
+        import uuid
+        timestamp_str = entry.get("last_updated", datetime.utcnow().isoformat())
+        # Clean timestamp for ID (remove special chars)
+        timestamp_clean = timestamp_str.replace(":", "").replace("-", "").replace("T", "_").replace(".", "")[:15]
+        # Add short UUID to ensure uniqueness even for same-second reports
+        unique_suffix = str(uuid.uuid4())[:8]
+        report_id = f"{symbol}_{report_type}_{timestamp_clean}_{unique_suffix}"
+        
+        # Parse timestamp for the timestamp column
+        try:
+            if isinstance(timestamp_str, str):
+                report_timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+            else:
+                report_timestamp = datetime.utcnow()
+        except:
+            report_timestamp = datetime.utcnow()
+        
+        # Prepare report body as JSON string
+        report_body = json.dumps(entry)
+        
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO analyst_reports (id, symbol, report_type, timestamp, score, report_body, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+            """, (report_id, symbol, report_type, report_timestamp, None, report_body))
+        
+        print("=" * 60)
+        print(f"✅ [POSTGRESQL] Report saved to analyst_reports table!")
+        print(f"   📌 ID: {report_id}")
+        print(f"   📈 Symbol: {symbol}")
+        print(f"   📋 Report Type: {report_type}")
+        print(f"   🕐 Timestamp: {report_timestamp}")
+        print(f"   📦 Body Size: {len(report_body)} chars")
+        print("=" * 60)
+        return True
+        
+    except Exception as e:
+        print(f"❌ Failed to save to PostgreSQL: {e}")
+        # Try to reconnect on next call
+        get_postgres_connection.cache_clear()
+        return False
+
+
 @lru_cache(maxsize=1)
 def get_redis_client() -> redis.Redis:
     """Return a cached Redis client configured via environment variables."""
 
     url = os.getenv("REDIS_URL")
     if url:
+        print("############## Using REDIS_URL for Redis connection ################")
         return redis.Redis.from_url(url, decode_responses=True)
-
+    
     host = os.getenv("REDIS_HOST", REDIS_DEFAULT_HOST)
     port = int(os.getenv("REDIS_PORT", str(REDIS_DEFAULT_PORT)))
     db = int(os.getenv("REDIS_DB", str(REDIS_DEFAULT_DB)))
@@ -141,56 +217,6 @@ class RedisReportObserver(pw.io.python.ConnectorObserver):
 _observer_cache: Dict[str, RedisReportObserver] = {}
 
 
-class RedisClusterObserver(pw.io.python.ConnectorObserver):
-    """Pathway observer that writes cluster visualization data into Redis."""
-    
-    CLUSTERS_KEY_PREFIX = "clusters:"
-    ALL_CLUSTERS_KEY = "clusters:all"
-    
-    def __init__(self):
-        self.redis = get_redis_client()
-    
-    def on_change(self, key: Any, row: Dict[str, Any], time: int, is_addition: bool) -> None:
-        symbol = row.get("symbol")
-        if not symbol:
-            return
-        
-        symbol = str(symbol).upper()
-        cluster_id = row.get("cluster_id")
-        
-        if not is_addition:
-            # Remove cluster from Redis
-            cluster_key = f"{self.CLUSTERS_KEY_PREFIX}{symbol}:{cluster_id}"
-            self.redis.delete(cluster_key)
-            # Also remove from the all clusters list
-            self.redis.hdel(self.ALL_CLUSTERS_KEY, cluster_key)
-            return
-        
-        # Add or update cluster
-        cluster_data = {
-            "symbol": symbol,
-            "cluster_id": cluster_id,
-            "summary": row.get("summary", ""),
-            "avg_sentiment": float(row.get("avg_sentiment", 0.0)),
-            "count": int(row.get("count", 0)),
-            "timestamp": row.get("timestamp", datetime.utcnow().isoformat()),
-        }
-        
-        # Store individual cluster
-        cluster_key = f"{self.CLUSTERS_KEY_PREFIX}{symbol}:{cluster_id}"
-        self.redis.set(cluster_key, json.dumps(cluster_data), ex=3600)  # 1 hour TTL
-        
-        # Also add to aggregated list for easy querying
-        self.redis.hset(self.ALL_CLUSTERS_KEY, cluster_key, json.dumps(cluster_data))
-        self.redis.expire(self.ALL_CLUSTERS_KEY, 3600)
-    
-    def on_time_end(self, time: int) -> None:
-        pass
-    
-    def on_end(self) -> None:
-        pass
-
-
 class RedisImageObserver(pw.io.python.ConnectorObserver):
     """Pathway observer that writes indicator chart images into Redis."""
     
@@ -202,72 +228,194 @@ class RedisImageObserver(pw.io.python.ConnectorObserver):
         self.ttl_seconds = ttl_seconds
     
     def on_change(self, key: Any, row: Dict[str, Any], time: int, is_addition: bool) -> None:
+        """Handle image data changes from Pathway stream."""
         symbol = row.get("symbol")
         if not symbol:
             return
         
         symbol = str(symbol).upper()
+        timestamp = row.get("timestamp", datetime.utcnow().strftime("%Y%m%d_%H%M%S"))
         
-        # Extract timestamp (use window_end or current time)
-        timestamp_raw = row.get("window_end") or row.get("timestamp") or datetime.utcnow()
-        if isinstance(timestamp_raw, datetime):
-            timestamp = timestamp_raw.strftime("%Y%m%d_%H%M%S")
-        else:
-            timestamp = str(timestamp_raw).replace(" ", "_").replace(":", "").replace("-", "")
-        
-        # Build unique key for this image set
-        image_set_key = f"{self.IMAGES_KEY_PREFIX}{symbol}:{timestamp}"
+        image_key = f"{self.IMAGES_KEY_PREFIX}{symbol}:{timestamp}"
         
         if not is_addition:
-            # Remove images
-            self.redis.delete(image_set_key)
-            self.redis.hdel(self.IMAGES_INDEX_KEY, f"{symbol}:{timestamp}")
+            # Remove image from Redis
+            self.redis.delete(image_key)
+            self.redis.hdel(self.IMAGES_INDEX_KEY, image_key)
             return
         
-        # Extract images from row (assuming images are in a Json field)
-        images_data = row.get("images")
-        if not images_data:
-            return
-        
-        # Convert to dict if it's a Json object
-        if hasattr(images_data, "as_dict"):
-            images_dict = images_data.as_dict()
-        elif isinstance(images_data, dict):
-            images_dict = images_data
-        else:
-            return
-        
-        # Store all images in a single hash
-        image_payload = {
+        # Store image data
+        image_data = {
             "symbol": symbol,
             "timestamp": timestamp,
-            "window_start": str(row.get("window_start", "")),
-            "window_end": str(row.get("window_end", "")),
-            "pattern_image": images_dict.get("pattern_image", ""),
-            "trend_image": images_dict.get("trend_image", ""),
-            "rsi_plot": images_dict.get("rsi_plot", ""),
-            "macd_plot": images_dict.get("macd_plot", ""),
-            "stochastic_plot": images_dict.get("stochastic_plot", ""),
-            "roc_plot": images_dict.get("roc_plot", ""),
-            "willr_plot": images_dict.get("willr_plot", ""),
-            "price_plot": images_dict.get("price_plot", ""),
-            "created_at": datetime.utcnow().isoformat()
+            "key": image_key,
+            "pattern_image": row.get("pattern_image", ""),
+            "trend_image": row.get("trend_image", ""),
+            "rsi_plot": row.get("rsi_plot", ""),
+            "macd_plot": row.get("macd_plot", ""),
+            "stochastic_plot": row.get("stochastic_plot", ""),
+            "roc_plot": row.get("roc_plot", ""),
+            "willr_plot": row.get("willr_plot", ""),
+            "price_plot": row.get("price_plot", ""),
         }
         
-        # Store as JSON in Redis
-        self.redis.set(image_set_key, json.dumps(image_payload), ex=self.ttl_seconds)
+        # Store the full image data
+        self.redis.set(image_key, json.dumps(image_data), ex=self.ttl_seconds)
         
-        # Add to index for easy lookup
+        # Update index for quick lookups
         index_entry = {
             "symbol": symbol,
             "timestamp": timestamp,
-            "key": image_set_key,
-            "created_at": datetime.utcnow().isoformat()
+            "key": image_key,
         }
-        self.redis.hset(self.IMAGES_INDEX_KEY, f"{symbol}:{timestamp}", json.dumps(index_entry))
+        self.redis.hset(self.IMAGES_INDEX_KEY, image_key, json.dumps(index_entry))
         self.redis.expire(self.IMAGES_INDEX_KEY, self.ttl_seconds)
+    
+    def on_time_end(self, time: int) -> None:
+        pass
+    
+    def on_end(self) -> None:
+        pass
+
+
+class RedisNewsClusterObserver(pw.io.python.ConnectorObserver):
+    """Pathway observer that writes news cluster data into Redis for API access."""
+    
+    NEWS_CLUSTERS_KEY_PREFIX = "news_clusters:"
+    
+    def __init__(self, ttl_seconds: int = 3600):
+        self.redis = get_redis_client()
+        self.ttl_seconds = ttl_seconds
+        self._cluster_cache: Dict[str, Dict] = {}  # symbol -> {cluster_id -> cluster_data}
+    
+    def on_change(self, key: Any, row: Dict[str, Any], time: int, is_addition: bool) -> None:
+        symbol = row.get("symbol")
+        if not symbol:
+            return
         
-        print(f"✅ Cached images for {symbol} at {timestamp} in Redis: {image_set_key}")
+        symbol = str(symbol).upper()
+        cluster_id = str(row.get("cluster_id", ""))
+        
+        if symbol not in self._cluster_cache:
+            self._cluster_cache[symbol] = {}
+        
+        if not is_addition:
+            # Remove cluster
+            if cluster_id in self._cluster_cache[symbol]:
+                del self._cluster_cache[symbol][cluster_id]
+        else:
+            # Add/update cluster with full article data
+            articles_json = row.get("articles_json", "[]")
+            try:
+                articles = json.loads(articles_json) if isinstance(articles_json, str) else articles_json
+            except:
+                articles = []
+            
+            # Parse links
+            links_json = row.get("links_json", "[]")
+            try:
+                links = json.loads(links_json) if isinstance(links_json, str) else links_json
+            except:
+                links = []
+            
+            self._cluster_cache[symbol][cluster_id] = {
+                "cluster_id": cluster_id,
+                "headline": row.get("headline", ""),
+                "articles": articles,
+                "links": links,
+                "article_count": row.get("article_count", len(articles)),
+                "first_seen": row.get("first_seen", ""),
+                "last_updated": row.get("last_updated", ""),
+            }
+        
+        # Save full cluster list for the symbol
+        clusters_list = list(self._cluster_cache[symbol].values())
+        cluster_key = f"{self.NEWS_CLUSTERS_KEY_PREFIX}{symbol}"
+        self.redis.set(cluster_key, json.dumps(clusters_list), ex=self.ttl_seconds)
+    
+    def on_time_end(self, time: int) -> None:
+        pass
+    
+    def on_end(self) -> None:
+        pass
+
+
+class RedisSentimentObserver(pw.io.python.ConnectorObserver):
+    """Pathway observer that writes sentiment cluster data to standalone Redis keys."""
+    
+    def __init__(self, key_prefix: str = "sentiment_clusters:", ttl_seconds: int = 3600):
+        self.redis = get_redis_client()
+        self.key_prefix = key_prefix
+        self.ttl_seconds = ttl_seconds
+    
+    def on_change(self, key: Any, row: Dict[str, Any], time: int, is_addition: bool) -> None:
+        symbol = row.get("symbol")
+        if not symbol:
+            return
+        
+        symbol = str(symbol).upper()
+        redis_key = f"{self.key_prefix}{symbol}"
+        
+        if not is_addition:
+            self.redis.delete(redis_key)
+            return
+        
+        # Store the full row data
+        self.redis.set(redis_key, json.dumps(row), ex=self.ttl_seconds)
+    
+    def on_time_end(self, time: int) -> None:
+        pass
+    
+    def on_end(self) -> None:
+        pass
+
+
+class RedisBacktestingObserver(pw.io.python.ConnectorObserver):
+    """Pathway observer that writes backtesting metrics into Redis."""
+    
+    BACKTESTING_KEY_PREFIX = "backtesting:"
+    STRATEGIES_SET_KEY = "backtesting:strategies"
+    
+    def __init__(self, ttl_seconds: Optional[int] = None):
+        self.ttl_seconds = ttl_seconds
+        self.redis = get_redis_client()
+    
+    def on_change(self, key: Any, row: Dict[str, Any], time: int, is_addition: bool) -> None:
+        strategy = row.get("strategy")
+        if not strategy:
+            return
+        
+        strategy = str(strategy).upper()
+        strategy_key = f"{self.BACKTESTING_KEY_PREFIX}{strategy}"
+        
+        if not is_addition:
+            self.redis.delete(strategy_key)
+            self.redis.srem(self.STRATEGIES_SET_KEY, strategy)
+            return
+        
+        # Extract metrics from row
+        metrics = row.get("metrics")
+        if metrics is None:
+            return
+        
+        # Store as JSON string if not already
+        if isinstance(metrics, dict):
+            metrics_json = json.dumps(metrics)
+        else:
+            metrics_json = str(metrics)
+        
+        entry = {
+            "strategy": strategy,
+            "metrics": metrics_json,
+            "last_updated": row.get("last_updated", time),
+            "received_at": datetime.utcnow().isoformat(),
+        }
+        
+        self.redis.set(strategy_key, json.dumps(entry))
+        self.redis.sadd(self.STRATEGIES_SET_KEY, strategy)
+        
+        if self.ttl_seconds:
+            self.redis.expire(strategy_key, self.ttl_seconds)
     
     def on_time_end(self, time: int) -> None:
         pass
@@ -279,11 +427,28 @@ class RedisImageObserver(pw.io.python.ConnectorObserver):
 def get_report_observer(report_type: str) -> RedisReportObserver:
     """Return a singleton observer for the given report type."""
     
-    # Special case for clusters
-    if report_type == "clusters":
-        if "clusters" not in _observer_cache:
-            _observer_cache["clusters"] = RedisClusterObserver()
-        return _observer_cache["clusters"]
+    # Special case for backtesting
+    if report_type == "backtesting":
+        if "backtesting" not in _observer_cache:
+            ttl_env = os.getenv("REDIS_BACKTESTING_TTL")
+            ttl_value = int(ttl_env) if ttl_env else None
+            _observer_cache["backtesting"] = RedisBacktestingObserver(ttl_value)
+        return _observer_cache["backtesting"]
+    
+    if report_type == "sentiment_clusters":
+        if "sentiment_clusters" not in _observer_cache:
+            ttl_env = os.getenv("REDIS_SENTIMENT_TTL")
+            ttl_value = int(ttl_env) if ttl_env else 3600
+            _observer_cache["sentiment_clusters"] = RedisSentimentObserver("sentiment_clusters:", ttl_value)
+        return _observer_cache["sentiment_clusters"]
+    
+    # Special case for news_clusters
+    if report_type == "news_clusters":
+        if "news_clusters" not in _observer_cache:
+            ttl_env = os.getenv("REDIS_NEWS_CLUSTER_TTL")
+            ttl_value = int(ttl_env) if ttl_env else 3600
+            _observer_cache["news_clusters"] = RedisNewsClusterObserver(ttl_value)
+        return _observer_cache["news_clusters"]
     
     # Special case for images
     if report_type == "images":
@@ -342,91 +507,3 @@ def delete_symbol(symbol: str, redis_client: Optional[redis.Redis] = None) -> No
     key = _build_symbol_key(symbol.upper())
     client.delete(key)
     client.srem(REPORT_SYMBOL_SET_KEY, symbol.upper())
-
-
-def get_images_for_symbol(symbol: str, timestamp: Optional[str] = None, redis_client: Optional[redis.Redis] = None) -> Dict[str, Any]:
-    """
-    Retrieve indicator chart images for a symbol from Redis.
-    
-    Args:
-        symbol: Stock symbol (e.g., "AAPL")
-        timestamp: Optional specific timestamp (format: YYYYMMDD_HHMMSS). If None, returns latest.
-        redis_client: Optional Redis client instance
-    
-    Returns:
-        Dictionary with image data or empty dict if not found
-    """
-    client = redis_client or get_redis_client()
-    symbol = symbol.upper()
-    
-    if timestamp:
-        # Get specific timestamp
-        image_key = f"images:{symbol}:{timestamp}"
-        data = client.get(image_key)
-        if data:
-            try:
-                return json.loads(data)
-            except (TypeError, json.JSONDecodeError):
-                return {}
-        return {}
-    else:
-        # Get latest - scan all keys for this symbol
-        index_data = client.hgetall("images:index")
-        symbol_images = []
-        
-        for key, value in index_data.items():
-            try:
-                entry = json.loads(value)
-                if entry.get("symbol") == symbol:
-                    symbol_images.append(entry)
-            except (TypeError, json.JSONDecodeError):
-                continue
-        
-        if not symbol_images:
-            return {}
-        
-        # Sort by timestamp and get latest
-        symbol_images.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
-        latest = symbol_images[0]
-        
-        # Fetch the actual image data
-        image_key = latest.get("key")
-        if image_key:
-            data = client.get(image_key)
-            if data:
-                try:
-                    return json.loads(data)
-                except (TypeError, json.JSONDecodeError):
-                    return {}
-        
-        return {}
-
-
-def list_images_for_symbol(symbol: str, redis_client: Optional[redis.Redis] = None) -> list[Dict[str, Any]]:
-    """
-    List all available image timestamps for a symbol.
-    
-    Args:
-        symbol: Stock symbol
-        redis_client: Optional Redis client instance
-    
-    Returns:
-        List of image metadata dictionaries
-    """
-    client = redis_client or get_redis_client()
-    symbol = symbol.upper()
-    
-    index_data = client.hgetall("images:index")
-    symbol_images = []
-    
-    for key, value in index_data.items():
-        try:
-            entry = json.loads(value)
-            if entry.get("symbol") == symbol:
-                symbol_images.append(entry)
-        except (TypeError, json.JSONDecodeError):
-            continue
-    
-    # Sort by timestamp descending (newest first)
-    symbol_images.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
-    return symbol_images

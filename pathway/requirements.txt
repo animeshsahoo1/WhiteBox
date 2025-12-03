@@ -1,21 +1,36 @@
-# pathway[xpack-llm-docs]  # Already included in pathwaycom/pathway:latest base image
+# Core - Install nemoguardrails first with openai extra
+nemoguardrails[openai]==0.18.0
+
+# LangGraph - compatible with langchain 0.2-0.3
+langgraph>=0.2.0,<1.0.0
+
+# Additional deps not in nemoguardrails
 python-dotenv>=1.0.0
-langgraph>=0.0.1
-langchain>=0.1.0
-langchain-openai>=0.0.5
-langchain-core>=0.1.0
 numpy>=1.24.0
-pandas>=2.0.0
-typing-extensions>=4.5.0
-openai>=1.0.0
-fastapi>=0.104.0
-uvicorn>=0.24.0
-httpx
 redis>=5.0.0
 requests>=2.31.0
-pydantic>=2.0.0
 matplotlib>=3.7.0
 scikit-learn>=1.3.0
 litellm>=1.0.0
 yfinance>=0.2.0
 TA-Lib>=0.4.0
+vaderSentiment>=3.3.2
+
+# PostgreSQL
+psycopg2-binary>=2.9.0
+
+# Bull-Bear Debate dependencies
+chromadb>=0.4.0
+sentence-transformers>=2.2.0
+rank-bm25>=0.2.2
+nltk>=3.8.0
+transformers>=4.30.0
+
+# Orchestrator / MCP Server dependencies
+fastmcp>=2.0.0
+langchain-mcp-adapters>=0.1.0
+mem0ai>=1.0.0
+redisvl>=0.3.0  # Required for mem0 Redis vector store
+google-search-results  # SerpAPI
+beautifulsoup4
+lxml
