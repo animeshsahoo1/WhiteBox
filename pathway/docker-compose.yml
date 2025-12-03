@@ -6,15 +6,14 @@ networks:
     name: kafka_stock-network
 
 services:
-  # Redis Cache
+  # Redis Cache with RediSearch (required for mem0 vector store)
   redis:
-    image: redis:7-alpine
+    image: redis/redis-stack-server:latest
     container_name: pathway-redis
     networks:
       - stock-network
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes
     volumes:
       - redis-data:/data
     healthcheck:

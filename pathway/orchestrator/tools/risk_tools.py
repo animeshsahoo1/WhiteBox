@@ -20,6 +20,22 @@ def register_risk_tools(mcp):
         strategy: dict,
         risk_levels: Optional[List[str]] = None
     ) -> str:
+        """
+        Assess a trading strategy across multiple risk tolerance levels.
+        
+        Use this when user wants:
+        - Complete risk analysis across conservative to aggressive profiles
+        - To understand how a strategy performs under different risk appetites
+        - Recommendations for different investor types
+        
+        Args:
+            symbol: Stock symbol (e.g., "AAPL", "TSLA")
+            strategy: The trading strategy as a dictionary with entry/exit rules
+            risk_levels: List of risk levels to assess. Options: "no-risk", "neutral", "aggressive"
+        
+        Returns:
+            Risk assessment for each tier with recommendations.
+        """
         if risk_levels is None:
             risk_levels = ["no-risk", "neutral", "aggressive"]
 
@@ -51,6 +67,22 @@ def register_risk_tools(mcp):
         strategy: dict,
         risk_level: str = "neutral"
     ) -> str:
+        """
+        Assess a trading strategy for a specific risk tolerance level.
+        
+        Use this when user wants:
+        - Quick risk assessment for one risk profile
+        - Analysis tailored to their specific risk appetite
+        - Faster response than full multi-tier assessment
+        
+        Args:
+            symbol: Stock symbol (e.g., "AAPL", "TSLA")
+            strategy: The trading strategy as a dictionary
+            risk_level: One of "no-risk", "neutral", or "aggressive"
+        
+        Returns:
+            Risk assessment and recommendation for the specified tier.
+        """
         print(f"[INFO] Single tier assessment for {symbol} at {risk_level} level")
 
         reports = await fetch_reports(symbol)

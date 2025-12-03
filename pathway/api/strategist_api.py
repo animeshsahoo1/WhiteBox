@@ -33,7 +33,7 @@ try:
 except ImportError:
     HAS_EVENT_PUBLISHER = False
 
-router = APIRouter(prefix="/strategist", tags=["Strategist"])
+router = APIRouter(prefix="/strategist", tags=["Strategist Agent"])
 
 # Global Strategist instance (singleton)
 _strategist = None

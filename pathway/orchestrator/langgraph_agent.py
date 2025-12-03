@@ -93,12 +93,13 @@ def get_mem0():
         print(f"✅ Mem0 memory initialized (Redis: {MEM0_REDIS_HOST}:{MEM0_REDIS_PORT})")
         return _memory
         
-    except ImportError:
-        print("⚠️  Mem0 not installed. Running without memory.")
+    except ImportError as e:
+        print(f"⚠️  Mem0 import failed: {e}")
         print("   Install with: pip install mem0ai")
         return None
     except Exception as e:
         print(f"⚠️  Mem0 initialization failed: {e}")
+        print("   Running without memory.")
         return None
 
 
@@ -212,29 +213,26 @@ def save_to_memory(user_id: str, messages: list):
 
 SYSTEM_PROMPT = """You are an expert trading assistant with access to powerful backtesting and analysis tools.
 
-Your capabilities:
-1. **Backtesting**: List, search, run, and compare trading strategies
-2. **Risk Assessment**: Evaluate strategy risks at different levels (no-risk, neutral, aggressive)
-3. **Web Search**: Find relevant trading information and research
-4. **Reports**: Generate facilitator and bull/bear debate reports for stocks
+CRITICAL RULES - FOLLOW STRICTLY:
+1. **MAXIMUM 3 tool calls per request** - After 3 tools, STOP and give your answer
+2. **One tool at a time** - Don't call multiple tools simultaneously
+3. **Answer quickly** - After getting data, synthesize and respond IMMEDIATELY
+4. **No repetition** - Never call the same tool twice for the same request
 
-Available Tools:
-- list_strategies: Get all available trading strategies
-- search_strategies: Search for strategies by description
-- find_best_strategy: Find top strategy by metric (sharpe_ratio, total_return, etc.)
-- run_backtest: Execute a backtest for a strategy
-- compare_strategies: Compare multiple strategies side by side
-- assess_risk_all_tiers / assess_single_risk_tier: Risk assessment
-- smart_search: Web search for trading info
-- get_facilitator_report / get_bull_bear_report: Stock analysis reports
+Your tool categories:
+- **Reports**: get_market_report, get_news_report, get_sentiment_report, get_fundamental_report
+- **Strategies**: list_all_strategies, search_strategies, get_strategy_details
+- **Analysis**: run_bull_bear_debate, get_facilitator_report, assess_risk_all_tiers
+- **Data**: list_available_symbols, get_market_sentiment, query_knowledge_base
 
-Guidelines:
-- Be helpful, accurate, and proactive in suggesting analyses
-- When users ask about strategies, offer to backtest or compare them
-- Explain trading concepts clearly for all skill levels
-- Always consider risk management in your recommendations
-- Use the tools available to provide data-driven insights
-- If a tool fails, explain what happened and suggest alternatives
+WORKFLOW:
+1. Understand user request
+2. Call 1-2 relevant tools (NOT all of them)
+3. Synthesize the results
+4. Provide a clear, actionable answer
+
+If a tool returns an error, move on - don't retry.
+If the user's request is unclear, ASK for clarification instead of guessing.
 {memory_context}
 
 Current date: {date}
@@ -386,7 +384,8 @@ async def create_strategist_agent():
     # Add checkpointer for conversation persistence
     checkpointer = MemorySaver()
     
-    # Compile
+    # Compile with recursion limit to prevent infinite tool loops
+    # Max 10 tool calls per request (agent->tools->agent = 2 steps, so limit = 20)
     graph = builder.compile(checkpointer=checkpointer)
     
     return graph, mcp_client
@@ -439,8 +438,13 @@ class Strategist:
             "memory_context": ""
         }
         
-        # Run the graph
-        result = await self.graph.ainvoke(input_state, config=config)
+        # Run the graph with recursion limit to prevent infinite loops
+        # Each agent->tools->agent cycle = 2 steps, limit 10 tool calls = 20 steps
+        result = await self.graph.ainvoke(
+            input_state, 
+            config=config,
+            recursion_limit=25  # Hard limit on steps
+        )
         
         # Get the last AI message (non-tool-call)
         for msg in reversed(result["messages"]):
@@ -470,7 +474,11 @@ class Strategist:
             "memory_context": ""
         }
         
-        async for event in self.graph.astream_events(input_state, config=config, version="v2"):
+        async for event in self.graph.astream_events(
+            input_state, 
+            config=config, 
+            version="v2"
+        ):
             kind = event["event"]
             if kind == "on_chat_model_stream":
                 content = event["data"]["chunk"].content

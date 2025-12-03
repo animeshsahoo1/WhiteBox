@@ -52,7 +52,7 @@ app.include_router(report_router, tags=["Reports"])
 app.include_router(cluster_router, tags=["Clusters"])
 app.include_router(backtesting_router, tags=["Backtesting"])
 app.include_router(workflow_router, tags=["Workflow"])
-app.include_router(strategist_router, tags=["Strategist Agent"])
+app.include_router(strategist_router)  # Tags defined in router
 
 class HealthResponse(BaseModel):
     status: str
