@@ -489,7 +489,7 @@ def get_report_observer(report_type: str) -> RedisReportObserver:
             _observer_cache["images"] = RedisImageObserver(ttl_value)
         return _observer_cache["images"]
 
-    if report_type not in _observer_cache:
+    else:
         ttl_env = os.getenv("REDIS_REPORT_TTL")
         ttl_value = int(ttl_env) if ttl_env else None
         _observer_cache[report_type] = RedisReportObserver(report_type, ttl_value)

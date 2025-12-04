@@ -41,7 +41,7 @@ CLUSTERS_INPUT_DIR = os.getenv("SENTIMENT_CLUSTERS_DIR", "/app/reports/sentiment
 
 # Report generation interval in seconds (default: 5 minutes)
 # Reports will only be generated at most once per interval per symbol
-REPORT_GENERATION_INTERVAL = int(os.getenv("REPORT_GENERATION_INTERVAL", "300"))
+REPORT_GENERATION_INTERVAL = int(os.getenv("REPORT_GENERATION_INTERVAL", "100"))
 
 # Track last report generation time per symbol
 _last_report_time: dict[str, float] = {}
@@ -329,7 +329,7 @@ def process_sentiment_reports(
         )
         
         if new_report:
-            # Save report
+            # Save report to file
             report_path = report_generator._get_report_path(symbol)
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write(new_report)
@@ -358,7 +358,6 @@ def process_sentiment_reports(
                 print(f"⚠️ [{symbol}] Failed to publish Sentiment Report Agent events: {e}")
             
             # Save to PostgreSQL for historical storage
-            # 2. Save to PostgreSQL for historical storage
             try:
                 entry = {
                     "symbol": symbol,
