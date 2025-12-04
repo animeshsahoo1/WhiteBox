@@ -427,7 +427,8 @@ def process_fundamental_stream(
                 return None
             current_report = report_updater._load_report(symbol)
         else:
-            symbol, current_report = current_state
+            # current_state is the report string from previous iteration
+            current_report = current_state
 
         if not data_items:
             return current_report

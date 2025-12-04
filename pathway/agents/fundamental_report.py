@@ -13,6 +13,18 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
+# Event publishing imports
+try:
+    from redis_cache import get_redis_client
+    from event_publisher import publish_event
+except ImportError:
+    try:
+        from .redis_cache import get_redis_client
+        from .event_publisher import publish_event
+    except ImportError:
+        get_redis_client = None
+        publish_event = None
+
 load_dotenv()
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
@@ -217,9 +229,26 @@ def web_search(question: str) -> List[Document]:
 
 def plan_section_node(state: ReportState) -> Dict:
     idx = state.get("current_section_index", 0)
+    symbol = state.get("symbol", "UNKNOWN")
     
     if idx >= len(REPORT_SECTIONS):
         print(f"✓ All sections complete!")
+        
+        # Publish report_completed event
+        if publish_event and get_redis_client:
+            try:
+                room_id = f"symbol:{symbol}"
+                redis_client = get_redis_client()
+                publish_event(room_id, "report_progress", {
+                    "agent": "Fundamental Agent",
+                    "status": "report_completed",
+                    "symbol": symbol,
+                    "total_sections": len(REPORT_SECTIONS),
+                    "sections_completed": idx
+                }, redis_client)
+            except Exception as e:
+                print(f"⚠️ [{symbol}] Failed to publish report_completed event: {e}")
+        
         return {
             "current_section_index": idx,
             "current_section_name": "COMPLETE"
@@ -227,6 +256,23 @@ def plan_section_node(state: ReportState) -> Dict:
     
     section = REPORT_SECTIONS[idx]
     print(f"\n[PLAN] Section {idx+1}/{len(REPORT_SECTIONS)}: {section['name']}")
+    
+    # Publish section_started event
+    if publish_event and get_redis_client:
+        try:
+            room_id = f"symbol:{symbol}"
+            redis_client = get_redis_client()
+            publish_event(room_id, "report_progress", {
+                "agent": "Fundamental Agent",
+                "status": "section_started",
+                "symbol": symbol,
+                "section_name": section["name"],
+                "section_index": idx + 1,
+                "total_sections": len(REPORT_SECTIONS)
+            }, redis_client)
+        except Exception as e:
+            print(f"⚠️ [{symbol}] Failed to publish section_started event: {e}")
+    
     return {
         "current_section_index": idx,
         "current_section_name": section["name"],
@@ -437,15 +483,35 @@ def accumulate_section_node(state: ReportState) -> Dict:
     section_content = state["section_content"]
     completed_sections = state.get("completed_sections", [])
     full_report = state.get("full_report", "")
+    symbol = state.get("symbol", "UNKNOWN")
+    current_idx = state["current_section_index"]
     
     print(f"[ACCUMULATE] Adding '{section_name}' to report ✓\n")
     
     updated_report = f"{full_report}\n\n## {section_name}\n\n{section_content}".strip()
+    new_completed = completed_sections + [section_name]
+    
+    # Publish section_completed event
+    if publish_event and get_redis_client:
+        try:
+            room_id = f"symbol:{symbol}"
+            redis_client = get_redis_client()
+            publish_event(room_id, "report_progress", {
+                "agent": "Fundamental Agent",
+                "status": "section_completed",
+                "symbol": symbol,
+                "section_name": section_name,
+                "section_index": current_idx + 1,
+                "total_sections": len(REPORT_SECTIONS),
+                "sections_completed": len(new_completed)
+            }, redis_client)
+        except Exception as e:
+            print(f"⚠️ [{symbol}] Failed to publish section_completed event: {e}")
     
     return {
-        "completed_sections": completed_sections + [section_name],
+        "completed_sections": new_completed,
         "full_report": updated_report,
-        "current_section_index": state["current_section_index"] + 1
+        "current_section_index": current_idx + 1
     }
 
 def should_continue(state: ReportState) -> str:

@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 import json
 import time
+import litellm
 from typing import Optional
 
 # Import PostgreSQL save function
@@ -59,25 +60,35 @@ class SentimentReportGenerator:
             self.symbol_mapping = {}
 
         # Setup LLM
-        model_name = os.getenv('OPENAI_MODEL', 'openai/gpt-4o-mini')
-        if not model_name.startswith('openrouter/') and not model_name.startswith('openai/'):
-            model_name = f'openrouter/{model_name}'
+        self.model_name = os.getenv('OPENAI_MODEL', 'openai/gpt-4o-mini')
+        if not self.model_name.startswith('openrouter/') and not self.model_name.startswith('openai/'):
+            self.model_name = f'openrouter/{self.model_name}'
         
-        api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
-        self.has_valid_api_key = bool(api_key)
+        self.api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        self.has_valid_api_key = bool(self.api_key)
         
         if self.has_valid_api_key:
-            self.llm = LiteLLMChat(
-                model=model_name,
-                api_key=api_key,
+            print(f"✅ Report generator initialized with model: {self.model_name}")
+        else:
+            print("⚠️ No API key - reports will use fallback format")
+
+    def call_llm_sync(self, messages: list) -> str:
+        """Direct synchronous LLM call for use inside reducers."""
+        if not self.has_valid_api_key:
+            return ""
+        try:
+            response = litellm.completion(
+                model=self.model_name,
+                messages=messages,
+                api_key=self.api_key,
                 api_base="https://openrouter.ai/api/v1",
                 temperature=0.3,
                 max_tokens=1500
             )
-            print(f"✅ Report generator initialized with model: {model_name}")
-        else:
-            self.llm = None
-            print("⚠️ No API key - reports will use fallback format")
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"LLM call error: {e}")
+            return ""
 
     def _classify_sentiment(self, score: float) -> str:
         if score >= 0.5:
@@ -121,8 +132,8 @@ Write a concise summary of the main theme/topic being discussed."""
 
         try:
             messages = [{"role": "user", "content": prompt}]
-            response = self.llm.chat_single(messages)
-            return response.strip() if response else cluster_data.get('summary', '')
+            response = self.call_llm_sync(messages)
+            return response if response else cluster_data.get('summary', '')
         except Exception as e:
             return cluster_data.get('summary', f"Discussion cluster about {company}")
 
@@ -173,8 +184,8 @@ Keep it concise (300-400 words)."""
 
         try:
             messages = [{"role": "user", "content": prompt}]
-            response = self.llm.chat_single(messages)
-            return response.strip() if response else ""
+            response = self.call_llm_sync(messages)
+            return response if response else ""
         except Exception as e:
             print(f"Error generating report for {symbol}: {e}")
             return ""

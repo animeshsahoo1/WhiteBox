@@ -146,7 +146,7 @@ services:
       NEWS_ALERT_ENABLED: ${NEWS_ALERT_ENABLED:-true}
       NEWS_ALERT_COOLDOWN: ${NEWS_ALERT_COOLDOWN:-600}
       NEWS_ALERT_MIN_CLUSTERS: ${NEWS_ALERT_MIN_CLUSTERS:-3}
-      BULLBEAR_API_URL: http://reports-api:8000
+      BULLBEAR_API_URL: http://unified-api:8000
     volumes:
       - ./reports/news:/app/reports/news
       - ../knowledge_base:/app/knowledge_base
@@ -181,7 +181,7 @@ services:
       SENTIMENT_ALERT_MIN: ${SENTIMENT_ALERT_MIN:--0.3}
       SENTIMENT_ALERT_MAX: ${SENTIMENT_ALERT_MAX:-0.3}
       SENTIMENT_ALERT_COOLDOWN: ${SENTIMENT_ALERT_COOLDOWN:-300}
-      BULLBEAR_API_URL: http://reports-api:8000
+      BULLBEAR_API_URL: http://unified-api:8000
     volumes:
       - ./reports/sentiment:/app/reports/sentiment
       - ./pathway_state:/app/pathway_state

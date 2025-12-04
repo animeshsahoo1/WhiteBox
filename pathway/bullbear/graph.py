@@ -117,9 +117,13 @@ def check_needs_rephrase(state: DebateState) -> Literal["rephrase", "commit", "c
     return "commit"
 
 
-def create_debate_graph(config: Optional[BullBearConfig] = None) -> StateGraph:
+def create_debate_graph(config: Optional[BullBearConfig] = None, use_dummy: bool = False) -> StateGraph:
     """
     Create the Bull-Bear debate LangGraph workflow.
+    
+    Args:
+        config: Optional configuration override
+        use_dummy: If True, use dummy data for reports/RAG
     
     NEW Graph Structure (with RAG before each point):
     
@@ -175,7 +179,7 @@ def create_debate_graph(config: Optional[BullBearConfig] = None) -> StateGraph:
                END
     """
     
-    nodes = DebateNodes()
+    nodes = DebateNodes(use_dummy=use_dummy)
     
     # Create the graph
     workflow = StateGraph(DebateState)
@@ -303,14 +307,18 @@ def create_debate_graph(config: Optional[BullBearConfig] = None) -> StateGraph:
     return workflow
 
 
-def compile_debate_graph(config: Optional[BullBearConfig] = None):
+def compile_debate_graph(config: Optional[BullBearConfig] = None, use_dummy: bool = False):
     """
     Compile the debate graph for execution.
+    
+    Args:
+        config: Optional configuration override
+        use_dummy: If True, use dummy data for reports/RAG
     
     Returns:
         Compiled LangGraph application
     """
-    workflow = create_debate_graph(config)
+    workflow = create_debate_graph(config, use_dummy=use_dummy)
     # Increase recursion limit to handle multi-round debates
     return workflow.compile(checkpointer=None)
 
@@ -320,9 +328,10 @@ class BullBearDebate:
     High-level interface for running Bull-Bear debates.
     """
     
-    def __init__(self, config: Optional[BullBearConfig] = None):
+    def __init__(self, config: Optional[BullBearConfig] = None, use_dummy: bool = False):
         self.config = config or get_config()
-        self.app = compile_debate_graph(self.config)
+        self.use_dummy = use_dummy
+        self.app = compile_debate_graph(self.config, use_dummy=use_dummy)
         # Set higher recursion limit for debates
         self.recursion_limit = 100
     

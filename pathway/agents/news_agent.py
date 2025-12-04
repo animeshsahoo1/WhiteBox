@@ -51,7 +51,7 @@ def trigger_news_alert(symbol: str, cluster_count: int, new_clusters: int = 0):
     alerts_enabled = os.getenv("NEWS_ALERT_ENABLED", "true").lower() == "true"
     alert_cooldown = int(os.getenv("NEWS_ALERT_COOLDOWN", "600"))  # 10 min default
     min_clusters_for_alert = int(os.getenv("NEWS_ALERT_MIN_CLUSTERS", "3"))
-    bullbear_url = os.getenv("BULLBEAR_API_URL", "http://localhost:8000")
+    bullbear_url = os.getenv("BULLBEAR_API_URL", "http://unified-api:8000")
     
     if not alerts_enabled:
         return

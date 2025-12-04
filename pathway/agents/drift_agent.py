@@ -492,7 +492,7 @@ def detect_drift(
     high: float,
     low: float,
     open_price: float,
-    change_percent: float,
+    change_percent: Optional[float],
 ) -> str:
     """
     Pathway UDF that detects drift and stores alerts.
@@ -512,13 +512,16 @@ def detect_drift(
     spread = (high - low) / ((high + low) / 2) if (high + low) > 0 else 0
     momentum = (current_price - open_price) / open_price if open_price > 0 else 0
     
+    # Handle None change_percent
+    safe_change_percent = (change_percent / 100) if change_percent is not None else 0
+    
     features = {
         'price_return': price_return,
         'volume_change': 0,  # Requires volume data from producer
         'volatility': volatility,
         'spread': spread,
         'momentum': momentum,
-        'change_percent': change_percent / 100,
+        'change_percent': safe_change_percent,
     }
     
     # Update state

@@ -527,14 +527,7 @@ async def run_workflow(question: str):
         "generation": "",
         "iteration": 0
     }
-    # result = await graph_app.ainvoke(inputs)
-    result_str = retrieve_documents.invoke({"query": question, "k": 5})
-    
-    # Wrap in expected format for endpoint
-    return {
-        "generation": result_str,
-        "context": [Document(page_content=result_str, metadata={"source": "pathway_retrieve"})]
-    }
+    result = await graph_app.ainvoke(inputs)
     return result
 
 

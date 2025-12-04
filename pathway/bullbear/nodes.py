@@ -36,8 +36,9 @@ class DebateNodes:
     Each method is a node that takes state and returns updated state.
     """
     
-    def __init__(self, use_dummy: bool = True):
+    def __init__(self, use_dummy: bool = False):
         print("🔧 [DebateNodes] Initializing debate nodes...")
+        print(f"    use_dummy: {use_dummy}")
         self.config = get_config()
         self.llm = LLMClient(self.config.llm)  # Initialize LLM first
         self.reports_client = SyncReportsClient(self.config.reports, use_dummy=use_dummy)
@@ -818,7 +819,14 @@ Fundamental Report: {state['fundamental_report']}
             if not isinstance(d, dict):
                 return "N/A"
             new_pts = d.get("new_points", [])
-            return f"{len(new_pts)} new points: " + "; ".join(new_pts[:3])
+            # Handle both string and dict formats for points
+            formatted_pts = []
+            for p in new_pts[:3]:
+                if isinstance(p, dict):
+                    formatted_pts.append(p.get("content", p.get("text", str(p))))
+                else:
+                    formatted_pts.append(str(p))
+            return f"{len(new_pts)} new points: " + "; ".join(formatted_pts)
         
         # Correctness info
         conclusion = state.get("facilitator_conclusion", {})

@@ -65,7 +65,7 @@ def trigger_sentiment_alert(symbol: str, overall_sentiment: float):
     alert_max = float(os.getenv("SENTIMENT_ALERT_MAX", "0.3"))
     alerts_enabled = os.getenv("SENTIMENT_ALERT_ENABLED", "true").lower() == "true"
     alert_cooldown = int(os.getenv("SENTIMENT_ALERT_COOLDOWN", "300"))
-    bullbear_url = os.getenv("BULLBEAR_API_URL", "http://localhost:8000")
+    bullbear_url = os.getenv("BULLBEAR_API_URL", "http://unified-api:8000")
     
     if not alerts_enabled:
         return
@@ -422,10 +422,10 @@ def process_sentiment_clustering(
             'timestamp': datetime.now(timezone.utc).isoformat()
         }
         
-        # Save to file
+        # Save to file (JSON Lines format - single line for Pathway compatibility)
         try:
             with open(file_path, 'w') as f:
-                json.dump(result, f, indent=2)
+                json.dump(result, f)  # No indent = single line (JSON Lines format)
             print(f"💾 [{symbol}] Saved {len(clusters_list)} clusters to {file_path}")
         except Exception as e:
             print(f"Error saving clusters for {symbol}: {e}")

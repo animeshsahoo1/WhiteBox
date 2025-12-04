@@ -222,14 +222,11 @@ def _run_debate_sync(
     save_debate_progress(symbol, progress)
     
     try:
-        # Create config with dummy mode if needed
+        # Create config
         config = get_config()
-        if use_dummy:
-            config.reports.use_dummy = True
-            config.rag.use_dummy = True
         
-        # Create debate instance
-        debate = BullBearDebate(config)
+        # Create debate instance with use_dummy parameter
+        debate = BullBearDebate(config, use_dummy=use_dummy)
         
         # Run the debate with streaming to track progress
         final_state = None
@@ -243,9 +240,10 @@ def _run_debate_sync(
             if "current_round" in state:
                 current_round = state["current_round"]
             
-            # Count debate points
-            bull_points = len(state.get("bull_points", []))
-            bear_points = len(state.get("bear_points", []))
+            # Count debate points from unified debate_points list
+            debate_pts = state.get("debate_points", [])
+            bull_points = len([p for p in debate_pts if p.get("party") == "bull"])
+            bear_points = len([p for p in debate_pts if p.get("party") == "bear"])
             
             progress = {
                 "symbol": symbol,
@@ -266,23 +264,29 @@ def _run_debate_sync(
         if final_state is None:
             raise RuntimeError("Debate produced no final state")
         
+        # Count points from unified debate_points list
+        all_debate_points = final_state.get("debate_points", [])
+        final_bull_count = len([p for p in all_debate_points if p.get("party") == "bull"])
+        final_bear_count = len([p for p in all_debate_points if p.get("party") == "bear"])
+        
         print(f"\n✅ Debate completed!")
-        print(f"   Bull points: {len(final_state.get('bull_points', []))}")
-        print(f"   Bear points: {len(final_state.get('bear_points', []))}")
-        print(f"   Rounds: {final_state.get('current_round', 0)}")
+        print(f"   Bull points: {final_bull_count}")
+        print(f"   Bear points: {final_bear_count}")
+        print(f"   Rounds: {final_state.get('round_number', 0)}")
         
         # Extract results
         facilitator_report = final_state.get("facilitator_report", "")
         recommendation = final_state.get("recommendation", "HOLD")
         conclusion_reason = final_state.get("conclusion_reason", "max_rounds")
         
-        # Get debate points for saving
-        bull_points = final_state.get("bull_points", [])
-        bear_points = final_state.get("bear_points", [])
+        # Get debate points from unified list
+        all_points = final_state.get("debate_points", [])
+        bull_points_list = [p for p in all_points if p.get("party") == "bull"]
+        bear_points_list = [p for p in all_points if p.get("party") == "bear"]
         
         # Format debate points as dicts for JSON
         debate_points = []
-        for p in bull_points:
+        for p in bull_points_list:
             if hasattr(p, "__dict__"):
                 debate_points.append({
                     "party": "bull",
@@ -293,7 +297,7 @@ def _run_debate_sync(
             else:
                 debate_points.append({"party": "bull", "claim": str(p)})
         
-        for p in bear_points:
+        for p in bear_points_list:
             if hasattr(p, "__dict__"):
                 debate_points.append({
                     "party": "bear",

@@ -5,9 +5,10 @@ Provides POST /debate/{symbol} endpoint for running debates with live status.
 Uses the new LangGraph-based implementation with mem0 memory persistence.
 """
 import sys
+import json
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -16,7 +17,85 @@ from pydantic import BaseModel
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from bullbear.debate_runner import run_debate_and_generate_report, get_debate_progress
-from bullbear.researchers.facilitator import get_facilitator_status, is_stream_active
+from redis_cache import get_redis_client, _build_symbol_key
+
+
+# ============================================================
+# FACILITATOR STATUS FUNCTIONS (Minimal Implementation)
+# ============================================================
+
+# Track active streams per symbol
+_active_streams: Dict[str, bool] = {}
+
+
+def get_facilitator_status(symbol: str) -> Optional[Dict[str, Any]]:
+    """
+    Get facilitator status from Redis or file.
+    Returns None if no facilitator report exists.
+    """
+    symbol = symbol.upper()
+    
+    # Try Redis first
+    try:
+        client = get_redis_client()
+        symbol_key = _build_symbol_key(symbol)
+        facilitator_data = client.hget(symbol_key, "facilitator")
+        
+        if facilitator_data:
+            entry = json.loads(facilitator_data)
+            return {
+                "status": "completed",
+                "round": entry.get("round", 0),
+                "report": entry.get("content", ""),
+                "recommendation": _extract_recommendation(entry.get("content", "")),
+                "updated_at": entry.get("last_updated"),
+                "source": "redis",
+            }
+    except Exception:
+        pass
+    
+    # Try file fallback
+    reports_dir = Path(__file__).parent.parent / "reports" / "facilitator" / symbol
+    report_path = reports_dir / "facilitator_report.md"
+    
+    if report_path.exists():
+        try:
+            content = report_path.read_text(encoding="utf-8")
+            return {
+                "status": "completed",
+                "round": 0,
+                "report": content,
+                "recommendation": _extract_recommendation(content),
+                "updated_at": datetime.fromtimestamp(report_path.stat().st_mtime).isoformat(),
+                "source": "file",
+            }
+        except Exception:
+            pass
+    
+    return None
+
+
+def is_stream_active(symbol: str) -> bool:
+    """Check if facilitator stream is active for a symbol."""
+    return _active_streams.get(symbol.upper(), False)
+
+
+def _extract_recommendation(report: str) -> Optional[str]:
+    """Extract BUY/HOLD/SELL recommendation from facilitator report."""
+    if not report:
+        return None
+    
+    report_upper = report.upper()
+    if "STRONG BUY" in report_upper or "RECOMMENDATION: BUY" in report_upper:
+        return "BUY"
+    elif "STRONG SELL" in report_upper or "RECOMMENDATION: SELL" in report_upper:
+        return "SELL"
+    elif "BUY" in report_upper and "SELL" not in report_upper:
+        return "BUY"
+    elif "SELL" in report_upper and "BUY" not in report_upper:
+        return "SELL"
+    return "HOLD"
+
 
 router = APIRouter(prefix="/debate", tags=["Bull-Bear Debate"])
 
