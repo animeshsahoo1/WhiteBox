@@ -188,23 +188,37 @@ class SentimentProducer(BaseProducer):
             url = "https://financialmodelingprep.com/stable/stock-peers"
             params = {'symbol': stock_symbol, 'apikey': self.fmp_key}
             
+            print(f"  🔍 [{stock_symbol}] Fetching peers from FMP...")
             response = requests.get(url, params=params, timeout=10)
             
             if response.status_code == 200:
                 data = response.json()
+                
+                # FMP returns a flat array of peer objects: [{"symbol": "GOOGL", ...}, ...]
+                # NOT a nested peersList
                 if data and isinstance(data, list) and len(data) > 0:
-                    peers = data[0].get('peersList', [])
+                    # Check if it's the old format with peersList
+                    if 'peersList' in data[0]:
+                        peers = data[0].get('peersList', [])
+                    else:
+                        # New format: extract symbol from each peer object
+                        peers = [peer.get('symbol') for peer in data if peer.get('symbol') and peer.get('symbol') != stock_symbol]
+                    
                     # Cache the result
                     self.peers_cache[stock_symbol] = peers
                     self._save_peers_cache()
                     print(f"  📊 [{stock_symbol}] Found {len(peers)} peers: {peers[:5]}...")
                     return peers
+            else:
+                print(f"  ⚠️  [{stock_symbol}] FMP API returned status {response.status_code}")
             
             print(f"  ⚠️  [{stock_symbol}] No peers found from FMP")
             return []
             
         except Exception as e:
             print(f"  ⚠️  [{stock_symbol}] Error fetching peers: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     def _get_stock_profile(self, stock_symbol: str) -> Optional[Dict]:

@@ -194,7 +194,15 @@ class NewsProducer(BaseProducer):
             data = response.json()
             
             if data and isinstance(data, list) and len(data) > 0:
-                peers = data[0].get('peersList', [])[:5]  # Get top 5 peers
+                # FMP returns a flat array of peer objects: [{"symbol": "GOOGL", ...}, ...]
+                # NOT a nested peersList
+                if 'peersList' in data[0]:
+                    # Old format
+                    peers = data[0].get('peersList', [])[:5]
+                else:
+                    # New format: extract symbol from each peer object
+                    peers = [peer.get('symbol') for peer in data if peer.get('symbol') and peer.get('symbol') != stock_symbol][:5]
+                
                 self.peers_cache[stock_symbol] = peers
                 self._save_peers_cache()
                 print(f"  📊 Found {len(peers)} peers for {stock_symbol}: {peers[:3]}...")
