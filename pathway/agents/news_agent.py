@@ -52,14 +52,24 @@ def assess_news_impact(report: str, symbol: str) -> tuple[bool, str]:
     try:
         import litellm
         
-        prompt = f"""Analyze this news report for {symbol}. Is this market-moving news that could significantly impact the stock price?
+        prompt = f"""NEWS IMPACT TRIAGE: {symbol}
 
-NEWS REPORT:
+HEADLINE & CONTENT:
 {report[:2000]}
 
-Reply in this exact format:
+MARKET-MOVING CRITERIA (flag if ANY apply):
+• EARNINGS: Beat/miss, guidance change, margin surprise, revenue acceleration/deceleration
+• CORPORATE ACTION: M&A, spinoff, buyback announcement, dividend change, stock split
+• MANAGEMENT: CEO/CFO change, board shakeup, insider buying/selling >$1M
+• REGULATORY: FDA approval/rejection, antitrust action, SEC investigation, license grant/revoke
+• COMPETITIVE: Major contract win/loss, market share shift, new product launch, partnership
+• MACRO EXPOSURE: Tariff impact, currency shock, supply chain disruption, geopolitical event
+
 IMPACT: YES or NO
-REASON: One sentence explaining why (max 20 words)"""
+IF YES → CATALYST TYPE: [one of above categories]
+MAGNITUDE: HIGH (>5% move potential) | MEDIUM (2-5%) | LOW (<2%)
+DIRECTION: BULLISH | BEARISH | UNCERTAIN
+REASON: <20 words>"""
 
         response = litellm.completion(
             model="openai/gpt-4o-mini",
@@ -251,7 +261,12 @@ class NewsClusterManager:
             return f"Developing story about {company}"
         
         titles = "\n".join([f"- {art.get('title', '')}" for art in articles[:8]])
-        prompt = f"Synthesize these headlines about {company} into ONE headline (max 12 words):\n\n{titles}\n\nHeadline:"
+        prompt = f"""HEADLINE SYNTHESIS: {company}
+
+Related headlines:
+{titles}
+
+Combine into ONE punchy headline (max 10 words) that captures the core story. Use active voice, be specific."""
         
         if self.has_valid_api_key:
             response = self.call_llm_sync([{"role": "user", "content": prompt}])
@@ -268,17 +283,18 @@ class NewsClusterManager:
             for i, sc in enumerate(story_clusters)
         ])
         
-        prompt = f"""# {company} News Digest
+        prompt = f"""# {company} NEWS DIGEST | {timestamp} UTC
 
-Stories:
+ACTIVE STORIES:
 {clusters_text}
 
-For each story, write 1 sentence explaining the development. Format:
-### [number]. [headline]
-**Articles**: [count]
-[1-sentence summary]
+FOR EACH STORY:
+### [#]. [Headline]
+**Coverage Depth**: [X] sources | **Developing**: Yes/No
+**What**: One sentence — the core event
+**So What**: One sentence — why traders should care (price implication, catalyst timing)
 
-End with: *Timestamp: {timestamp} UTC*"""
+Prioritize by market impact. Skip fluff stories."""
         
         return [{"role": "user", "content": prompt}]
 

@@ -288,39 +288,20 @@ def _add_llm_analysis(windowed_table: pw.Table, chat: llms.OpenAIChat) -> pw.Tab
         market_data_dict = market_data.as_dict()
         symbol = market_data_dict["symbol"]
         
-        return f"""You are an expert financial analyst. Analyze the following market data for {symbol} and provide a comprehensive report.
+        return f"""Analyze {symbol} market data and provide a technical assessment.
 
-Market Data:
+DATA:
 {json.dumps(market_data_dict, indent=2)}
 
-Please provide a detailed analysis covering:
+RESPOND WITH:
+1. TREND: Direction (bullish/bearish/neutral) + strength (strong/moderate/weak)
+2. MOMENTUM: Current state + any divergences
+3. VOLATILITY: Risk level (high/medium/low) + implications
+4. KEY LEVELS: Nearest support and resistance
+5. SIGNAL: BUY/SELL/HOLD with confidence (high/medium/low)
+6. RISK: Primary concern for this position
 
-1. **Price Action Analysis**
-   - Current price trends and movements
-   - Key support and resistance levels
-   - Price momentum assessment
-
-2. **Technical Indicator Analysis**
-   - Momentum indicators interpretation
-   - Volatility analysis and implications
-   - Trend strength and direction
-
-3. **Risk Assessment**
-   - Volatility-based risk evaluation
-   - Price stability analysis
-   - Potential risk factors
-
-4. **Trading Recommendations**
-   - Short-term outlook (1-5 days)
-   - Entry/exit points consideration
-   - Risk management suggestions
-
-5. **Key Insights**
-   - Notable patterns or anomalies
-   - Market sentiment indicators
-   - Overall investment perspective
-
-Format your response as a professional market analysis report with clear sections and actionable insights."""
+Be concise. Use specific numbers from the data."""
     
     analyzed_table = analyzed_table.select(
         pw.this.symbol,

@@ -9,7 +9,7 @@ app = FastAPI()
 async def ping():
     publish_agent_status("test", "test", "running")
     return {"status": "ok"}
-
+    
 @app.websocket("/ws/{room_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str):
     """
@@ -18,9 +18,12 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
     """
     print(f"🔌 Attempting WebSocket connection for room: {room_id}")
     
+    # ✅ Accept the connection FIRST
+    await websocket.accept()
+    print(f"✅ WebSocket accepted for room: {room_id}")
+    
     try:
         await ws_manager.connect(room_id, websocket)
-        print(f"✅ WebSocket connected for room: {room_id}")
         
         # Create fresh Redis connection
         redis_async = get_async_redis()
@@ -48,6 +51,56 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
         except:
             pass
 
-@app.on_event("startup")
-async def startup_event():
-    publish_agent_status("test", "test", "starting")
+@app.websocket("/ws/reports")
+async def websocket_reports(websocket: WebSocket):
+    room_id = "reports"  
+    print("🔌 Attempting WebSocket connection for reports")
+    
+    # ✅ Accept the connection FIRST
+    await websocket.accept()
+    print("✅ WebSocket accepted for reports")
+
+    await ws_manager.connect(room_id, websocket)
+
+    redis_async = get_async_redis()
+    pubsub = redis_async.pubsub()
+    await pubsub.subscribe("reports")
+    print(f"✅ Subscribed to Redis channel: reports")
+
+    try:
+        async for msg in pubsub.listen():
+            if msg["type"] == "message":
+                await ws_manager.broadcast(room_id, msg["data"])
+
+    finally:
+        ws_manager.disconnect(room_id, websocket)
+        await pubsub.unsubscribe("reports")
+        await pubsub.close()
+        await redis_async.close()
+
+@app.websocket("/ws/alerts")
+async def websocket_alerts(websocket: WebSocket):
+    room_id = "alerts"   
+    print("🔌 Attempting WebSocket connection for alerts")
+    
+    # ✅ Accept the connection FIRST
+    await websocket.accept()
+    print("✅ WebSocket accepted for alerts")
+
+    await ws_manager.connect(room_id, websocket)
+
+    redis_async = get_async_redis()
+    pubsub = redis_async.pubsub()
+    await pubsub.subscribe("alerts")
+    print(f"✅ Subscribed to Redis channel: alerts")
+    
+    try:
+        async for msg in pubsub.listen():
+            if msg["type"] == "message":
+                await ws_manager.broadcast(room_id, websocket)
+
+    finally:
+        ws_manager.disconnect(room_id, websocket)
+        await pubsub.unsubscribe("alerts")
+        await pubsub.close()
+        await redis_async.close()

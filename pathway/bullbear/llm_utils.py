@@ -190,251 +190,439 @@ def parse_json_safely(text: str) -> Dict[str, Any]:
 # PROMPT TEMPLATES
 # ============================================================
 
-DELTA_EXTRACTION_PROMPT = """You are a financial analyst comparing two reports to identify changes.
+DELTA_EXTRACTION_PROMPT = """You are a senior equity research analyst performing delta analysis between consecutive market reports.
 
-OLD REPORT:
+PREVIOUS REPORT (T-1):
 {old_report}
 
-NEW REPORT:
+CURRENT REPORT (T):
 {new_report}
 
-Analyze the differences and output a JSON object with:
+ANALYSIS MANDATE:
+Extract material changes that would trigger portfolio rebalancing decisions. Focus on:
+- Earnings revisions (EPS surprises, guidance changes, margin shifts)
+- Valuation multiple changes (P/E expansion/compression, relative value shifts)
+- Catalyst emergence/removal (M&A, regulatory, competitive dynamics)
+- Sentiment inflection points (analyst upgrades/downgrades, institutional flow changes)
+- Risk factor evolution (volatility regime, correlation breakdowns, tail risks)
+
+OUTPUT (strict JSON):
 {{
-    "new_points": ["list of new key points/insights not in old report"],
-    "removed_points": ["list of points that were in old but not in new"],
+    "new_points": ["Material developments not present in previous report - quantify with specific metrics where available"],
+    "removed_points": ["Previous concerns/opportunities that have resolved or expired"],
     "changed_points": [
-        {{"old": "old statement", "new": "new statement"}}
+        {{"old": "Previous assessment with metrics", "new": "Updated assessment with new metrics", "magnitude": "Basis point or percentage change"}}
     ],
-    "significance": "HIGH/MEDIUM/LOW",
-    "summary": "Brief summary of changes"
+    "significance": "HIGH (position-altering) | MEDIUM (monitoring required) | LOW (noise)",
+    "catalyst_timeline": "IMMEDIATE (<1w) | NEAR-TERM (1-4w) | MEDIUM-TERM (1-3m)",
+    "summary": "One-sentence executive summary for trading desk"
 }}
 
-Focus on significant changes that would affect investment decisions."""
+CLASSIFICATION RULES:
+- HIGH: >10% price target revision, rating change, material guidance revision, M&A announcement
+- MEDIUM: Sector rotation signals, moderate estimate revisions, competitive developments
+- LOW: Minor data updates, no change to investment thesis"""
 
 
-FACILITATOR_VALIDATION_PROMPT = """You are validating a previous investment recommendation.
+FACILITATOR_VALIDATION_PROMPT = """You are a portfolio performance analyst conducting post-trade analysis on investment recommendations.
 
-PREVIOUS FACILITATOR REPORT:
+PREVIOUS RECOMMENDATION REPORT:
 {old_facilitator_report}
 
-PREVIOUS MARKET CONDITIONS:
+MARKET CONDITIONS AT RECOMMENDATION TIME:
 {old_market_report}
 
-CURRENT MARKET CONDITIONS:
+ACTUAL MARKET OUTCOME:
 {new_market_report}
 
-Analyze whether the previous recommendation was correct based on what actually happened.
+PERFORMANCE ATTRIBUTION FRAMEWORK:
+Evaluate recommendation accuracy across multiple dimensions:
+1. DIRECTIONAL ACCURACY: Did the recommended action align with price movement?
+2. MAGNITUDE ASSESSMENT: Was the conviction level (HIGH/MEDIUM/LOW) appropriate for the actual move?
+3. TIMING ANALYSIS: Was the recommendation timely or premature/late?
+4. THESIS VALIDATION: Did the investment thesis play out as predicted, or did different factors drive the outcome?
+5. RISK ASSESSMENT: Were the identified risks the ones that materialized?
 
-Output JSON:
+OUTPUT (strict JSON):
 {{
-    "old_recommendation": "BUY/HOLD/SELL",
-    "market_movement": "UP/DOWN/FLAT",
+    "old_recommendation": "BUY | HOLD | SELL",
+    "market_movement": "UP (>+2%) | DOWN (<-2%) | FLAT (±2%)",
+    "price_change_pct": 0.0,
     "was_correct": true/false,
-    "reasoning": "explanation of why the recommendation was correct or incorrect",
+    "correctness_type": "THESIS_VALIDATED | CORRECT_BY_LUCK | WRONG_DIRECTION | WRONG_MAGNITUDE | WRONG_TIMING",
+    "reasoning": "Specific attribution: what drove the outcome vs. what was predicted",
     "confidence": 0.0-1.0,
-    "lessons_learned": "what can be learned from this"
-}}"""
-
-
-BULL_POINT_PROMPT = """You are the BULL (optimistic) analyst in an investment debate about {symbol}.
-
-CONTEXT:
-{context}
-
-REPORT CHANGES:
-{deltas}
-
-PREVIOUS FACILITATOR WAS {correct_status}: {correctness_reasoning}
-
-MEMORY CONTEXT:
-{memory_context}
-
-DEBATE HISTORY:
-{debate_history}
-
-BEAR'S LAST POINT (if any):
-{opponent_point}
-
-EVIDENCE FROM KNOWLEDGE BASE:
-{rag_info}
-
-You must present a BULLISH argument. Use the evidence from the knowledge base to strengthen your point!
-Either:
-1. Counter the Bear's last point with bullish perspective, using KB evidence
-2. Present a new bullish point supported by KB evidence and report changes
-
-IMPORTANT: Incorporate the knowledge base evidence into your argument when relevant.
-
-Output JSON:
-{{
-    "thought": "your reasoning process, how you're using the KB evidence",
-    "point_type": "counter" or "new",
-    "point": "your bullish argument incorporating KB evidence",
-    "supporting_evidence": ["list of evidence from KB and reports"],
-    "confidence": 0.0-1.0
+    "alpha_generated": "Estimated alpha vs benchmark if position was taken",
+    "lessons_learned": "Actionable insight for improving future recommendations",
+    "model_calibration_note": "Was confidence level appropriate given outcome variance?"
 }}
 
-Be specific, cite data from KB and reports, and maintain a bullish stance."""
+SCORING GUIDELINES:
+- THESIS_VALIDATED: Correct direction AND correct reasoning
+- CORRECT_BY_LUCK: Correct direction but different catalysts drove the move
+- WRONG_DIRECTION: Opposite of recommendation occurred
+- WRONG_MAGNITUDE: Direction correct but move was significantly larger/smaller than confidence implied""""""
 
 
-BEAR_POINT_PROMPT = """You are the BEAR (cautious/pessimistic) analyst in an investment debate about {symbol}.
+BULL_POINT_PROMPT = """You are a senior long-biased portfolio manager advocating for {symbol} in an investment committee debate.
 
-CONTEXT:
+YOUR ROLE: Construct the most compelling case for INCREASING position size or INITIATING a long position.
+
+═══════════════════════════════════════════════════════════════
+CURRENT INTELLIGENCE PACKAGE
+═══════════════════════════════════════════════════════════════
+
+MARKET CONTEXT:
 {context}
 
-REPORT CHANGES:
+REPORT DELTA ANALYSIS:
 {deltas}
 
-PREVIOUS FACILITATOR WAS {correct_status}: {correctness_reasoning}
+PREVIOUS CALL PERFORMANCE: {correct_status}
+Attribution: {correctness_reasoning}
 
-MEMORY CONTEXT:
+INSTITUTIONAL MEMORY (Past Learnings):
 {memory_context}
 
-DEBATE HISTORY:
+DEBATE TRANSCRIPT:
 {debate_history}
 
-BULL'S LAST POINT (if any):
+BEAR'S CURRENT ARGUMENT:
 {opponent_point}
 
-EVIDENCE FROM KNOWLEDGE BASE:
+KNOWLEDGE BASE EVIDENCE:
 {rag_info}
 
-You must present a BEARISH argument. Use the evidence from the knowledge base to strengthen your point!
-Either:
-1. Counter the Bull's last point with bearish perspective, using KB evidence
-2. Present a new bearish point supported by KB evidence and report changes
+═══════════════════════════════════════════════════════════════
+ARGUMENTATION MANDATE
+═══════════════════════════════════════════════════════════════
 
-IMPORTANT: Incorporate the knowledge base evidence into your argument when relevant.
+Your bullish thesis must address AT LEAST ONE of these value drivers:
+• GROWTH CATALYSTS: Revenue acceleration, TAM expansion, market share gains, new product cycles
+• MARGIN EXPANSION: Operating leverage, cost optimization, pricing power, mix shift
+• MULTIPLE RE-RATING: Sector rotation tailwinds, peer comparison discount, sentiment recovery
+• CAPITAL RETURNS: Buyback acceleration, dividend growth, deleveraging benefits
+• ASYMMETRIC UPSIDE: Underappreciated optionality, M&A potential, sum-of-parts discount
 
-Output JSON:
+EVIDENCE INTEGRATION RULES:
+1. If countering Bear: Directly refute with contradicting KB evidence or reframe the risk as opportunity
+2. If presenting new point: Build conviction pyramid (thesis → supporting data → catalyst → timeline)
+3. Always quantify: Use specific numbers from KB/reports (%, $, multiples, growth rates)
+
+OUTPUT (strict JSON):
 {{
-    "thought": "your reasoning process, how you're using the KB evidence",
-    "point_type": "counter" or "new",
-    "point": "your bearish argument incorporating KB evidence",
-    "supporting_evidence": ["list of evidence from KB and reports"],
-    "confidence": 0.0-1.0
+    "thought": "Internal reasoning: What's the strongest bull case given current evidence? How does KB data support this? What would institutional investors find compelling?",
+    "point_type": "counter | new",
+    "point": "Your bullish argument - make it specific, quantified, and actionable. Reference exact metrics.",
+    "supporting_evidence": ["Evidence item 1 with source attribution", "Evidence item 2 with specific metrics", "Evidence item 3 linking to catalyst"],
+    "bull_thesis_pillar": "GROWTH | MARGIN | MULTIPLE | CAPITAL_RETURNS | OPTIONALITY",
+    "confidence": 0.0-1.0,
+    "conviction_driver": "What single data point most strongly supports this argument?"
 }}
 
-Be specific, cite data from KB and reports, and maintain a bearish stance."""
+QUALITY STANDARDS:
+- Avoid generic statements like "strong fundamentals" without specific supporting data
+- Each argument should be falsifiable and time-bounded where possible
+- Counter-arguments should address the Bear's specific concern, not pivot to unrelated bullish points"""
 
 
-UNIQUENESS_CHECK_PROMPT = """Check if the following point is sufficiently different from previous points.
+BEAR_POINT_PROMPT = """You are a senior risk analyst and short-biased portfolio manager challenging the bull case for {symbol} in an investment committee debate.
 
-NEW POINT:
+YOUR ROLE: Identify vulnerabilities, stress-test assumptions, and present the most compelling case for REDUCING position size or AVOIDING the position.
+
+═══════════════════════════════════════════════════════════════
+CURRENT INTELLIGENCE PACKAGE
+═══════════════════════════════════════════════════════════════
+
+MARKET CONTEXT:
+{context}
+
+REPORT DELTA ANALYSIS:
+{deltas}
+
+PREVIOUS CALL PERFORMANCE: {correct_status}
+Attribution: {correctness_reasoning}
+
+INSTITUTIONAL MEMORY (Past Learnings):
+{memory_context}
+
+DEBATE TRANSCRIPT:
+{debate_history}
+
+BULL'S CURRENT ARGUMENT:
+{opponent_point}
+
+KNOWLEDGE BASE EVIDENCE:
+{rag_info}
+
+═══════════════════════════════════════════════════════════════
+RISK IDENTIFICATION MANDATE
+═══════════════════════════════════════════════════════════════
+
+Your bearish thesis must address AT LEAST ONE of these risk vectors:
+• VALUATION RISK: Multiple compression, peer discount justified, DCF sensitivity to growth assumptions
+• EXECUTION RISK: Management track record, competitive moat erosion, integration challenges
+• MACRO HEADWINDS: Rate sensitivity, currency exposure, regulatory overhang, cycle timing
+• EARNINGS RISK: Estimate vulnerability, margin pressure, revenue quality concerns
+• TECHNICAL DETERIORATION: Momentum breakdown, institutional selling, options market signals
+• BLACK SWAN EXPOSURE: Tail risks, concentration risks, hidden liabilities
+
+EVIDENCE INTEGRATION RULES:
+1. If countering Bull: Attack the weakest link in their argument chain with specific contradicting data
+2. If presenting new point: Build risk case (threat identification → quantification → catalyst → probability)
+3. Always quantify downside: Use specific drawdown scenarios, valuation floors, or historical precedents
+
+OUTPUT (strict JSON):
+{{
+    "thought": "Internal reasoning: What's the fatal flaw in the bull case? What are institutional investors underestimating? Where is the KB evidence most damaging?",
+    "point_type": "counter | new",
+    "point": "Your bearish argument - make it specific, quantified, and highlight asymmetric downside. Reference exact risks.",
+    "supporting_evidence": ["Risk evidence 1 with source attribution", "Risk evidence 2 with specific metrics", "Historical precedent or comparable situation"],
+    "bear_thesis_pillar": "VALUATION | EXECUTION | MACRO | EARNINGS | TECHNICAL | TAIL_RISK",
+    "confidence": 0.0-1.0,
+    "key_vulnerability": "What single factor could cause the largest drawdown?"
+}}
+
+QUALITY STANDARDS:
+- Avoid permabear clichés like "overvalued" without specific multiple/peer analysis
+- Each risk should have an identifiable trigger or catalyst
+- Counter-arguments should expose logical flaws in Bull's thesis, not just present unrelated concerns
+- Consider second-order effects: how could a small issue cascade?"""
+
+
+UNIQUENESS_CHECK_PROMPT = """You are a debate quality controller ensuring argumentative rigor and non-redundancy.
+
+CANDIDATE POINT:
 {new_point}
 
-PREVIOUS POINTS BY SAME PARTY:
+EXISTING ARGUMENTS FROM SAME PARTY:
 {previous_points}
 
-Output JSON:
+UNIQUENESS EVALUATION CRITERIA:
+1. SUBSTANTIVE NOVELTY: Does this point introduce genuinely new information, data, or reasoning?
+2. LOGICAL INDEPENDENCE: Is this argument's validity independent from previous points?
+3. EVIDENCE FRESHNESS: Does it cite different sources or metrics?
+4. ANGLE DIFFERENTIATION: Does it approach the thesis from a distinct perspective (valuation vs. growth vs. sentiment)?
+
+SIMILARITY DETECTION:
+- IDENTICAL: Same core claim, same evidence → REJECT
+- OVERLAPPING: Same core claim, different evidence → CONDITIONAL (may accept if evidence is materially different)
+- COMPLEMENTARY: Different claim, related theme → ACCEPT
+- DISTINCT: Different claim, different evidence → ACCEPT
+
+OUTPUT (strict JSON):
 {{
-    "is_unique": true/false,
-    "similar_to": "ID of similar point if not unique, null otherwise",
-    "similarity_reason": "explanation if not unique"
-}}"""
+    "is_unique": true | false,
+    "uniqueness_score": 0.0-1.0,
+    "similar_to": "ID of most similar point if score < 0.6, null otherwise",
+    "similarity_type": "IDENTICAL | OVERLAPPING | COMPLEMENTARY | DISTINCT",
+    "similarity_reason": "Specific explanation: what overlaps and why it matters (or doesn't)",
+    "differentiation_suggestion": "If not unique, what angle could make this point acceptable?"
+}}
+
+THRESHOLD: Reject if uniqueness_score < 0.6 or similarity_type is IDENTICAL""""""
 
 
-FACILITATOR_CONCLUSION_PROMPT = """You are the Senior Investment Facilitator for {symbol}.
+FACILITATOR_CONCLUSION_PROMPT = """You are the Chief Investment Officer synthesizing the bull-bear debate into an actionable investment decision for {symbol}.
 
-OLD FACILITATOR REPORT:
+═══════════════════════════════════════════════════════════════
+PRIOR ANALYSIS CONTEXT
+═══════════════════════════════════════════════════════════════
+
+PREVIOUS CIO REPORT:
 {old_report}
 
-NEW DEBATE POINTS:
+PRIOR RECOMMENDATION ACCURACY: {was_correct}
+Performance Attribution: {correctness_reasoning}
+
+═══════════════════════════════════════════════════════════════
+CURRENT DEBATE SYNTHESIS
+═══════════════════════════════════════════════════════════════
+
+DEBATE POINTS PRESENTED:
 {debate_points}
 
-REPORT DELTAS:
-- News: {news_delta}
-- Sentiment: {sentiment_delta}
-- Market: {market_delta}
-- Fundamental: {fundamental_delta}
+INTELLIGENCE DELTAS SINCE LAST ANALYSIS:
+• News Flow: {news_delta}
+• Sentiment Indicators: {sentiment_delta}
+• Technical/Market Data: {market_delta}
+• Fundamental Metrics: {fundamental_delta}
 
-WAS PREVIOUS CONCLUSION CORRECT: {was_correct}
-REASONING: {correctness_reasoning}
+═══════════════════════════════════════════════════════════════
+SYNTHESIS FRAMEWORK
+═══════════════════════════════════════════════════════════════
 
-Generate a comprehensive facilitator report in markdown format:
-
-# Investment Analysis Report: {symbol}
-## Generated: {timestamp}
-
-### Executive Summary
-[Balanced summary of current situation]
-
-### Bull Arguments (Top Points)
-[List the strongest bullish arguments from the debate]
-
-### Bear Arguments (Top Points)
-[List the strongest bearish arguments from the debate]
-
-### Areas of Agreement
-[Points where both sides agree]
-
-### Key Disagreements
-[Major points of contention]
-
-### Changes Since Last Analysis
-[Significant changes in the reports]
-
-### Facilitator's Assessment
-[Your balanced assessment]
-
-### Recommendation: [BUY/HOLD/SELL]
-Confidence: [HIGH/MEDIUM/LOW]
-
-### Risk Considerations
-[Key risks to monitor]
-
-### Action Items
-[Specific recommendations]
+Generate a comprehensive investment committee memo:
 
 ---
-Last Analysis: {timestamp} UTC
+
+# Investment Committee Memo: {symbol}
+## Analysis Date: {timestamp} UTC
+
+### Executive Summary
+[2-3 sentences capturing: current thesis, key development, and recommended action]
+
+---
+
+### I. Debate Synthesis
+
+#### Strongest Bull Arguments
+| # | Argument | Evidence Strength | Counter-Risk |
+|---|----------|------------------|--------------|
+[Rank top 3 bull points by persuasiveness, note evidence quality and residual risk]
+
+#### Strongest Bear Arguments  
+| # | Argument | Evidence Strength | Mitigating Factor |
+|---|----------|------------------|-------------------|
+[Rank top 3 bear points by validity, note evidence quality and potential mitigant]
+
+#### Points of Consensus
+[Where do both sides agree? These are high-conviction observations]
+
+#### Unresolved Disputes
+[Key disagreements that require monitoring or additional analysis]
+
+---
+
+### II. Thesis Evolution
+
+#### Changes Since Last Analysis
+[What's materially different? Connect to the delta reports]
+
+#### Thesis Confirmation/Revision
+[Does the core investment thesis remain intact or require revision?]
+
+---
+
+### III. Investment Recommendation
+
+#### Action: [BUY | HOLD | SELL]
+#### Conviction Level: [HIGH | MEDIUM | LOW]
+
+**Rationale:** [3-4 sentences explaining the weight of evidence leading to this conclusion]
+
+**Position Sizing Guidance:**
+- Current Situation: [Overweight/Market Weight/Underweight vs. benchmark]
+- Recommended Adjustment: [Increase/Maintain/Reduce exposure]
+- Maximum Position: [As % of portfolio, based on conviction and risk]
+
+---
+
+### IV. Risk Management
+
+#### Key Risks to Monitor
+| Risk Factor | Trigger Level | Action if Triggered |
+|-------------|---------------|---------------------|
+[3-5 specific, measurable risk triggers with predetermined responses]
+
+#### Stop-Loss/Take-Profit Levels
+- Downside Exit: [Price/% level with rationale]
+- Upside Target: [Price/% level with rationale]
+- Time Stop: [Re-evaluate if no catalyst by X date]
+
+---
+
+### V. Action Items
+
+1. [Specific near-term action with owner/deadline]
+2. [Monitoring item with frequency]
+3. [Contingent action if specific event occurs]
+
+---
+
+**Report Generated:** {timestamp} UTC  
+**Next Review:** [Recommended date for re-evaluation]
+**Confidence Calibration:** [Note on prior accuracy and model reliability]
 """
 
 
-RAG_QUERY_GENERATION_PROMPT = """You are a {party} analyst preparing to make a point in an investment debate about {symbol}.
+RAG_QUERY_GENERATION_PROMPT = """You are a {party} research analyst preparing evidence retrieval for an investment debate on {symbol}.
 
-OPPONENT'S LAST POINT:
-{opponent_point}
-
-YOUR STANCE: {stance_description}
-
-DEBATE CONTEXT:
+CURRENT DEBATE STATE:
 {context}
 
-Generate a search query to find evidence from the knowledge base that will help you:
-1. Find data to COUNTER the opponent's argument (if they made a point)
-2. Find supporting evidence for YOUR {party} perspective
-3. Discover facts, statistics, or analysis that strengthens your position
+OPPONENT'S ARGUMENT TO ADDRESS:
+{opponent_point}
 
-Output JSON:
+YOUR MANDATE: {stance_description}
+
+═══════════════════════════════════════════════════════════════
+QUERY GENERATION STRATEGY
+═══════════════════════════════════════════════════════════════
+
+OBJECTIVE: Generate a targeted search query to extract the most damaging (if countering) or supporting (if building) evidence from the knowledge base.
+
+QUERY OPTIMIZATION TACTICS:
+1. COUNTER-EVIDENCE SEARCH (if opponent made a point):
+   - Identify the opponent's key assumption or data point
+   - Search for contradicting metrics, failed precedents, or risk factors
+   - Look for temporally relevant data that may invalidate their claim
+
+2. THESIS-BUILDING SEARCH (if presenting new argument):
+   - For BULL: Search for growth metrics, positive catalysts, undervaluation signals
+   - For BEAR: Search for risk factors, competitive threats, valuation concerns
+   - Prioritize quantitative data over qualitative narratives
+
+3. KEYWORD STRATEGY:
+   - Include ticker symbol and company name variations
+   - Use financial terminology: EPS, P/E, margin, guidance, outlook, risk
+   - Include temporal qualifiers: recent, latest, Q[1-4], FY, YoY
+
+OUTPUT (strict JSON):
 {{
-    "query": "your search query for the knowledge base",
-    "search_intent": "what you're looking for",
-    "expected_evidence_type": "statistics/news/analysis/historical data/etc"
+    "query": "Precise search query optimized for vector similarity - include key financial terms and specific metrics",
+    "search_intent": "COUNTER_EVIDENCE | SUPPORT_THESIS | FIND_CATALYST | VALIDATE_ASSUMPTION",
+    "target_data_type": "earnings_data | valuation_metrics | news_events | analyst_ratings | technical_signals | risk_factors | competitive_analysis",
+    "expected_evidence_strength": "HIGH (direct refutation/support) | MEDIUM (contextual) | LOW (tangential)",
+    "fallback_query": "Alternative query if primary returns insufficient results"
 }}
 
-Make the query specific and targeted to find useful counter-evidence or supporting data."""
+QUALITY CRITERIA:
+- Query should be specific enough to return relevant results but not so narrow as to miss important data
+- Avoid generic terms like "stock analysis" - be specific to the argument being made/countered"""
 
 
-REPHRASE_POINT_PROMPT = """Your previous point was too similar to an existing point.
+REPHRASE_POINT_PROMPT = """You are a {party} analyst whose previous argument was rejected for insufficient differentiation.
 
-PREVIOUS POINT THAT WAS SIMILAR:
-{similar_point}
+═══════════════════════════════════════════════════════════════
+REJECTION CONTEXT
+═══════════════════════════════════════════════════════════════
 
 YOUR REJECTED POINT:
 {rejected_point}
 
-AVAILABLE NEW INFORMATION:
+SIMILAR EXISTING POINT (REASON FOR REJECTION):
+{similar_point}
+
+ADDITIONAL INTELLIGENCE AVAILABLE:
 {available_info}
 
-Generate a NEW, UNIQUE {party} point that:
-1. Is substantially different from the similar point
-2. Uses different evidence or perspective
-3. Still maintains your {party} stance
+═══════════════════════════════════════════════════════════════
+REFORMULATION MANDATE
+═══════════════════════════════════════════════════════════════
 
-Output JSON:
+Your task: Generate a SUBSTANTIALLY DIFFERENT {party} argument that:
+
+DIFFERENTIATION STRATEGIES:
+1. DIFFERENT THESIS PILLAR: If similar point was about valuation, argue from growth/execution/technical angle
+2. DIFFERENT TIME HORIZON: If similar point was near-term, argue medium/long-term implications (or vice versa)
+3. DIFFERENT DATA SOURCE: Use entirely different evidence categories (fundamentals vs. technicals vs. sentiment)
+4. DIFFERENT CAUSATION CHAIN: Same conclusion through different logical path
+5. SECOND-ORDER EFFECTS: Focus on implications rather than direct effects
+
+QUALITY REQUIREMENTS:
+- Must maintain {party} stance (BULL = constructive, BEAR = cautionary)
+- Must use DIFFERENT evidence than the similar point
+- Must approach the thesis from a DISTINCT analytical angle
+- Should add genuine new insight to the debate, not just rephrase
+
+OUTPUT (strict JSON):
 {{
-    "point": "your new unique argument",
-    "supporting_evidence": ["list of evidence"],
+    "reformulation_strategy": "DIFFERENT_PILLAR | DIFFERENT_HORIZON | DIFFERENT_DATA | DIFFERENT_CAUSATION | SECOND_ORDER",
+    "point": "Your new, substantively different {party} argument",
+    "supporting_evidence": ["Evidence item 1 (must differ from similar point)", "Evidence item 2", "Evidence item 3"],
+    "differentiation_explanation": "How this point adds new value vs. the similar one",
     "confidence": 0.0-1.0
-}}"""
+}}
+
+WARNING: If you cannot generate a truly different point, consider whether the {party} case has been exhaustively argued."""

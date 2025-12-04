@@ -123,12 +123,17 @@ class SentimentReportGenerator:
         company = self.symbol_mapping.get(symbol, symbol)
         sentiment_label = self._classify_sentiment(avg_sentiment)
         
-        prompt = f"""Summarize this discussion cluster about {company} ({symbol}) in 1-2 sentences.
+        prompt = f"""{company} ({symbol}) SENTIMENT CLUSTER
 
-Posts ({len(posts)} total, sentiment: {sentiment_label}):
+Cluster Stats: {len(posts)} posts | Avg Sentiment: {sentiment_label} ({avg_sentiment:.2f})
+
+Sample Posts:
 {post_texts}
 
-Write a concise summary of the main theme/topic being discussed."""
+IDENTIFY:
+1. Core narrative: What's the crowd discussing? (thesis, rumor, fear, excitement)
+2. Conviction level: Strong agreement or mixed opinions?
+3. Actionable signal: Is this noise or potential alpha?"""
 
         try:
             messages = [{"role": "user", "content": prompt}]
@@ -164,23 +169,31 @@ Write a concise summary of the main theme/topic being discussed."""
             for c in clusters
         ])
         
-        prompt = f"""Generate a sentiment analysis report for {company} ({symbol}).
+        prompt = f"""{company} ({symbol}) SENTIMENT INTELLIGENCE REPORT
 
-Overall Sentiment: {sentiment_label} ({overall_sentiment:.3f})
+OVERALL SCORE: {sentiment_label} ({overall_sentiment:.3f})
 
-Active Discussion Clusters:
+ACTIVE CLUSTERS:
 {cluster_summaries}
 
-Previous Report (for context):
-{current_report[:500] if current_report else 'None'}
+GENERATE REPORT:
 
-Create a professional report with:
-1. Executive summary of sentiment
-2. Key themes from clusters
-3. Notable trends or concerns
-4. Brief outlook
+## SENTIMENT SNAPSHOT
+2-3 sentences: Current retail mood, confidence level, any notable shifts
 
-Keep it concise (300-400 words)."""
+## DOMINANT NARRATIVES
+Top 3 themes driving discussion (bullish thesis, bear case, catalyst speculation, etc.)
+
+## RISK SIGNALS
+Red flags from crowd chatter: Excessive euphoria? Panic selling mentions? Bag-holder capitulation?
+
+## CONTRARIAN READ
+Is crowd sentiment a signal or noise? Historically, extreme readings = reversal warning.
+
+## OUTLOOK
+BULLISH | BEARISH | NEUTRAL + 1-sentence rationale
+
+250 words max. Trading-relevant insights only."""
 
         try:
             messages = [{"role": "user", "content": prompt}]

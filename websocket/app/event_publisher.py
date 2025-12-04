@@ -64,5 +64,50 @@ def publish_report(room_id: str, agent: str, report: Any):
         },
     )
 
+def publish_alerts(data: Any, symbol: str):
+    """
+    Publish an alert message.
+    """
+
+    message = {
+        "type": "alert",
+        "symbol": symbol,
+        "data": data,
+    }
+
+    # Redis pub/sub channel - use room: prefix to match main.py subscription
+    channel = f"alerts"
+
+    # Serialize message to JSON
+    json_message = json.dumps(message)
+
+    # Publish to Redis
+    redis_sync.publish(channel, json_message)
+
+    print(f"📡 Published event → {channel}: {json_message}")
+
+def publish_main_reports(type: str, symbol: str, data: Any):
+
+    """
+    Publish main report messages.
+    """
+
+    message = {
+        "type": type,
+        "symbol": symbol,
+        "data": data,
+    }
+
+    # Redis pub/sub channel - use room: prefix to match main.py subscription
+    channel = f"reports"
+
+    # Serialize message to JSON
+    json_message = json.dumps(message)
+
+    # Publish to Redis
+    redis_sync.publish(channel, json_message)
+
+    print(f"📡 Published event → {channel}: {json_message}")
+
 if __name__ == "__main__":
     publish_event("test", "test", "test")
