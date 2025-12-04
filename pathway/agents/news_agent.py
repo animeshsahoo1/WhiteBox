@@ -221,15 +221,20 @@ class NewsClusterManager:
             for i, sc in enumerate(story_clusters)
         ])
         
+        # Note: Story clusters may contain company, sector (peer), or global (macro) news
+        # The clustering groups related articles regardless of news_type
         prompt = f"""# {company} News Digest
 
-Stories:
+Stories (may include direct company news, sector/peer news, and macro/global news):
 {clusters_text}
 
-For each story, write 1 sentence explaining the development. Format:
+For each story, write 1 sentence explaining the development and its relevance to {company}.
+If a story is about a sector peer or macro trend, explain the potential impact.
+
+Format:
 ### [number]. [headline]
 **Articles**: [count]
-[1-sentence summary]
+[1-sentence summary with relevance to {company}]
 
 End with: *Timestamp: {timestamp} UTC*"""
         
