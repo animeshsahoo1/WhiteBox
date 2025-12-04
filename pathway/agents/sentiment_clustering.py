@@ -236,11 +236,15 @@ def process_sentiment_clustering(
             # Calculate VADER sentiment
             post_sentiment = get_vader_sentiment(text)
             
+            # Extract sentiment_type from combined_text if encoded, otherwise default to 'company'
+            # The producer encodes: sentiment_type and related_to in the post data
             post = {
                 'post_id': post_id, 
                 'text': text[:500], 
                 'timestamp': timestamp,
-                'sentiment': post_sentiment
+                'sentiment': post_sentiment,
+                'sentiment_type': 'company',  # Will be updated when we have access to raw post data
+                'related_to': symbol
             }
             post_hash = hashlib.md5(f"{symbol}:{post_id}:{text[:100]}".encode()).hexdigest()
             

@@ -123,17 +123,22 @@ class SentimentReportGenerator:
         company = self.symbol_mapping.get(symbol, symbol)
         sentiment_label = self._classify_sentiment(avg_sentiment)
         
-        prompt = f"""{company} ({symbol}) SENTIMENT CLUSTER
+        # Count sentiment types in cluster
+        type_counts = {}
+        for p in posts:
+            if isinstance(p, dict):
+                st = p.get('sentiment_type', 'company')
+                type_counts[st] = type_counts.get(st, 0) + 1
+        
+        type_info = ", ".join([f"{count} {stype}" for stype, count in type_counts.items()]) if type_counts else "company posts"
+        
+        prompt = f"""Summarize this discussion cluster about {company} ({symbol}) in 1-2 sentences.
 
-Cluster Stats: {len(posts)} posts | Avg Sentiment: {sentiment_label} ({avg_sentiment:.2f})
-
-Sample Posts:
+Posts ({len(posts)} total, sentiment: {sentiment_label}):
+Post sources: {type_info} (company = direct mentions, sector = peer/competitor mentions, global = macro/market-wide)
 {post_texts}
 
-IDENTIFY:
-1. Core narrative: What's the crowd discussing? (thesis, rumor, fear, excitement)
-2. Conviction level: Strong agreement or mixed opinions?
-3. Actionable signal: Is this noise or potential alpha?"""
+Write a concise summary of the main theme/topic being discussed, noting if sector peers or macro factors are influencing sentiment."""
 
         try:
             messages = [{"role": "user", "content": prompt}]
@@ -169,11 +174,23 @@ IDENTIFY:
             for c in clusters
         ])
         
-        prompt = f"""{company} ({symbol}) SENTIMENT INTELLIGENCE REPORT
+        # Analyze sentiment type distribution across all clusters
+        total_company = sum(c.get('company_count', c.get('count', 0)) for c in clusters)
+        total_sector = sum(c.get('sector_count', 0) for c in clusters)
+        total_global = sum(c.get('global_count', 0) for c in clusters)
+        
+        type_breakdown = f"""Sentiment Sources:
+- Company-specific mentions: {total_company} posts
+- Sector/Peer influences: {total_sector} posts (competitors, industry trends)
+- Global/Macro factors: {total_global} posts (Fed, market-wide, economic)""" if (total_sector > 0 or total_global > 0) else ""
+        
+        prompt = f"""Generate a sentiment analysis report for {company} ({symbol}).
 
 OVERALL SCORE: {sentiment_label} ({overall_sentiment:.3f})
 
-ACTIVE CLUSTERS:
+{type_breakdown}
+
+Active Discussion Clusters:
 {cluster_summaries}
 
 GENERATE REPORT:
@@ -190,8 +207,12 @@ Red flags from crowd chatter: Excessive euphoria? Panic selling mentions? Bag-ho
 ## CONTRARIAN READ
 Is crowd sentiment a signal or noise? Historically, extreme readings = reversal warning.
 
-## OUTLOOK
-BULLISH | BEARISH | NEUTRAL + 1-sentence rationale
+Create a professional report with:
+1. Executive summary of sentiment
+2. Key themes from clusters (distinguish between company-specific vs sector/macro influences)
+3. Notable trends or concerns
+4. How sector peers and macro factors are affecting sentiment (if applicable)
+5. Brief outlook
 
 250 words max. Trading-relevant insights only."""
 
