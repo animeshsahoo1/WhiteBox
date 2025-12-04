@@ -43,6 +43,9 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       OPENAI_MODEL_AGENT: ${OPENAI_MODEL_AGENT:-openai/gpt-4o-mini}
       KNOWLEDGE_BASE_PATH: /app/knowledge_base
+      # Parsers API keys
+      LANDINGAI_API_KEY: ${LANDINGAI_API_KEY}
+      UNSTRUCTURED_API_KEY: ${UNSTRUCTURED_API_KEY}
       # MCP Server for Strategist
       MCP_SERVER_HOST: mcp-server
       MCP_SERVER_PORT: 9004
