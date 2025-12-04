@@ -12,7 +12,7 @@ services:
     environment:
       KAFKA_BROKER: kafka:29092
     env_file:
-      - .env
+      - ../.env
     restart: unless-stopped
 
   news-producer:
@@ -23,7 +23,7 @@ services:
     environment:
       KAFKA_BROKER: kafka:29092
     env_file:
-      - .env
+      - ../.env
     restart: unless-stopped
 
   sentiment-producer:
@@ -33,8 +33,9 @@ services:
       - stock-network
     environment:
       KAFKA_BROKER: kafka:29092
+      WEBHOOK_URL: http://twitter-webhook:5001
     env_file:
-      - .env
+      - ../.env
     volumes:
       - ./sentiment_logs:/app/sentiment_logs
     restart: unless-stopped
@@ -47,7 +48,7 @@ services:
     environment:
       KAFKA_BROKER: kafka:29092
     env_file:
-      - .env
+      - ../.env
     restart: unless-stopped
 
   fundamental-report-producer:
@@ -59,20 +60,55 @@ services:
       KAFKA_BROKER: kafka:29092
       KNOWLEDGE_BASE_DIR: /knowledge_base
     env_file:
-      - .env
+      - ../.env
     volumes:
       - ../knowledge_base:/knowledge_base
     restart: unless-stopped
 
-  candle-producer:
+  candle-api:
     build: .
-    command: ["python", "producers/candle_producer.py"]
+    command: ["python", "candle_api.py"]
+    ports:
+      - "8001:8001"
     networks:
       - stock-network
     environment:
       KAFKA_BROKER: kafka:29092
+      CANDLE_API_HOST: "0.0.0.0"
+      CANDLE_API_PORT: "8001"
     env_file:
-      - .env
+      - ../.env
     volumes:
-      - ./data:/app/data
+      - ./candle_config.json:/app/candle_config.json
     restart: unless-stopped
+
+  twitter-webhook:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "webhook_receiver.py"]
+    networks:
+      - stock-network
+    environment:
+      WEBHOOK_RECEIVER_PORT: 5001
+    ports:
+      - "5001:5001"
+    restart: unless-stopped
+    volumes:
+      - .:/app
+
+
+  ##########################################
+  # ADD THIS: Cloudflare Tunnel
+  ##########################################
+  cloudflare-tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./cloudflared:/etc/cloudflared
+    depends_on:
+      - twitter-webhook
+    networks:
+      - stock-network
+    restart: unless-stopped
+

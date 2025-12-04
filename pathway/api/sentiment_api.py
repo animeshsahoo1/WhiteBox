@@ -92,7 +92,7 @@ def get_all_clusters():
             total_posts += cluster.get("count", 0)
             all_sentiments.append(cluster.get("avg_sentiment", 0.0))
             all_counts.append(cluster.get("count", 0))
-        except:
+        except Exception:
             continue
     
     # Calculate market sentiment score (weighted average)
@@ -115,66 +115,6 @@ def get_all_clusters():
         "total_posts": total_posts,
         "total_clusters": len(clusters),
         "by_symbol": by_symbol,
-        "timestamp": datetime.utcnow().isoformat()
-    }
-
-
-@router.get("/clusters/symbol/{symbol}")
-def get_symbol_clusters(symbol: str):
-    """
-    Get cluster data for a specific symbol from Redis cache.
-    
-    This endpoint provides cluster data for a single stock symbol,
-    useful for building symbol-specific visualizations.
-    
-    Args:
-        symbol: Stock ticker symbol (e.g., 'AAPL', 'TSLA')
-    
-    Returns:
-        - symbol: The stock ticker
-        - clusters: List of cluster objects for this symbol
-        - sentiment: Weighted average sentiment for the symbol
-        - posts: Total posts for this symbol
-    """
-    client = get_redis_client()
-    symbol_upper = symbol.upper()
-    
-    # Get all clusters for this symbol
-    pattern = f"clusters:{symbol_upper}:*"
-    cluster_keys = client.keys(pattern)
-    
-    if not cluster_keys:
-        return {
-            "symbol": symbol_upper,
-            "clusters": [],
-            "sentiment": 0.0,
-            "posts": 0,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-    
-    clusters = []
-    total_posts = 0
-    weighted_sentiment_sum = 0.0
-    
-    for key in cluster_keys:
-        cluster_json = client.get(key)
-        if cluster_json:
-            try:
-                cluster = json.loads(cluster_json)
-                clusters.append(cluster)
-                count = cluster.get("count", 0)
-                total_posts += count
-                weighted_sentiment_sum += cluster.get("avg_sentiment", 0.0) * count
-            except:
-                continue
-    
-    symbol_sentiment = weighted_sentiment_sum / total_posts if total_posts > 0 else 0.0
-    
-    return {
-        "symbol": symbol_upper,
-        "clusters": clusters,
-        "sentiment": symbol_sentiment,
-        "posts": total_posts,
         "timestamp": datetime.utcnow().isoformat()
     }
 

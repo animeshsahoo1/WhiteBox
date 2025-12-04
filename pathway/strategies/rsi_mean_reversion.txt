@@ -1,32 +1,38 @@
 def strategy(indicators):
     """
-    RSI Mean Reversion with Stop-Loss and Take-Profit
+    RSI Mean Reversion Strategy
     
-    Entry: RSI < 30 (oversold)
-    Exit: RSI > 70 (overbought) OR SL/TP hit
-    SL: 2% below entry
-    TP: 5% above entry
-    Position Size: 50% of capital
+    A contrarian strategy that buys oversold conditions.
+    Works well in ranging/sideways markets.
+    
+    Entry: RSI < 30 (oversold - price likely to bounce)
+    Exit: RSI > 70 (overbought) OR Stop-Loss/Take-Profit hit
+    
+    Risk Management:
+    - Stop Loss: 2% below entry
+    - Take Profit: 5% above entry (2.5:1 reward/risk)
+    - Position Size: 50% of capital
     """
     import numpy as np
     
     rsi = indicators.get('rsi_14')
     close = indicators.get('close')
-    position = indicators.get('position', 'NONE') if 'position' in dir(indicators) else 'NONE'
     
-    if rsi is None or np.isnan(rsi) or close is None:
+    if rsi is None or close is None:
+        return None
+    if np.isnan(rsi) or np.isnan(close):
         return None
     
-    # Entry signal when oversold
+    # Entry: RSI below 30 = oversold
     if rsi < 30:
         return {
             'action': 'BUY',
-            'stop_loss': close * 0.98,      # 2% stop loss
-            'take_profit': close * 1.05,    # 5% take profit
-            'size': 0.5                      # Use 50% of capital
+            'stop_loss': 0.02,
+            'take_profit': 0.05,
+            'size': 0.5
         }
     
-    # Exit signal when overbought
+    # Exit: RSI above 70 = overbought
     if rsi > 70:
         return {'action': 'SELL'}
     

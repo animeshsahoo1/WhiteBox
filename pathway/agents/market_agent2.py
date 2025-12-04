@@ -21,12 +21,17 @@ from dotenv import load_dotenv
 
 # Import PostgreSQL save function
 try:
-    from redis_cache import save_report_to_postgres
+    from redis_cache import save_report_to_postgres, get_redis_client
+    from event_publisher import publish_agent_status, publish_report
 except ImportError:
     try:
-        from .redis_cache import save_report_to_postgres
+        from .redis_cache import save_report_to_postgres, get_redis_client
+        from .event_publisher import publish_agent_status, publish_report
     except ImportError:
         save_report_to_postgres = None  # Will be None if import fails
+        get_redis_client = None
+        publish_agent_status = None
+        publish_report = None
 
 try:
     from Pathway_InterIIT.pathway.agents.utils.tool_creation import TechnicalTools
@@ -585,6 +590,15 @@ def _precompute_and_analyze(windowed_table: pw.Table, indicators: list = None) -
         """
         import base64
         
+        # Publish RUNNING status
+        try:
+            if publish_agent_status and get_redis_client:
+                room_id = f"symbol:{symbol}"
+                redis_client = get_redis_client()
+                publish_agent_status(room_id, "Market Agent", "RUNNING", redis_client)
+        except Exception as e:
+            print(f"⚠️ [{symbol}] Failed to publish Market Agent status: {e}")
+        
         try:
             reports_dir = Path("./reports/market") / symbol
             reports_subdir = reports_dir / "reports"
@@ -775,11 +789,37 @@ The following chart images have been saved separately:
                     f.write(content)
             
             print(f"✅ All reports saved for {symbol} ({len(saved_plots)} indicator plots)")
+            
+            # Publish report and COMPLETED status
+            try:
+                if publish_report and publish_agent_status and get_redis_client:
+                    room_id = f"symbol:{symbol}"
+                    redis_client = get_redis_client()
+                    publish_report(room_id, "Market Agent", {
+                        "symbol": symbol,
+                        "report_type": "market",
+                        "decision": agent_results.get('final_trade_decision', 'HOLD'),
+                        "confidence": agent_results.get('confidence_score', 0.5),
+                        "window_start": str(window_start),
+                        "window_end": str(window_end)
+                    }, redis_client)
+                    publish_agent_status(room_id, "Market Agent", "COMPLETED", redis_client)
+            except Exception as e:
+                print(f"⚠️ [{symbol}] Failed to publish Market Agent events: {e}")
                 
         except Exception as e:
             print(f"❌ Error saving reports: {e}")
             import traceback
             traceback.print_exc()
+            
+            # Publish FAILED status
+            try:
+                if publish_agent_status and get_redis_client:
+                    room_id = f"symbol:{symbol}"
+                    redis_client = get_redis_client()
+                    publish_agent_status(room_id, "Market Agent", "FAILED", redis_client)
+            except:
+                pass
     
     # UDF to prepare kline data dictionary
     @pw.udf

@@ -7,9 +7,11 @@ import json
 
 # Import PostgreSQL save function
 try:
-    from redis_cache import save_report_to_postgres
+    from redis_cache import save_report_to_postgres, get_redis_client
+    from event_publisher import publish_agent_status, publish_report
 except ImportError:
-    from .redis_cache import save_report_to_postgres
+    from .redis_cache import save_report_to_postgres, get_redis_client
+    from .event_publisher import publish_agent_status, publish_report
 
 load_dotenv()
 
@@ -425,7 +427,8 @@ def process_fundamental_stream(
                 return None
             current_report = report_updater._load_report(symbol)
         else:
-            symbol, current_report = current_state
+            # current_state is the report string from previous iteration
+            current_report = current_state
 
         if not data_items:
             return current_report
@@ -483,6 +486,15 @@ def process_fundamental_stream(
     def _save_report(symbol: str, report_content: str) -> str:
         """UDF to save the report to filesystem."""
         print(f"\n[SAVE] Saving report for {symbol}...")
+        
+        # Publish RUNNING status
+        try:
+            room_id = f"symbol:{symbol}"
+            redis_client = get_redis_client()
+            publish_agent_status(room_id, "Fundamental Agent", "RUNNING", redis_client)
+        except Exception as e:
+            print(f"⚠️ [{symbol}] Failed to publish Fundamental Agent status: {e}")
+        
         report_path = report_updater._get_report_path(symbol)
         with open(report_path, "w", encoding="utf-8") as f:
             f.write(report_content)
@@ -501,6 +513,29 @@ def process_fundamental_stream(
             save_report_to_postgres(symbol, "fundamental", entry)
         except Exception as e:
             print(f"⚠️ [{symbol}] Failed to save fundamental to PostgreSQL: {e}")
+        
+        # Publish report and COMPLETED status
+        try:
+            room_id = f"symbol:{symbol}"
+            redis_client = get_redis_client()
+            
+            # Extract rating from report content if possible
+            rating = "N/A"
+            if "**Rating**: BUY" in report_content or "Rating: BUY" in report_content:
+                rating = "BUY"
+            elif "**Rating**: SELL" in report_content or "Rating: SELL" in report_content:
+                rating = "SELL"
+            elif "**Rating**: HOLD" in report_content or "Rating: HOLD" in report_content:
+                rating = "HOLD"
+            
+            publish_report(room_id, "Fundamental Agent", {
+                "symbol": symbol,
+                "report_type": "fundamental",
+                "rating": rating
+            }, redis_client)
+            publish_agent_status(room_id, "Fundamental Agent", "COMPLETED", redis_client)
+        except Exception as e:
+            print(f"⚠️ [{symbol}] Failed to publish Fundamental Agent events: {e}")
         
         return report_content
 

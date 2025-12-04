@@ -1,0 +1,7 @@
+tunnel: 4b18fcd5-7836-4a5a-be57-69d59a6847e3
+credentials-file: /etc/cloudflared/4b18fcd5-7836-4a5a-be57-69d59a6847e3.json
+
+ingress:
+  - hostname: webhook.animexdev.com
+    service: http://twitter-webhook:5001  
+  - service: http_status:404

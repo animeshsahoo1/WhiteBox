@@ -32,6 +32,8 @@ class CandleConsumer(BaseConsumer):
     def get_output_schema(self):
         """Extract candle fields from the wrapped data structure."""
         return {
+            "symbol": pw.this.data["symbol"].as_str(),
+            "interval": pw.this.data["interval"].as_str(),
             "timestamp": pw.this.data["timestamp"].as_str(),
             "open": pw.this.data["open"].as_float(),
             "high": pw.this.data["high"].as_float(),
