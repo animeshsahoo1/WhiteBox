@@ -308,14 +308,14 @@ class RedisNewsClusterObserver(pw.io.python.ConnectorObserver):
             articles_json = row.get("articles_json", "[]")
             try:
                 articles = json.loads(articles_json) if isinstance(articles_json, str) else articles_json
-            except:
+            except Exception:
                 articles = []
             
             # Parse links
             links_json = row.get("links_json", "[]")
             try:
                 links = json.loads(links_json) if isinstance(links_json, str) else links_json
-            except:
+            except Exception:
                 links = []
             
             self._cluster_cache[symbol][cluster_id] = {

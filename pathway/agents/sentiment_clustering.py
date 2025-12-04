@@ -99,7 +99,7 @@ def get_vader_sentiment(text: str) -> float:
     try:
         scores = vader_analyzer.polarity_scores(text)
         return scores['compound']
-    except:
+    except Exception:
         return 0.0
 
 
@@ -111,7 +111,7 @@ def apply_sentiment_decay(sentiment: float, last_updated: str) -> float:
         elapsed_seconds = (now - last_time).total_seconds()
         decay_factor = 0.5 ** (elapsed_seconds / SENTIMENT_DECAY_HALF_LIFE)
         return sentiment * decay_factor
-    except:
+    except Exception:
         return sentiment
 
 
@@ -209,7 +209,7 @@ def process_sentiment_clustering(
             
             try:
                 embedding = json.loads(emb_json) if isinstance(emb_json, str) else list(emb_json)
-            except:
+            except Exception:
                 embedding = [0.0] * EMBEDDING_DIMENSIONS
             
             # Calculate VADER sentiment
@@ -309,7 +309,7 @@ def process_sentiment_clustering(
                 age_hours = (now - last_updated).total_seconds() / 3600
                 if age_hours > CLUSTER_EXPIRY_HOURS and cdata['count'] < 3:
                     to_remove.append(cid)
-            except:
+            except Exception:
                 pass
         
         for cid in to_remove:
@@ -348,7 +348,7 @@ def process_sentiment_clustering(
                     existing_data = json.load(f)
                     for c in existing_data.get('clusters', []):
                         existing_clusters[c['cluster_id']] = c
-            except:
+            except Exception:
                 pass
         
         # Get new clusters from Pathway state
@@ -359,7 +359,7 @@ def process_sentiment_clustering(
                 clusters_dict = state_dict.get('clusters', {})
                 for cluster_id, cluster_data in clusters_dict.items():
                     new_clusters[int(cluster_id)] = cluster_data
-            except:
+            except Exception:
                 pass
         
         # Merge: update existing with new, add new clusters
@@ -450,7 +450,7 @@ def process_sentiment_clustering(
                 'total_posts': data.get('total_posts', 0),
                 'timestamp': data.get('timestamp', '')
             })
-        except:
+        except Exception:
             return cluster_data
     
     # Sentiment scores table (lightweight, for fast API)

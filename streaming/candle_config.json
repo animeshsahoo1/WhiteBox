@@ -1,0 +1,16 @@
+{
+    "symbols": [
+        "AAPL",
+        "GOOGL"
+    ],
+    "interval": "1m",
+    "period": "2d",
+    "start_date": null,
+    "kafka_topic": "candles",
+    "poll_interval": 60.0,
+    "last_timestamps": {
+        "AAPL": "2025-12-03 15:59:00-05:00",
+        "GOOGL": "2025-12-03 15:59:00-05:00"
+    },
+    "updated_at": "2025-12-04T02:24:47.191750+00:00"
+}

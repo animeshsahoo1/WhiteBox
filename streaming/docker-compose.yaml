@@ -64,15 +64,19 @@ services:
       - ../knowledge_base:/knowledge_base
     restart: unless-stopped
 
-  candle-producer:
+  candle-api:
     build: .
-    command: ["python", "producers/candle_producer.py"]
+    command: ["python", "candle_api.py"]
+    ports:
+      - "8001:8001"
     networks:
       - stock-network
     environment:
       KAFKA_BROKER: kafka:29092
+      CANDLE_API_HOST: "0.0.0.0"
+      CANDLE_API_PORT: "8001"
     env_file:
       - .env
     volumes:
-      - ./data:/app/data
+      - ./candle_config.json:/app/candle_config.json
     restart: unless-stopped
