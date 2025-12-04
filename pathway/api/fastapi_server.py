@@ -15,21 +15,35 @@ from datetime import datetime
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from event_publisher import publish_agent_status  # Ensure import after edits
+# from event_publisher import publish_agent_status  # Ensure import after edits
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from redis_cache import get_redis_client, list_symbols as redis_list_symbols
-from .historical_analysis_api import router as historical_router
-from .rag_api import router as rag_router
-from .bullbear_api import router as bullbear_router
-from .report_fetch_api import router as report_router
-from .sentiment_api import router as sentiment_router
-from .news_api import router as news_router
 
-from .backtesting_api import router as backtesting_router
-from .workflow_api import router as workflow_router
-from .strategist_api import router as strategist_router
+# Try relative imports first (when run as module), fall back to absolute imports
+try:
+    from .historical_analysis_api import router as historical_router
+    from .rag_api import router as rag_router
+    from .bullbear_api import router as bullbear_router
+    from .report_fetch_api import router as report_router
+    from .sentiment_api import router as sentiment_router
+    from .news_api import router as news_router
+    from .drift_api import router as drift_router
+    from .backtesting_api import router as backtesting_router
+    from .workflow_api import router as workflow_router
+    from .strategist_api import router as strategist_router
+except ImportError:
+    from api.historical_analysis_api import router as historical_router
+    from api.rag_api import router as rag_router
+    from api.bullbear_api import router as bullbear_router
+    from api.report_fetch_api import router as report_router
+    from api.sentiment_api import router as sentiment_router
+    from api.news_api import router as news_router
+    from api.drift_api import router as drift_router
+    from api.backtesting_api import router as backtesting_router
+    from api.workflow_api import router as workflow_router
+    from api.strategist_api import router as strategist_router
 
 
 app = FastAPI(
@@ -53,6 +67,7 @@ app.include_router(bullbear_router, tags=["Bull-Bear Debate"])
 app.include_router(report_router, tags=["Reports"])
 app.include_router(sentiment_router, tags=["Sentiment"])
 app.include_router(news_router, tags=["News"])
+app.include_router(drift_router, tags=["Drift Detection"])
 app.include_router(backtesting_router, tags=["Backtesting"])
 app.include_router(workflow_router, tags=["Workflow"])
 app.include_router(strategist_router)  # Tags defined in router
@@ -66,7 +81,7 @@ async def root():
     return {
         "message": "Pathway Unified API",
         "version": "8.0.0",
-        "architecture": "Unified Server for Reports, RAG, Backtesting, Bull-Bear Debate, and Strategist Agent",
+        "architecture": "Unified Server for Reports, RAG, Backtesting, Bull-Bear Debate, Drift Detection, and Strategist Agent",
         "endpoints": {
             "GET /reports/{symbol}": "Get all cached reports (includes facilitator)",
             "GET /reports/{symbol}/{report_type}": "Get specific report",
@@ -86,6 +101,17 @@ async def root():
             "POST /backtesting/strategies/search": "Semantic search strategies",
             "POST /debate/{symbol}": "Run bull-bear debate",
             "GET /debate/{symbol}/status": "Check facilitator report exists",
+            "# Drift Detection": "---",
+            "GET /drift/health": "Drift detector health check",
+            "GET /drift/status": "Drift detector status",
+            "GET /drift/alerts": "Get all drift alerts",
+            "GET /drift/alerts/latest": "Get latest N drift alerts",
+            "GET /drift/alerts/{symbol}": "Get drift alerts for symbol",
+            "GET /drift/report": "Get drift detection report",
+            "GET /drift/symbols": "List symbols with drift alerts",
+            "GET /drift/stats": "Get drift detection statistics",
+            "POST /drift/analyze": "Analyze historical data for drift",
+            "POST /drift/reset": "Reset drift detection state",
             "# Strategist Agent (LangGraph + Mem0)": "---",
             "GET /strategist/status": "Check if Strategist agent is ready",
             "POST /strategist/chat": "Send message and get response",

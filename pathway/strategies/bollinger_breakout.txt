@@ -1,12 +1,17 @@
 def strategy(indicators):
     """
-    Bollinger Band Breakout with Risk Management
+    Bollinger Bands Breakout Strategy
     
-    Entry: Price breaks above upper band (momentum)
-    Exit: Price drops below middle band OR SL/TP hit
-    SL: At lower band
-    TP: 2x the band width above entry
-    Position Size: 30% of capital (conservative)
+    Momentum strategy that catches volatility expansions.
+    Enters when price breaks above upper band.
+    
+    Entry: Price > Upper Bollinger Band (momentum breakout)
+    Exit: Price < Middle Band OR Stop-Loss/Take-Profit hit
+    
+    Risk Management:
+    - Stop Loss: Lower Bollinger Band (dynamic)
+    - Take Profit: 2x band width above entry
+    - Position Size: 30% (conservative for breakouts)
     """
     import numpy as np
     
@@ -15,21 +20,23 @@ def strategy(indicators):
     bb_middle = indicators.get('bb_middle')
     bb_lower = indicators.get('bb_lower')
     
-    if any(v is None or np.isnan(v) for v in [close, bb_upper, bb_middle, bb_lower]):
+    if any(v is None for v in [close, bb_upper, bb_middle, bb_lower]):
+        return None
+    if any(np.isnan(v) for v in [close, bb_upper, bb_middle, bb_lower]):
         return None
     
     band_width = bb_upper - bb_lower
     
-    # Breakout above upper band - momentum entry
+    # Entry: Breakout above upper band
     if close > bb_upper:
         return {
             'action': 'BUY',
-            'stop_loss': bb_lower,                    # Stop at lower band
-            'take_profit': close + (2 * band_width), # TP = 2x band width
-            'size': 0.3                               # Conservative 30%
+            'stop_loss': bb_lower,
+            'take_profit': close + (2 * band_width),
+            'size': 0.3
         }
     
-    # Price below middle band - exit
+    # Exit: Price falls below middle band
     if close < bb_middle:
         return {'action': 'SELL'}
     

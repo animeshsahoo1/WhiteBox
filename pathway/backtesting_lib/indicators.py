@@ -63,6 +63,9 @@ class IndicatorState:
     
     # === MACD (uses EMA_12 and EMA_26) ===
     # MACD line = EMA_12 - EMA_26 (computed from above)
+    # MACD signal = 9-period EMA of MACD line
+    macd_signal_ema: float = float('nan')
+    macd_signal_initialized: bool = False
     
     # === Bollinger Bands (rolling sum and sum of squares) ===
     bb_sum: float = 0.0
@@ -77,6 +80,9 @@ class IndicatorState:
     # === Stochastic/Williams %R (min/max deques) ===
     stoch_highs: List[float] = field(default_factory=list)  # Circular buffer
     stoch_lows: List[float] = field(default_factory=list)   # Circular buffer
+    
+    # === Stochastic %D (3-period SMA of %K) ===
+    stoch_k_buffer: List[float] = field(default_factory=list)  # Last 3 %K values
     
     # === CCI State (rolling typical price) ===
     cci_tp_buffer: List[float] = field(default_factory=list)
@@ -187,6 +193,18 @@ def update_indicators(state: IndicatorState, open_price: float, high: float,
     state.ema_26, state.ema_26_initialized = _update_ema(
         close, state.ema_26, 26, state.ema_26_initialized, state.candle_count)
     
+    # === Update MACD Signal Line (9-period EMA of MACD line) - O(1) ===
+    if state.ema_12_initialized and state.ema_26_initialized:
+        macd_line = state.ema_12 - state.ema_26
+        # Use same EMA logic for signal line
+        if not state.macd_signal_initialized:
+            # Initialize with first MACD value
+            state.macd_signal_ema = macd_line
+            state.macd_signal_initialized = True
+        else:
+            alpha = 2.0 / (9 + 1)
+            state.macd_signal_ema = alpha * macd_line + (1 - alpha) * state.macd_signal_ema
+    
     # === Update RSI (Wilder smoothing - O(1)) ===
     if state.candle_count > 1:
         delta = close - state.prev_close
@@ -237,6 +255,20 @@ def update_indicators(state: IndicatorState, open_price: float, high: float,
     if len(state.stoch_highs) > 14:
         state.stoch_highs.pop(0)
         state.stoch_lows.pop(0)
+    
+    # === Compute current %K and update %D buffer (for later averaging) ===
+    if len(state.stoch_highs) >= 14:
+        lowest_low = min(state.stoch_lows)
+        highest_high = max(state.stoch_highs)
+        if highest_high != lowest_low:
+            current_k = 100 * (close - lowest_low) / (highest_high - lowest_low)
+        else:
+            current_k = 50.0
+        
+        # Store in %K buffer for %D calculation (3-period SMA of %K)
+        state.stoch_k_buffer.append(current_k)
+        if len(state.stoch_k_buffer) > 3:
+            state.stoch_k_buffer.pop(0)
     
     # === Update CCI (O(1)) ===
     tp = (high + low + close) / 3
@@ -310,8 +342,17 @@ def get_indicators(state: IndicatorState) -> Dict[str, float]:
     # === MACD ===
     if state.ema_12_initialized and state.ema_26_initialized:
         indicators['macd_line'] = state.ema_12 - state.ema_26
+        # MACD Signal line (9-period EMA of MACD line)
+        if state.macd_signal_initialized:
+            indicators['macd_signal'] = state.macd_signal_ema
+            indicators['macd_histogram'] = indicators['macd_line'] - indicators['macd_signal']
+        else:
+            indicators['macd_signal'] = float('nan')
+            indicators['macd_histogram'] = float('nan')
     else:
         indicators['macd_line'] = float('nan')
+        indicators['macd_signal'] = float('nan')
+        indicators['macd_histogram'] = float('nan')
     
     # === Bollinger Bands (using sum and sum of squares for std dev) ===
     n = len(state.bb_buffer)
@@ -341,6 +382,12 @@ def get_indicators(state: IndicatorState) -> Dict[str, float]:
     else:
         indicators['stoch_k'] = float('nan')
     
+    # === Stochastic %D (3-period SMA of %K) ===
+    if len(state.stoch_k_buffer) >= 3:
+        indicators['stoch_d'] = sum(state.stoch_k_buffer) / 3
+    else:
+        indicators['stoch_d'] = float('nan')
+    
     # === Williams %R ===
     if len(state.stoch_highs) >= 14:
         lowest_low = min(state.stoch_lows)
@@ -365,7 +412,7 @@ def get_indicators(state: IndicatorState) -> Dict[str, float]:
     else:
         indicators['cci_20'] = float('nan')
     
-    # === ADX ===
+    # === ADX and Directional Indicators (+DI, -DI) ===
     if state.adx_initialized and state.adx_tr_ema > 0:
         plus_di = 100 * state.adx_plus_dm_ema / state.adx_tr_ema
         minus_di = 100 * state.adx_minus_dm_ema / state.adx_tr_ema
@@ -374,10 +421,18 @@ def get_indicators(state: IndicatorState) -> Dict[str, float]:
             dx = 100 * abs(plus_di - minus_di) / di_sum
             # ADX is smoothed DX (simplified - just use current DX)
             indicators['adx_14'] = dx
+            indicators['adx'] = dx  # Alias for strategies that use 'adx'
         else:
             indicators['adx_14'] = 0.0
+            indicators['adx'] = 0.0
+        # Expose +DI and -DI for directional strategies
+        indicators['plus_di'] = plus_di
+        indicators['minus_di'] = minus_di
     else:
         indicators['adx_14'] = float('nan')
+        indicators['adx'] = float('nan')
+        indicators['plus_di'] = float('nan')
+        indicators['minus_di'] = float('nan')
     
     # === Current OHLC ===
     indicators['open'] = state.current_open

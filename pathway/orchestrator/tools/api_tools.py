@@ -27,6 +27,8 @@ async def call_api(
                 response = await client.get(url)
             elif method == "POST":
                 response = await client.post(url, json=json_data or {})
+            elif method == "DELETE":
+                response = await client.delete(url)
             else:
                 return {"error": f"Unsupported method: {method}"}
             
@@ -334,3 +336,99 @@ def register_api_tools(mcp):
             timeout=30.0
         )
         return result
+
+    # ========================================================================
+    # KNOWLEDGE BASE CRUD TOOLS
+    # ========================================================================
+
+    @mcp.tool()
+    async def ingest_text_to_kb(text: str, symbol: str = "UNKNOWN") -> Dict[str, Any]:
+        """
+        Add a single text chunk to the knowledge base.
+        
+        Use this when user wants to:
+        - Add custom information to the knowledge base
+        - Store a note or insight for later retrieval
+        - Add small pieces of text data
+        
+        Args:
+            text: The text content to ingest
+            symbol: Stock symbol to associate with (default: "UNKNOWN")
+        
+        Returns:
+            Confirmation with filename and ingestion status.
+        """
+        print(f"[INFO] Ingesting text to KB for {symbol}")
+        result = await call_api(
+            "ingest/text",
+            method="POST",
+            json_data={"text": text, "symbol": symbol.upper()}
+        )
+        return {"action": "ingest_text", "symbol": symbol.upper(), "data": result}
+
+    @mcp.tool()
+    async def ingest_document_to_kb(
+        text: str,
+        symbol: str = "UNKNOWN",
+        chunk_size: int = 999
+    ) -> Dict[str, Any]:
+        """
+        Add a document to the knowledge base with automatic chunking.
+        
+        Use this when user wants to:
+        - Add a long document or article
+        - Store research reports or analysis
+        - Ingest large text that needs to be split into searchable chunks
+        
+        Args:
+            text: The full document text to ingest
+            symbol: Stock symbol to associate with (default: "UNKNOWN")
+            chunk_size: Characters per chunk (default: 999)
+        
+        Returns:
+            Confirmation with number of chunks created.
+        """
+        print(f"[INFO] Ingesting document to KB for {symbol}")
+        result = await call_api(
+            "ingest/document",
+            method="POST",
+            json_data={"text": text, "symbol": symbol.upper(), "chunk_size": chunk_size}
+        )
+        return {"action": "ingest_document", "symbol": symbol.upper(), "data": result}
+
+    @mcp.tool()
+    async def list_kb_files() -> Dict[str, Any]:
+        """
+        List all files in the knowledge base.
+        
+        Use this when user wants to:
+        - See what documents are in the knowledge base
+        - Check if specific data has been ingested
+        - Browse available knowledge base content
+        
+        Returns:
+            List of ingested files with metadata.
+        """
+        print("[INFO] Listing knowledge base files")
+        result = await call_api("ingest/list")
+        return result
+
+    @mcp.tool()
+    async def delete_kb_file(filename: str) -> Dict[str, Any]:
+        """
+        Delete a file from the knowledge base.
+        
+        Use this when user wants to:
+        - Remove outdated information
+        - Clean up the knowledge base
+        - Delete specific ingested content
+        
+        Args:
+            filename: Name of the file to delete (from list_kb_files)
+        
+        Returns:
+            Confirmation of deletion.
+        """
+        print(f"[INFO] Deleting KB file: {filename}")
+        result = await call_api(f"ingest/{filename}", method="DELETE")
+        return {"action": "delete", "filename": filename, "data": result}

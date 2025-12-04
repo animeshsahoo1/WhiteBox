@@ -333,7 +333,7 @@ class SentimentProducer(BaseProducer):
                 # Test connection (works without username/password)
                 try:
                     self.reddit.user.me()
-                except:
+                except Exception:
                     pass  # It's okay if this fails, client still works for reading
                 print(f"  ✅ Connected to Reddit using account {self.current_reddit_index + 1}/{len(self.reddit_accounts)}")
             except Exception as e:
@@ -386,7 +386,7 @@ class SentimentProducer(BaseProducer):
     
     def _setup_twitter_webhooks(self):
         """Setup Twitter filter rules and webhooks for all stocks"""
-            # First, check if rules already exist
+        # First, check if rules already exist
         existing_rules = self._get_existing_rules()
         
         for stock in self.stocks:
@@ -579,7 +579,7 @@ class SentimentProducer(BaseProducer):
             company_name = self.ticker_to_company.get(stock_symbol, stock_symbol)
             
             # Fetch from local webhook receiver instead of TwitterAPI.io
-            webhook_receiver_url = os.getenv('WEBHOOK_RECEIVER_URL', 'http://localhost:5001')
+            webhook_receiver_url = os.getenv('WEBHOOK_RECEIVER_URL', 'http://twitter-webhook:5001')
             url = f"{webhook_receiver_url}/tweets/{stock_symbol}"
             
             print(f"\n  {'='*50}")
@@ -597,7 +597,7 @@ class SentimentProducer(BaseProducer):
                 return None
             
             data = response.json()
-            print(f"  � Response data keys: {list(data.keys())}")
+            print(f"  📋 Response data keys: {list(data.keys())}")
             
             # Get tweets from webhook receiver response
             tweets = data.get('tweets', [])
@@ -615,19 +615,20 @@ class SentimentProducer(BaseProducer):
             
             for i, tweet in enumerate(tweets):
                 tweet_id = tweet.get('id')
+                post_key = f"twitter_{tweet_id}"  # Consistent key for deduplication
                 
                 print(f"\n  📧 Tweet {i+1}/{total_tweets}:")
                 print(f"     ID: {tweet_id}")
                 print(f"     Text: {tweet.get('text', '')[:100]}...")
                 
-                # Skip if already seen
-                if tweet_id in self.seen_posts:
+                # Skip if already seen (use same key format for check and store)
+                if post_key in self.seen_posts:
                     print(f"     ⏭️  Skipped (already seen)")
                     skipped_seen += 1
                     continue
                 
                 # Mark as seen
-                self.seen_posts[f"twitter_{tweet_id}"] = datetime.now().timestamp()
+                self.seen_posts[post_key] = datetime.now().timestamp()
                 if len(self.seen_posts) > self.seen_posts_max_size:
                     self.seen_posts.popitem(last=False)
                 
@@ -781,6 +782,10 @@ class SentimentProducer(BaseProducer):
         if not text or not text.strip():
             return 0.0
         
+        # Ensure vader_analyzer is initialized
+        if self.vader_analyzer is None:
+            self.vader_analyzer = SentimentIntensityAnalyzer()
+        
         scores = self.vader_analyzer.polarity_scores(text)
         return scores['compound']
     
@@ -797,7 +802,7 @@ class SentimentProducer(BaseProducer):
         try:
             blob = TextBlob(text)
             return blob.sentiment.polarity
-        except:
+        except Exception:
             return 0.0
     
     def classify_sentiment(self, score: float) -> str:
@@ -1607,7 +1612,7 @@ class SentimentProducer(BaseProducer):
                     comment_texts.append(comment.body)
             
             return comment_texts
-        except:
+        except Exception:
             return []
 
 

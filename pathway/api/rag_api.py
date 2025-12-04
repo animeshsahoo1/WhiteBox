@@ -4,14 +4,20 @@ Features: ReAct reasoning, MCP tool calling, self-reflection
 Serves on port 8000, MCP on port 8766
 """
 import os
+import sys
 import asyncio
 import threading
 import json
+import re
 from datetime import datetime
-from typing import List, Literal, Annotated, Sequence
+from typing import List, Literal, Annotated, Sequence, Optional
 from dotenv import load_dotenv
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, APIRouter
+from fastapi import FastAPI, HTTPException, APIRouter, UploadFile, File, Form
+
+# Add parent directory to path for local imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Guardrails
 from guardrails import guard_input, guard_output
@@ -38,6 +44,7 @@ from pathway.xpacks.llm.mcp_server import PathwayMcp
 
 load_dotenv()
 pw.set_license_key(os.getenv("PATHWAY_LICENSE_KEY", ""))
+print(os.getenv("PATHWAY_LICENSE_KEY"))
 # ==================== Pathway DocumentStore Setup ====================
 
 # Initialize LLM for contextual summarization
@@ -120,20 +127,34 @@ def prechunked_json_parser(data: bytes) -> list[tuple[str, dict]]:
         # Generate contextual summary using helper function
         summary = helper(text, full_text)
         
+        # Prepend summary to text for better embedding search
+        enriched_text = f"Summary: {summary}\n\nContent: {text}"
+        
         metadata = {
-            "symbol" : chunk.get("symbol", "AAPL"), #todo add the correct symbol using the path or metadata
+            "symbol": chunk.get("symbol", "AAPL"),
             "timestamp": timestamp,
-            "summary": summary,
         }
-        chunks.append((text, metadata))
+        chunks.append((enriched_text, metadata))
     
     return chunks
 
 def start_pathway_docstore():
     """Run Pathway DocumentStore in background thread."""
-    knowledge_base_path = os.getenv("KNOWLEDGE_BASE_PATH", "/app/knowledge_base")
-    jsonl_pattern = f"{knowledge_base_path}/**/jsons/*.jsonl"
+    # Use /app/knowledge_base for Docker, local path for development
+    # Docker sets KNOWLEDGE_BASE_PATH env var explicitly
+    default_path = str(Path(__file__).parent.parent.parent / "knowledge_base")
+    knowledge_base_path = os.getenv("KNOWLEDGE_BASE_PATH", default_path)
+    jsonl_pattern = f"{knowledge_base_path}/**/*.jsonl"  # Watch all JSONL files recursively
     
+    print(f"📂 Knowledge base path: {knowledge_base_path}")
+    print(f"📂 Loading documents from: {jsonl_pattern}")
+    
+    # Check if files exist
+    import glob
+    files = glob.glob(jsonl_pattern, recursive=True)
+    print(f"📂 Found {len(files)} JSONL files: {files}")
+    
+    # Use 'static' mode to load existing files on startup
     raw_docs = pw.io.fs.read(
         path=jsonl_pattern,
         format="binary",
@@ -527,6 +548,365 @@ class QueryResponse(BaseModel):
 def health():
     return {"status": "ok", "service": "rag-api"}
 
+
+@router.get("/debug/stats")
+def debug_stats():
+    """Get document store statistics - useful for debugging."""
+    try:
+        # Try to retrieve with a generic query to see if anything is indexed
+        url = "http://127.0.0.1:8765/v1/statistics"
+        r = requests.get(url, timeout=5)
+        if r.status_code == 200:
+            return {"status": "ok", "statistics": r.json()}
+    except:
+        pass
+    
+    # Fallback: try retrieve endpoint with empty-ish query
+    try:
+        url = "http://127.0.0.1:8765/v1/retrieve"
+        r = requests.post(url, json={"query": "document", "k": 10}, timeout=10)
+        results = r.json() if r.status_code == 200 else []
+        return {
+            "status": "ok",
+            "message": "Retrieved sample documents",
+            "count": len(results),
+            "samples": results[:5] if results else "No documents found - check if files are being loaded"
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.get("/debug/retrieve")
+def debug_retrieve(q: str = "Apple", k: int = 5):
+    """Debug endpoint to test retrieval directly."""
+    try:
+        url = "http://127.0.0.1:8765/v1/retrieve"
+        r = requests.post(url, json={"query": q, "k": k}, timeout=10)
+        r.raise_for_status()
+        results = r.json()
+        return {
+            "query": q,
+            "count": len(results),
+            "results": results
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# ==================== Ingestion API ====================
+
+# Knowledge base path for ingestion - use env var for Docker, fallback to local for dev
+_default_kb_path = str(Path(__file__).parent.parent.parent / "knowledge_base")
+KNOWLEDGE_BASE_PATH = os.getenv("KNOWLEDGE_BASE_PATH", _default_kb_path)
+
+
+class IngestTextRequest(BaseModel):
+    text: str
+    symbol: str = "UNKNOWN"
+
+
+class IngestDocumentRequest(BaseModel):
+    text: str
+    symbol: str = "UNKNOWN"
+    chunk_size: int = 999  # characters per chunk
+
+
+@router.post("/ingest/text")
+def ingest_text(req: IngestTextRequest):
+    """Ingest a single text as one chunk into the vector store."""
+    timestamp = datetime.now().isoformat()
+    filename = f"ingest_text_{int(datetime.now().timestamp())}.jsonl"
+    filepath = Path(KNOWLEDGE_BASE_PATH) / filename
+    
+    chunk = {
+        "text": req.text,
+        "symbol": req.symbol,
+        "timestamp": timestamp
+    }
+    
+    with open(filepath, "a") as f:
+        f.write(json.dumps(chunk) + "\n")
+    
+    return {
+        "status": "ok",
+        "message": "Text ingested",
+        "file": filename,
+        "chunks": 1
+    }
+
+
+@router.post("/ingest/document")
+def ingest_document(req: IngestDocumentRequest):
+    """Ingest a document, splitting into chunks by character count."""
+    timestamp = datetime.now().isoformat()
+    filename = f"ingest_doc_{int(datetime.now().timestamp())}.jsonl"
+    filepath = Path(KNOWLEDGE_BASE_PATH) / filename
+    
+    # Split text into chunks by characters
+    text = req.text
+    chunks = []
+    for i in range(0, len(text), req.chunk_size):
+        chunk_text = text[i:i + req.chunk_size]
+        chunks.append({
+            "text": chunk_text,
+            "symbol": req.symbol,
+            "chunk_index": len(chunks),
+            "timestamp": timestamp
+        })
+    
+    with open(filepath, "w") as f:
+        for chunk in chunks:
+            f.write(json.dumps(chunk) + "\n")
+    
+    return {
+        "status": "ok",
+        "message": f"Document ingested as {len(chunks)} chunks",
+        "file": filename,
+        "chunks": len(chunks)
+    }
+
+
+@router.get("/ingest/list")
+def ingest_list():
+    """List all ingested files (text, documents, and parsed files)."""
+    path = Path(KNOWLEDGE_BASE_PATH)
+    # Get all ingest_* files (text, doc, file)
+    files = list(path.glob("ingest_*.jsonl"))
+    # Also list uploaded source files
+    uploads_dir = path / "uploads"
+    uploads = list(uploads_dir.glob("*")) if uploads_dir.exists() else []
+    
+    return {
+        "jsonl_files": [f.name for f in files],
+        "source_files": [f.name for f in uploads],
+        "count": len(files)
+    }
+
+
+@router.delete("/ingest/{filename}")
+def ingest_delete(filename: str):
+    """Delete an ingested file (and its source if applicable)."""
+    if not filename.startswith("ingest_"):
+        raise HTTPException(status_code=400, detail="Can only delete ingest_* files")
+    
+    filepath = Path(KNOWLEDGE_BASE_PATH) / filename
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    # Also try to delete corresponding source file if it exists
+    # ingest_file_xxx.jsonl -> try to find source in uploads/
+    filepath.unlink()
+    
+    return {"status": "ok", "message": f"Deleted {filename}"}
+
+
+# ==================== File Parsing (PDF/Image) ====================
+
+def normalize_text(markdown: str) -> str:
+    """Remove HTML tags and normalize whitespace."""
+    text = re.sub(r"<[^>]+>", "", markdown)
+    text = text.replace("\n\n", "\n").strip()
+    return text
+
+
+# ==================== Unstructured Parser (Fallback) ====================
+
+def unstructured_request(
+    api_key: str,
+    contents: bytes,
+    strategy: str = "hi_res",
+    max_retries: int = 3,
+    retry_delay: float = 2.0,
+):
+    """Send request to Unstructured API with retry logic."""
+    import time
+    import logging
+    
+    api_url = "https://api.unstructuredapp.io/general/v0/general"
+    headers = {
+        "accept": "application/json",
+        "unstructured-api-key": api_key,
+    }
+    files = {"files": contents}
+    data = {"strategy": strategy}
+
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(api_url, headers=headers, files=files, data=data)
+            response.raise_for_status()
+            return response
+        except requests.RequestException as e:
+            logging.error(f"Attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+            else:
+                return None
+    return None
+
+
+def parse_file_with_unstructured(file_path: Path, symbol: str) -> List[dict]:
+    """
+    Parse PDF/Image using Unstructured API (fallback parser).
+    Requires UNSTRUCTURED_API_KEY env var.
+    """
+    api_key = os.getenv("UNSTRUCTURED_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="UNSTRUCTURED_API_KEY not set")
+    
+    print(f"📄 Parsing with Unstructured: {file_path.name}")
+    
+    with open(file_path, "rb") as f:
+        contents = f.read()
+    
+    response = unstructured_request(api_key, contents)
+    
+    if response is None:
+        raise HTTPException(status_code=500, detail="Unstructured API request failed")
+    
+    try:
+        elements = response.json()
+    except:
+        elements = eval(response.text)
+    
+    timestamp = datetime.now().isoformat()
+    chunks = []
+    
+    for element in elements:
+        text = element.get("text", "")
+        if not text.strip():
+            continue
+        
+        chunks.append({
+            "text": text,
+            "symbol": symbol,
+            "type": element.get("type", "unknown"),
+            "element_id": element.get("element_id", ""),
+            "timestamp": timestamp
+        })
+    
+    print(f"✓ Extracted {len(chunks)} chunks from {file_path.name} (Unstructured)")
+    return chunks
+
+
+# ==================== LandingAI Parser (Primary) ====================
+
+def parse_file_with_landingai(file_path: Path, symbol: str) -> List[dict]:
+    """
+    Parse PDF/Image using LandingAI ADE and return chunks.
+    Extracted from streaming/producers/pdf_parser.py
+    """
+    try:
+        from landingai_ade import LandingAIADE
+        client = LandingAIADE()
+        
+        print(f"📄 Parsing with LandingAI: {file_path.name}")
+        
+        response = client.parse(
+            document=file_path,
+            model="dpt-2-latest"
+        )
+        
+        timestamp = datetime.now().isoformat()
+        chunks = []
+        for ch in response.chunks:
+            chunks.append({
+                "text": normalize_text(ch.markdown),
+                "symbol": symbol,
+                "page": ch.grounding.page,
+                "type": ch.type,
+                "chunk_id": ch.id,
+                "timestamp": timestamp
+            })
+        
+        print(f"✓ Extracted {len(chunks)} chunks from {file_path.name}")
+        return chunks
+        
+    except ImportError:
+        raise HTTPException(status_code=500, detail="LandingAI ADE not installed. Run: pip install landingai-ade")
+    except Exception as e:
+        print(f"❌ Error parsing {file_path.name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to parse file: {str(e)}")
+
+
+@router.post("/ingest/file")
+async def ingest_file(
+    file: UploadFile = File(...),
+    symbol: str = Form(default="UNKNOWN"),
+    parser: str = Form(default="landingai")  # hidden option: "unstructured"
+):
+    """
+    Upload and parse a PDF or image file into the vector store.
+    Uses LandingAI ADE (primary) with Unstructured API fallback.
+    """
+    # Validate file type
+    allowed_extensions = {'.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.bmp'}
+    file_ext = Path(file.filename).suffix.lower()
+    
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Unsupported file type. Allowed: {allowed_extensions}"
+        )
+    
+    # Create uploads directory
+    uploads_dir = Path(KNOWLEDGE_BASE_PATH) / "uploads"
+    uploads_dir.mkdir(exist_ok=True)
+    
+    # Save uploaded file
+    timestamp = int(datetime.now().timestamp())
+    source_filename = f"{timestamp}_{file.filename}"
+    source_path = uploads_dir / source_filename
+    
+    with open(source_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+    
+    print(f"📁 Saved upload: {source_path}")
+    
+    # Parse file - try primary parser, fallback to secondary
+    chunks = None
+    used_parser = parser
+    
+    if parser == "unstructured":
+        # Direct unstructured parsing
+        chunks = parse_file_with_unstructured(source_path, symbol)
+    else:
+        # Try LandingAI first, fallback to Unstructured
+        try:
+            chunks = parse_file_with_landingai(source_path, symbol)
+            used_parser = "landingai"
+        except Exception as e:
+            print(f"⚠️ LandingAI failed: {e}, trying Unstructured fallback...")
+            try:
+                chunks = parse_file_with_unstructured(source_path, symbol)
+                used_parser = "unstructured"
+            except Exception as e2:
+                source_path.unlink()
+                raise HTTPException(status_code=500, detail=f"All parsers failed. LandingAI: {e}, Unstructured: {e2}")
+    
+    if not chunks:
+        source_path.unlink()
+        raise HTTPException(status_code=500, detail="No content extracted from file")
+    
+    # Save chunks to JSONL
+    jsonl_filename = f"ingest_file_{timestamp}.jsonl"
+    jsonl_path = Path(KNOWLEDGE_BASE_PATH) / jsonl_filename
+    
+    with open(jsonl_path, "w") as f:
+        for chunk in chunks:
+            f.write(json.dumps(chunk) + "\n")
+    
+    return {
+        "status": "ok",
+        "message": f"File parsed and ingested",
+        "source_file": source_filename,
+        "jsonl_file": jsonl_filename,
+        "chunks": len(chunks),
+        "symbol": symbol,
+        "parser_used": used_parser
+    }
+
+
 @router.post("/query", response_model=QueryResponse)
 async def query_endpoint(req: QueryRequest):
     """Main RAG query endpoint with guardrails."""
@@ -554,4 +934,56 @@ async def query_endpoint(req: QueryRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== Standalone Mode ====================
+if __name__ == "__main__":
+    import uvicorn
+    
+    print("=" * 70)
+    print("🚀 Starting RAG API Server (Standalone Mode)")
+    print("=" * 70)
+    print("📡 FastAPI Server: http://127.0.0.1:8000")
+    print("🔧 MCP Server: http://127.0.0.1:8766/mcp/")
+    print("📚 DocumentStore: http://127.0.0.1:8765")
+    print("=" * 70)
+    print("\n📖 Endpoints:")
+    print("  GET / - API info")
+    print("  GET /health - Health check")
+    print("  GET /debug/stats - Document store stats")
+    print("  POST /query - Submit RAG query with guardrails")
+    print("\n🔍 MCP Usage:")
+    print("  The MCP server exposes DocumentStore tools for retrieval.")
+    print("  Tools are automatically called by the LangGraph agent.")
+    print("  Direct MCP access: http://127.0.0.1:8766/mcp/")
+    print("=" * 70)
+    
+    app = FastAPI(title="RAG API", version="1.0.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    
+    # Add root route for standalone mode
+    @app.get("/")
+    def root():
+        return {
+            "service": "RAG API (Standalone)",
+            "version": "1.0.0",
+            "endpoints": {
+                "/health": "Health check",
+                "/debug/stats": "Document store statistics",
+                "/debug/retrieve": "Test retrieval",
+                "/query": "RAG query with guardrails",
+                "/ingest/text": "Ingest text",
+                "/ingest/file": "Ingest PDF/image"
+            }
+        }
+    
+    app.include_router(router)
+    
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 

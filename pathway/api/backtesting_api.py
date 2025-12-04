@@ -48,6 +48,10 @@ class BacktestingMetricsStore:
     """
     Redis-backed store for backtesting strategy metrics.
     Reads from keys populated by the Pathway backtesting pipeline.
+    
+    Keys are structured as backtesting:{strategy}:{symbol}:{interval} to support
+    multi-symbol, multi-interval backtesting. This allows comparing strategy
+    performance across different configs.
     """
     
     _redis_client = None
@@ -82,46 +86,116 @@ class BacktestingMetricsStore:
         return cls._redis_client
     
     @classmethod
-    def get(cls, strategy: str) -> Optional[Dict[str, Any]]:
-        """Get metrics for a strategy from Redis cache."""
+    def _parse_entry(cls, data: str) -> Optional[Dict[str, Any]]:
+        """Parse a Redis entry and extract metrics."""
+        if not data:
+            return None
+        parsed = json.loads(data)
+        if "metrics" in parsed:
+            metrics = json.loads(parsed["metrics"]) if isinstance(parsed["metrics"], str) else parsed["metrics"]
+            metrics["strategy"] = parsed.get("strategy")
+            metrics["symbol"] = parsed.get("symbol")
+            metrics["interval"] = parsed.get("interval")
+            metrics["last_updated"] = parsed.get("last_updated")
+            metrics["received_at"] = parsed.get("received_at")
+            return metrics
+        return parsed
+    
+    @classmethod
+    def get(cls, strategy: str, symbol: Optional[str] = None, interval: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Get metrics for a strategy from Redis cache.
+        
+        Args:
+            strategy: Strategy name
+            symbol: Optional symbol filter
+            interval: Optional interval filter (e.g., "1m", "1h", "1d")
+        
+        Returns:
+            If both symbol and interval provided: single metrics dict
+            Otherwise: dict of {key: metrics} for matching entries
+        """
         redis_client = cls._get_redis()
         if redis_client:
             try:
-                # Read from key set by Pathway pipeline: backtesting:{STRATEGY_NAME}
-                data = redis_client.get(f"backtesting:{strategy}")
-                if data:
-                    parsed = json.loads(data)
-                    # Extract metrics from the nested structure
-                    if "metrics" in parsed:
-                        metrics = json.loads(parsed["metrics"]) if isinstance(parsed["metrics"], str) else parsed["metrics"]
-                        metrics["last_updated"] = parsed.get("last_updated")
-                        metrics["received_at"] = parsed.get("received_at")
-                        return metrics
-                    return parsed
+                strategy_upper = strategy.upper()
+                
+                if symbol and interval:
+                    # Exact match: strategy:symbol:interval
+                    key = f"backtesting:{strategy_upper}:{symbol.upper()}:{interval.lower()}"
+                    data = redis_client.get(key)
+                    return cls._parse_entry(data)
+                
+                elif symbol:
+                    # Match strategy:symbol:* (all intervals for this symbol)
+                    pattern = f"backtesting:{strategy_upper}:{symbol.upper()}:*"
+                elif interval:
+                    # Match strategy:*:interval (all symbols for this interval)
+                    pattern = f"backtesting:{strategy_upper}:*:{interval.lower()}"
+                else:
+                    # Match strategy:*:* (all symbols and intervals)
+                    pattern = f"backtesting:{strategy_upper}:*:*"
+                
+                results = {}
+                for key in redis_client.scan_iter(match=pattern, count=100):
+                    data = redis_client.get(key)
+                    parsed = cls._parse_entry(data)
+                    if parsed:
+                        sym = parsed.get("symbol", "UNKNOWN")
+                        intv = parsed.get("interval", "unknown")
+                        combo_key = f"{sym}:{intv}"
+                        results[combo_key] = parsed
+                
+                return results if results else None
             except Exception as e:
                 print(f"Redis read error: {e}")
         return cls._fallback_store.get(strategy)
     
     @classmethod
-    def get_all(cls) -> Dict[str, Dict[str, Any]]:
-        """Get all strategy metrics from Redis cache."""
+    def get_all(cls, symbol: Optional[str] = None, interval: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+        """
+        Get all strategy metrics from Redis cache.
+        
+        Args:
+            symbol: Optional filter by symbol
+            interval: Optional filter by interval
+        
+        Returns:
+            Dict of {strategy:symbol:interval: metrics}
+        """
         redis_client = cls._get_redis()
         result = {}
         if redis_client:
             try:
-                # Get all strategies from the set
-                strategies = redis_client.smembers("backtesting:strategies")
-                for strategy in strategies:
-                    metrics = cls.get(strategy)
-                    if metrics:
-                        result[strategy] = metrics
+                # Build pattern based on filters
+                if symbol and interval:
+                    pattern = f"backtesting:*:{symbol.upper()}:{interval.lower()}"
+                elif symbol:
+                    pattern = f"backtesting:*:{symbol.upper()}:*"
+                elif interval:
+                    pattern = f"backtesting:*:*:{interval.lower()}"
+                else:
+                    pattern = "backtesting:*:*:*"
+                
+                for key in redis_client.scan_iter(match=pattern, count=100):
+                    # Skip the set keys
+                    if key in ("backtesting:strategies", "backtesting:symbols", "backtesting:intervals"):
+                        continue
+                    data = redis_client.get(key)
+                    parsed = cls._parse_entry(data)
+                    if parsed:
+                        strategy = parsed.get("strategy", "UNKNOWN")
+                        sym = parsed.get("symbol", "UNKNOWN")
+                        intv = parsed.get("interval", "unknown")
+                        combo_key = f"{strategy}:{sym}:{intv}"
+                        result[combo_key] = parsed
             except Exception as e:
                 print(f"Redis read error: {e}")
         return result if result else cls._fallback_store.copy()
     
     @classmethod
     def list_strategies(cls) -> List[str]:
-        """List strategies with metrics in Redis."""
+        """List unique strategies with metrics in Redis."""
         redis_client = cls._get_redis()
         if redis_client:
             try:
@@ -129,6 +203,28 @@ class BacktestingMetricsStore:
             except Exception as e:
                 print(f"Redis read error: {e}")
         return list(cls._fallback_store.keys())
+    
+    @classmethod
+    def list_symbols(cls) -> List[str]:
+        """List unique symbols with metrics in Redis."""
+        redis_client = cls._get_redis()
+        if redis_client:
+            try:
+                return list(redis_client.smembers("backtesting:symbols"))
+            except Exception as e:
+                print(f"Redis read error: {e}")
+        return []
+    
+    @classmethod
+    def list_intervals(cls) -> List[str]:
+        """List unique intervals with metrics in Redis."""
+        redis_client = cls._get_redis()
+        if redis_client:
+            try:
+                return list(redis_client.smembers("backtesting:intervals"))
+            except Exception as e:
+                print(f"Redis read error: {e}")
+        return []
     
     @classmethod
     def is_connected(cls) -> bool:
@@ -156,6 +252,8 @@ MetricsStore = BacktestingMetricsStore
 
 class StrategyMetrics(BaseModel):
     strategy: str
+    symbol: Optional[str] = None
+    interval: Optional[str] = None
     total_pnl: float = 0.0
     total_trades: int = 0
     win_rate: float = 0.0
@@ -278,9 +376,11 @@ async def backtesting_status():
     return {
         "status": "healthy",
         "service": "backtesting-api",
-        "version": "2.1.0",
+        "version": "3.0.0",  # Updated for multi-symbol support
         "strategies_count": len(list(STRATEGIES_FOLDER.glob("*.txt"))),
-        "metrics_count": len(MetricsStore.list_strategies()),
+        "metrics_strategies": len(MetricsStore.list_strategies()),
+        "metrics_symbols": len(MetricsStore.list_symbols()),
+        "metrics_intervals": len(MetricsStore.list_intervals()),
         "redis_connected": MetricsStore.is_connected(),
         "llm_configured": bool(OPENROUTER_API_KEY),
         "embedding_model": EMBEDDING_MODEL,
@@ -293,33 +393,87 @@ async def backtesting_status():
 # ============================================================================
 
 @router.get("/metrics")
-async def get_all_metrics():
-    """Get all strategy metrics from Redis cache (populated by Pathway pipeline)."""
-    metrics = MetricsStore.get_all()
+async def get_all_metrics(symbol: Optional[str] = None, interval: Optional[str] = None):
+    """
+    Get all strategy metrics from Redis cache (populated by Pathway pipeline).
+    
+    Args:
+        symbol: Optional filter by symbol (e.g., AAPL, GOOGL)
+        interval: Optional filter by interval (e.g., 1m, 1h, 1d)
+    
+    Returns metrics grouped by strategy:symbol:interval combinations.
+    """
+    metrics = MetricsStore.get_all(symbol=symbol, interval=interval)
     return {
         "strategies": metrics,
         "count": len(metrics),
+        "filter_symbol": symbol,
+        "filter_interval": interval,
+        "available_symbols": MetricsStore.list_symbols(),
+        "available_intervals": MetricsStore.list_intervals(),
         "redis_connected": MetricsStore.is_connected(),
         "timestamp": datetime.now().isoformat()
     }
 
 
 @router.get("/metrics/{strategy}")
-async def get_strategy_metrics(strategy: str):
-    """Get metrics for a specific strategy."""
-    # Try exact match first
-    metrics = MetricsStore.get(strategy)
+async def get_strategy_metrics(strategy: str, symbol: Optional[str] = None, interval: Optional[str] = None):
+    """
+    Get metrics for a specific strategy.
     
-    # Try uppercase version
+    Args:
+        strategy: Strategy name (e.g., macd_rsi_confluence)
+        symbol: Optional filter by symbol
+        interval: Optional filter by interval (e.g., 1m, 1h, 1d)
+    
+    Returns:
+        If symbol and interval provided: metrics for that exact combination
+        Otherwise: dict of matching entries
+    """
+    # Try exact match first, then uppercase
+    metrics = MetricsStore.get(strategy, symbol=symbol, interval=interval)
     if not metrics:
-        metrics = MetricsStore.get(strategy.upper())
+        metrics = MetricsStore.get(
+            strategy.upper(), 
+            symbol=symbol.upper() if symbol else None,
+            interval=interval.lower() if interval else None
+        )
     
     if not metrics:
-        raise HTTPException(404, f"No metrics found for strategy: {strategy}")
+        detail = f"No metrics found for strategy: {strategy}"
+        if symbol:
+            detail += f" with symbol: {symbol}"
+        if interval:
+            detail += f" with interval: {interval}"
+        raise HTTPException(404, detail)
     
     return {
         "strategy": strategy,
+        "symbol": symbol,
+        "interval": interval,
         "metrics": metrics,
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+@router.get("/symbols")
+async def list_symbols():
+    """List all symbols with backtesting metrics."""
+    symbols = MetricsStore.list_symbols()
+    return {
+        "symbols": sorted(symbols),
+        "count": len(symbols),
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+@router.get("/intervals")
+async def list_intervals():
+    """List all intervals with backtesting metrics."""
+    intervals = MetricsStore.list_intervals()
+    return {
+        "intervals": sorted(intervals),
+        "count": len(intervals),
         "timestamp": datetime.now().isoformat()
     }
 
@@ -329,33 +483,75 @@ async def get_strategy_metrics(strategy: str):
 # ============================================================================
 
 @router.get("/strategies")
-async def list_strategies():
-    """List all strategies with their metrics status."""
+async def list_strategies(symbol: Optional[str] = None, interval: Optional[str] = None):
+    """
+    List all strategies with their metrics status.
+    
+    Args:
+        symbol: Optional filter to show metrics for a specific symbol only
+        interval: Optional filter to show metrics for a specific interval only
+    """
     strategies = [f.stem for f in STRATEGIES_FOLDER.glob("*.txt")]
     embeddings = load_embeddings()
     result = []
     
     for name in strategies:
         # Try to get metrics (strategy names are uppercase in Redis)
-        metrics = MetricsStore.get(name) or MetricsStore.get(name.upper())
+        metrics = MetricsStore.get(name, symbol=symbol, interval=interval) or \
+                  MetricsStore.get(name.upper(), 
+                                   symbol=symbol.upper() if symbol else None,
+                                   interval=interval.lower() if interval else None)
         description = embeddings.get(name, {}).get("description", "")
         
-        result.append({
-            "name": name,
-            "description": description,
-            "has_metrics": metrics is not None,
-            "total_pnl": metrics.get("total_pnl") if metrics else None,
-            "total_trades": metrics.get("total_trades") if metrics else None,
-            "win_rate": metrics.get("win_rate") if metrics else None,
-            "candles_processed": metrics.get("candles_processed") if metrics else None,
-        })
+        # If no symbol/interval filter, metrics will be a dict of {symbol:interval: metrics}
+        # If filters provided, metrics will be the filtered results
+        if isinstance(metrics, dict) and not (symbol and interval):
+            # Aggregate across all configs or show summary
+            config_keys = list(metrics.keys()) if metrics else []
+            total_pnl = sum(m.get("total_pnl", 0) for m in metrics.values()) if metrics else None
+            total_trades = sum(m.get("total_trades", 0) for m in metrics.values()) if metrics else None
+            
+            result.append({
+                "name": name,
+                "description": description,
+                "has_metrics": bool(metrics),
+                "configs": config_keys,  # List of symbol:interval combos
+                "total_pnl_all_configs": total_pnl,
+                "total_trades_all_configs": total_trades,
+            })
+        else:
+            result.append({
+                "name": name,
+                "description": description,
+                "symbol": symbol,
+                "interval": interval,
+                "has_metrics": metrics is not None,
+                "total_pnl": metrics.get("total_pnl") if metrics else None,
+                "total_trades": metrics.get("total_trades") if metrics else None,
+                "win_rate": metrics.get("win_rate") if metrics else None,
+                "candles_processed": metrics.get("candles_processed") if metrics else None,
+            })
     
-    return {"strategies": result, "count": len(result)}
+    return {
+        "strategies": result, 
+        "count": len(result),
+        "filter_symbol": symbol,
+        "filter_interval": interval,
+        "available_symbols": MetricsStore.list_symbols(),
+        "available_intervals": MetricsStore.list_intervals()
+    }
 
 
 @router.get("/strategies/{name}")
-async def get_strategy(name: str):
-    """Get strategy code and metrics."""
+async def get_strategy(name: str, symbol: Optional[str] = None, interval: Optional[str] = None):
+    """
+    Get strategy code and metrics.
+    
+    Args:
+        name: Strategy name
+        symbol: Optional filter for specific symbol metrics
+        interval: Optional filter for specific interval metrics
+    """
     filepath = STRATEGIES_FOLDER / f"{name}.txt"
     
     # Try lowercase version
@@ -366,7 +562,10 @@ async def get_strategy(name: str):
         raise HTTPException(404, f"Strategy not found: {name}")
     
     code = filepath.read_text()
-    metrics = MetricsStore.get(name) or MetricsStore.get(name.upper())
+    metrics = MetricsStore.get(name, symbol=symbol, interval=interval) or \
+              MetricsStore.get(name.upper(), 
+                               symbol=symbol.upper() if symbol else None,
+                               interval=interval.lower() if interval else None)
     embeddings = load_embeddings()
     description = embeddings.get(filepath.stem, {}).get("description", "")
     
@@ -374,7 +573,11 @@ async def get_strategy(name: str):
         "name": filepath.stem,
         "description": description,
         "code": code,
+        "symbol": symbol,
+        "interval": interval,
         "metrics": metrics,
+        "available_symbols": MetricsStore.list_symbols(),
+        "available_intervals": MetricsStore.list_intervals(),
         "timestamp": datetime.now().isoformat()
     }
 
@@ -531,8 +734,16 @@ async def search_strategies(request: SearchRequest):
             "message": "No strategies with embeddings found."
         }
     
+    # Get list of existing strategy files
+    existing_strategies = set()
+    for f in STRATEGIES_FOLDER.glob("*.txt"):
+        existing_strategies.add(f.stem)
+    
     results = []
     for name, data in embeddings.items():
+        # Only include strategies that still exist as files
+        if name not in existing_strategies:
+            continue
         if "embedding" in data:
             similarity = cosine_similarity(query_embedding, data["embedding"])
             metrics = MetricsStore.get(name) or MetricsStore.get(name.upper())

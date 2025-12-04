@@ -5,9 +5,9 @@ Fast pipeline for sentiment clustering and scoring.
 
 Runs independently from report generation.
 Outputs: 
-- Cluster files in /app/reports/sentiment/clusters/
-- Redis: fast_sentiment:{symbol} (real-time scores)
-- Redis: sentiment_clusters:{symbol} (cluster data)
+- JSON files: {CLUSTERS_OUTPUT_DIR}/{symbol}_clusters.json
+- Redis key: sentiment_clusters:{symbol} (full cluster data)
+- Redis hash: clusters:all (individual clusters for aggregated endpoint)
 """
 
 import pathway as pw
@@ -54,7 +54,7 @@ def main():
     print(f"  6️⃣  Stream to Redis for fast API access")
     
     # Process clustering - returns clusters table with sentiment scores
-    sentiment_scores_table, clusters_api_table = process_sentiment_clustering(
+    clusters_table = process_sentiment_clustering(
         sentiment_table, 
         clusters_directory=clusters_directory
     )
@@ -62,7 +62,7 @@ def main():
     # Stream cluster data to Redis (includes overall sentiment score)
     clusters_observer = get_report_observer("sentiment_clusters")
     pw.io.python.write(
-        clusters_api_table,
+        clusters_table,
         clusters_observer,
         name="clusters_stream",
     )
@@ -72,7 +72,7 @@ def main():
     debug_dir = "/app/reports/sentiment/debug"
     os.makedirs(debug_dir, exist_ok=True)
     clusters_jsonl = os.path.join(debug_dir, "clusters_stream.jsonl")
-    pw.io.jsonlines.write(clusters_api_table, clusters_jsonl)
+    pw.io.jsonlines.write(clusters_table, clusters_jsonl)
     print(f"📝 Writing cluster stream to: {clusters_jsonl}")
 
     print(f"\n✅ Phase 1 initialized. Starting fast clustering pipeline...")

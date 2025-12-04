@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Import event publisher for WebSocket integration
 try:
-    from event_publisher import publish_event, publish_agent_status
+    from event_publisher import publish_event, publish_agent_status, publish_report
     HAS_EVENT_PUBLISHER = True
 except ImportError:
     HAS_EVENT_PUBLISHER = False
@@ -111,7 +111,17 @@ def publish_strategist_event(room_id: str, event_type: str, data: dict):
         try:
             from redis_cache import get_redis_client
             redis_client = get_redis_client()
-            publish_event(room_id, event_type, data, redis_client)
+            
+            # Use consistent agent_status for status events
+            if event_type == "strategist_thinking":
+                publish_agent_status(room_id, "Strategist Agent", "RUNNING", redis_client)
+            elif event_type == "strategist_response":
+                publish_report(room_id, "Strategist Agent", data, redis_client)
+                publish_agent_status(room_id, "Strategist Agent", "COMPLETED", redis_client)
+            elif event_type == "strategist_error":
+                publish_agent_status(room_id, "Strategist Agent", "FAILED", redis_client)
+            else:
+                publish_event(room_id, event_type, data, redis_client)
         except Exception as e:
             print(f"[WARN] Failed to publish event: {e}")
 

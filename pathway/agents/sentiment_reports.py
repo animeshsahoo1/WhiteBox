@@ -22,13 +22,16 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 import json
 import time
+import litellm
 from typing import Optional
 
 # Import PostgreSQL save function
 try:
-    from redis_cache import save_report_to_postgres
+    from redis_cache import save_report_to_postgres, get_redis_client
+    from event_publisher import publish_agent_status, publish_report
 except ImportError:
-    from .redis_cache import save_report_to_postgres
+    from .redis_cache import save_report_to_postgres, get_redis_client
+    from .event_publisher import publish_agent_status, publish_report
 
 
 load_dotenv()
@@ -38,7 +41,7 @@ CLUSTERS_INPUT_DIR = os.getenv("SENTIMENT_CLUSTERS_DIR", "/app/reports/sentiment
 
 # Report generation interval in seconds (default: 5 minutes)
 # Reports will only be generated at most once per interval per symbol
-REPORT_GENERATION_INTERVAL = int(os.getenv("REPORT_GENERATION_INTERVAL", "300"))
+REPORT_GENERATION_INTERVAL = int(os.getenv("REPORT_GENERATION_INTERVAL", "100"))
 
 # Track last report generation time per symbol
 _last_report_time: dict[str, float] = {}
@@ -57,25 +60,35 @@ class SentimentReportGenerator:
             self.symbol_mapping = {}
 
         # Setup LLM
-        model_name = os.getenv('OPENAI_MODEL', 'openai/gpt-4o-mini')
-        if not model_name.startswith('openrouter/') and not model_name.startswith('openai/'):
-            model_name = f'openrouter/{model_name}'
+        self.model_name = os.getenv('OPENAI_MODEL', 'openai/gpt-4o-mini')
+        if not self.model_name.startswith('openrouter/') and not self.model_name.startswith('openai/'):
+            self.model_name = f'openrouter/{self.model_name}'
         
-        api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
-        self.has_valid_api_key = bool(api_key)
+        self.api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        self.has_valid_api_key = bool(self.api_key)
         
         if self.has_valid_api_key:
-            self.llm = LiteLLMChat(
-                model=model_name,
-                api_key=api_key,
+            print(f"✅ Report generator initialized with model: {self.model_name}")
+        else:
+            print("⚠️ No API key - reports will use fallback format")
+
+    def call_llm_sync(self, messages: list) -> str:
+        """Direct synchronous LLM call for use inside reducers."""
+        if not self.has_valid_api_key:
+            return ""
+        try:
+            response = litellm.completion(
+                model=self.model_name,
+                messages=messages,
+                api_key=self.api_key,
                 api_base="https://openrouter.ai/api/v1",
                 temperature=0.3,
                 max_tokens=1500
             )
-            print(f"✅ Report generator initialized with model: {model_name}")
-        else:
-            self.llm = None
-            print("⚠️ No API key - reports will use fallback format")
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"LLM call error: {e}")
+            return ""
 
     def _classify_sentiment(self, score: float) -> str:
         if score >= 0.5:
@@ -119,8 +132,8 @@ Write a concise summary of the main theme/topic being discussed."""
 
         try:
             messages = [{"role": "user", "content": prompt}]
-            response = self.llm.chat_single(messages)
-            return response.strip() if response else cluster_data.get('summary', '')
+            response = self.call_llm_sync(messages)
+            return response if response else cluster_data.get('summary', '')
         except Exception as e:
             return cluster_data.get('summary', f"Discussion cluster about {company}")
 
@@ -171,8 +184,8 @@ Keep it concise (300-400 words)."""
 
         try:
             messages = [{"role": "user", "content": prompt}]
-            response = self.llm.chat_single(messages)
-            return response.strip() if response else ""
+            response = self.call_llm_sync(messages)
+            return response if response else ""
         except Exception as e:
             print(f"Error generating report for {symbol}: {e}")
             return ""
@@ -265,7 +278,7 @@ def process_sentiment_reports(
         
         try:
             clusters = clusters_json.as_list() if clusters_json else []
-        except:
+        except Exception:
             clusters = []
         
         if not clusters:
@@ -274,6 +287,14 @@ def process_sentiment_reports(
         # Update last report time BEFORE generating (to prevent concurrent calls)
         _last_report_time[symbol] = current_time
         print(f"🔄 [{symbol}] Generating report (interval: {REPORT_GENERATION_INTERVAL}s)")
+        
+        # Publish RUNNING status
+        try:
+            room_id = f"symbol:{symbol}"
+            redis_client = get_redis_client()
+            publish_agent_status(room_id, "Sentiment Report Agent", "RUNNING", redis_client)
+        except Exception as e:
+            print(f"⚠️ [{symbol}] Failed to publish Sentiment Report Agent status: {e}")
         
         # First, generate summaries for clusters that need them
         processed_clusters = []
@@ -308,28 +329,58 @@ def process_sentiment_reports(
         )
         
         if new_report:
-            # Save report
+            # Save report to file
             report_path = report_generator._get_report_path(symbol)
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write(new_report)
             print(f"📝 [{symbol}] Generated sentiment report")
-                    # 2. Save to PostgreSQL for historical storage
+            
+            # Determine sentiment direction
+            sentiment_direction = "NEUTRAL"
+            if overall_sentiment > 0.1:
+                sentiment_direction = "BULLISH"
+            elif overall_sentiment < -0.1:
+                sentiment_direction = "BEARISH"
+            
+            # Publish report and COMPLETED status
+            try:
+                room_id = f"symbol:{symbol}"
+                redis_client = get_redis_client()
+                publish_report(room_id, "Sentiment Report Agent", {
+                    "symbol": symbol,
+                    "report_type": "sentiment_report",
+                    "overall_sentiment": round(overall_sentiment, 3),
+                    "sentiment_direction": sentiment_direction,
+                    "cluster_count": len(processed_clusters)
+                }, redis_client)
+                publish_agent_status(room_id, "Sentiment Report Agent", "COMPLETED", redis_client)
+            except Exception as e:
+                print(f"⚠️ [{symbol}] Failed to publish Sentiment Report Agent events: {e}")
+            
+            # Save to PostgreSQL for historical storage
             try:
                 entry = {
                     "symbol": symbol,
                     "report_type": "sentiment",
-                    "content": report_content,
-                    "last_updated": dt.utcnow().isoformat(),
-                    "cluster_data": cluster_data_json,
+                    "content": new_report,
+                    "last_updated": datetime.now(timezone.utc).isoformat(),
+                    "cluster_data": json.dumps(processed_clusters),
                 }
                 save_report_to_postgres(symbol, "sentiment", entry)
             except Exception as e:
                 print(f"⚠️ [{symbol}] Failed to save to PostgreSQL: {e}")
-        
 
         else:
             # Reset time if generation failed so we retry sooner
             _last_report_time[symbol] = last_time
+            
+            # Publish FAILED status
+            try:
+                room_id = f"symbol:{symbol}"
+                redis_client = get_redis_client()
+                publish_agent_status(room_id, "Sentiment Report Agent", "FAILED", redis_client)
+            except:
+                pass
         
         return new_report
     

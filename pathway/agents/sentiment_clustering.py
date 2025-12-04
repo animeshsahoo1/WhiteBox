@@ -10,9 +10,9 @@ This pipeline processes incoming sentiment data at high speed:
 6. Exposes real-time sentiment scores via Redis API
 
 Output: 
-- Cluster files in /app/reports/sentiment/clusters/{symbol}_clusters.json
-- Redis cache: fast_sentiment:{symbol} (real-time scores)
-- Redis cache: sentiment_clusters:{symbol} (cluster data)
+- JSON files: {CLUSTERS_OUTPUT_DIR}/{symbol}_clusters.json
+- Redis key: sentiment_clusters:{symbol} (full cluster data for /sentiment/clusters/{symbol} endpoint)
+- Redis hash: clusters:all (individual clusters for /sentiment/clusters endpoint)
 
 This runs INDEPENDENTLY from report generation (Phase 2).
 """
@@ -26,6 +26,14 @@ import numpy as np
 from typing import Optional
 import litellm
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
+# Event publishing imports
+try:
+    from redis_cache import get_redis_client
+    from event_publisher import publish_agent_status, publish_report
+except ImportError:
+    from .redis_cache import get_redis_client
+    from .event_publisher import publish_agent_status, publish_report
 
 
 load_dotenv()
@@ -57,7 +65,7 @@ def trigger_sentiment_alert(symbol: str, overall_sentiment: float):
     alert_max = float(os.getenv("SENTIMENT_ALERT_MAX", "0.3"))
     alerts_enabled = os.getenv("SENTIMENT_ALERT_ENABLED", "true").lower() == "true"
     alert_cooldown = int(os.getenv("SENTIMENT_ALERT_COOLDOWN", "300"))
-    bullbear_url = os.getenv("BULLBEAR_API_URL", "http://localhost:8000")
+    bullbear_url = os.getenv("BULLBEAR_API_URL", "http://unified-api:8000")
     
     if not alerts_enabled:
         return
@@ -65,6 +73,8 @@ def trigger_sentiment_alert(symbol: str, overall_sentiment: float):
     if overall_sentiment < alert_min or overall_sentiment > alert_max:
         now = datetime.now()
         last = _sentiment_alert_cooldowns.get(symbol)
+        print("*"*20)
+        print(last)
         if not last or (now - last).total_seconds() >= alert_cooldown:
             direction = "bearish" if overall_sentiment < alert_min else "bullish"
             print(f"🚨 [{symbol}] SENTIMENT ALERT: {direction} ({overall_sentiment:.3f})")
@@ -75,7 +85,7 @@ def trigger_sentiment_alert(symbol: str, overall_sentiment: float):
                     timeout=10.0
                 )
                 _sentiment_alert_cooldowns[symbol] = now
-                print(f"✅ [{symbol}] BullBear debate triggered")
+                print(f"✅ [{symbol}] BullBear debate triggered at {now.isoformat()}")
             except Exception as e:
                 print(f"⚠️ [{symbol}] Alert failed: {e}")
 
@@ -99,7 +109,7 @@ def get_vader_sentiment(text: str) -> float:
     try:
         scores = vader_analyzer.polarity_scores(text)
         return scores['compound']
-    except:
+    except Exception:
         return 0.0
 
 
@@ -111,7 +121,7 @@ def apply_sentiment_decay(sentiment: float, last_updated: str) -> float:
         elapsed_seconds = (now - last_time).total_seconds()
         decay_factor = 0.5 ** (elapsed_seconds / SENTIMENT_DECAY_HALF_LIFE)
         return sentiment * decay_factor
-    except:
+    except Exception:
         return sentiment
 
 
@@ -128,7 +138,7 @@ def cosine_similarity(vec1: list, vec2: list) -> float:
 def process_sentiment_clustering(
     sentiment_table: pw.Table,
     clusters_directory: str = CLUSTERS_OUTPUT_DIR
-) -> tuple[pw.Table, pw.Table]:
+) -> pw.Table:
     """
     PHASE 1: Fast sentiment clustering pipeline.
     
@@ -137,9 +147,7 @@ def process_sentiment_clustering(
         clusters_directory: Directory to save cluster JSON files
         
     Returns:
-        Tuple of (sentiment_scores_table, clusters_table)
-        - sentiment_scores_table: Real-time sentiment scores per symbol
-        - clusters_table: Cluster data for API access
+        pw.Table: Clusters table with symbol and clusters_json columns
     """
     os.makedirs(clusters_directory, exist_ok=True)
     
@@ -209,7 +217,7 @@ def process_sentiment_clustering(
             
             try:
                 embedding = json.loads(emb_json) if isinstance(emb_json, str) else list(emb_json)
-            except:
+            except Exception:
                 embedding = [0.0] * EMBEDDING_DIMENSIONS
             
             # Calculate VADER sentiment
@@ -309,7 +317,7 @@ def process_sentiment_clustering(
                 age_hours = (now - last_updated).total_seconds() / 3600
                 if age_hours > CLUSTER_EXPIRY_HOURS and cdata['count'] < 3:
                     to_remove.append(cid)
-            except:
+            except Exception:
                 pass
         
         for cid in to_remove:
@@ -340,6 +348,21 @@ def process_sentiment_clustering(
         os.makedirs(output_dir, exist_ok=True)
         file_path = os.path.join(output_dir, f"{symbol}_clusters.json")
         
+        # Get Redis client once for all operations
+        try:
+            redis_client = get_redis_client()
+        except Exception as e:
+            print(f"⚠️ [{symbol}] Failed to connect to Redis: {e}")
+            redis_client = None
+        
+        # Publish RUNNING status
+        room_id = f"symbol:{symbol}"
+        if redis_client:
+            try:
+                publish_agent_status(room_id, "Sentiment Agent", "RUNNING", redis_client)
+            except Exception as e:
+                print(f"⚠️ [{symbol}] Failed to publish Sentiment Agent status: {e}")
+        
         # Load existing state from file
         existing_clusters = {}
         if os.path.exists(file_path):
@@ -348,7 +371,7 @@ def process_sentiment_clustering(
                     existing_data = json.load(f)
                     for c in existing_data.get('clusters', []):
                         existing_clusters[c['cluster_id']] = c
-            except:
+            except Exception:
                 pass
         
         # Get new clusters from Pathway state
@@ -359,7 +382,7 @@ def process_sentiment_clustering(
                 clusters_dict = state_dict.get('clusters', {})
                 for cluster_id, cluster_data in clusters_dict.items():
                     new_clusters[int(cluster_id)] = cluster_data
-            except:
+            except Exception:
                 pass
         
         # Merge: update existing with new, add new clusters
@@ -385,14 +408,8 @@ def process_sentiment_clustering(
         total_posts = 0
         
         for cluster in clusters_list:
-            # Re-apply decay based on last_updated
-            last_updated = cluster.get('last_updated', '')
-            raw_sentiment = cluster.get('avg_sentiment', 0.0)
-            decayed_sentiment = apply_sentiment_decay(raw_sentiment, last_updated)
-            cluster['avg_sentiment'] = decayed_sentiment
-            
             count = cluster.get('count', 0)
-            total_weighted_sentiment += decayed_sentiment * count
+            total_weighted_sentiment += cluster.get('avg_sentiment', 0.0) * count
             total_posts += count
         
         overall_sentiment = total_weighted_sentiment / total_posts if total_posts > 0 else 0.0
@@ -406,63 +423,67 @@ def process_sentiment_clustering(
             'timestamp': datetime.now(timezone.utc).isoformat()
         }
         
-        # Save to file
+        # Save to file (JSON Lines format - single line for Pathway compatibility)
         try:
             with open(file_path, 'w') as f:
-                json.dump(result, f, indent=2)
+                json.dump(result, f)  # No indent = single line (JSON Lines format)
             print(f"💾 [{symbol}] Saved {len(clusters_list)} clusters to {file_path}")
         except Exception as e:
             print(f"Error saving clusters for {symbol}: {e}")
         
+        # Save to Redis for API access
+        if redis_client:
+            try:
+                result_json = json.dumps(result)
+                
+                # Store in sentiment_clusters:{symbol} for /sentiment/clusters/{symbol} endpoint
+                redis_client.set(f"sentiment_clusters:{symbol}", result_json)
+                
+                # Store individual clusters in clusters:all hash for /sentiment/clusters endpoint
+                for cluster in clusters_list:
+                    cluster_key = f"{symbol}:{cluster.get('cluster_id', 0)}"
+                    cluster_with_symbol = {**cluster, 'symbol': symbol}
+                    redis_client.hset("clusters:all", cluster_key, json.dumps(cluster_with_symbol))
+                
+                print(f"📡 [{symbol}] Cached {len(clusters_list)} clusters to Redis")
+            except Exception as e:
+                print(f"⚠️ [{symbol}] Redis cache failed: {e}")
+        
         # Trigger alert if sentiment crosses threshold
         trigger_sentiment_alert(symbol, overall_sentiment)
         
+        # Publish report and COMPLETED status
+        if redis_client:
+            try:
+                # Determine sentiment direction
+                sentiment_direction = "NEUTRAL"
+                if overall_sentiment > 0.1:
+                    sentiment_direction = "BULLISH"
+                elif overall_sentiment < -0.1:
+                    sentiment_direction = "BEARISH"
+                
+                publish_report(room_id, "Sentiment Agent", {
+                    "symbol": symbol,
+                    "report_type": "sentiment",
+                    "overall_sentiment": round(overall_sentiment, 3),
+                    "sentiment_direction": sentiment_direction,
+                    "cluster_count": len(clusters_list),
+                    "total_posts": total_posts
+                }, redis_client)
+                publish_agent_status(room_id, "Sentiment Agent", "COMPLETED", redis_client)
+            except Exception as e:
+                print(f"⚠️ [{symbol}] Failed to publish Sentiment Agent events: {e}")
+        
         return json.dumps(result)
-    
-    @pw.udf
-    def get_current_timestamp(trigger: str) -> str:
-        """Get current timestamp for uniqueness. Takes a dummy arg to work as Pathway UDF."""
-        return datetime.now(timezone.utc).isoformat()
     
     # Create output table with cluster data
     output_table = clustered_table.select(
         symbol=pw.this.symbol,
-        cluster_data=extract_clusters_and_save(
+        clusters_json=extract_clusters_and_save(
             pw.this.symbol,
             pw.this.cluster_state,
             clusters_directory
         )
     )
     
-    # =========================================================================
-    # STEP 4: Create separate tables for API
-    # =========================================================================
-    
-    @pw.udf
-    def extract_sentiment_score(cluster_data: str) -> str:
-        """Extract just the sentiment score data for fast API."""
-        try:
-            data = json.loads(cluster_data)
-            return json.dumps({
-                'symbol': data.get('symbol', ''),
-                'overall_sentiment': data.get('overall_sentiment', 0.0),
-                'cluster_count': data.get('cluster_count', 0),
-                'total_posts': data.get('total_posts', 0),
-                'timestamp': data.get('timestamp', '')
-            })
-        except:
-            return cluster_data
-    
-    # Sentiment scores table (lightweight, for fast API)
-    sentiment_scores_table = output_table.select(
-        symbol=pw.this.symbol,
-        sentiment_data=extract_sentiment_score(pw.this.cluster_data)
-    )
-    
-    # Full clusters table (for cluster API)
-    clusters_api_table = output_table.select(
-        symbol=pw.this.symbol,
-        clusters_json=pw.this.cluster_data
-    )
-    
-    return sentiment_scores_table, clusters_api_table
+    return output_table
