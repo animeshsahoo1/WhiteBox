@@ -44,6 +44,7 @@ from pathway.xpacks.llm.mcp_server import PathwayMcp
 
 load_dotenv()
 pw.set_license_key(os.getenv("PATHWAY_LICENSE_KEY", ""))
+print(os.getenv("PATHWAY_LICENSE_KEY"))
 # ==================== Pathway DocumentStore Setup ====================
 
 # Initialize LLM for contextual summarization
@@ -947,8 +948,10 @@ if __name__ == "__main__":
     print("📚 DocumentStore: http://127.0.0.1:8765")
     print("=" * 70)
     print("\n📖 Endpoints:")
-    print("  POST /query - Submit RAG query with guardrails")
+    print("  GET / - API info")
     print("  GET /health - Health check")
+    print("  GET /debug/stats - Document store stats")
+    print("  POST /query - Submit RAG query with guardrails")
     print("\n🔍 MCP Usage:")
     print("  The MCP server exposes DocumentStore tools for retrieval.")
     print("  Tools are automatically called by the LangGraph agent.")
@@ -963,6 +966,23 @@ if __name__ == "__main__":
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    
+    # Add root route for standalone mode
+    @app.get("/")
+    def root():
+        return {
+            "service": "RAG API (Standalone)",
+            "version": "1.0.0",
+            "endpoints": {
+                "/health": "Health check",
+                "/debug/stats": "Document store statistics",
+                "/debug/retrieve": "Test retrieval",
+                "/query": "RAG query with guardrails",
+                "/ingest/text": "Ingest text",
+                "/ingest/file": "Ingest PDF/image"
+            }
+        }
+    
     app.include_router(router)
     
     uvicorn.run(app, host="0.0.0.0", port=8000)

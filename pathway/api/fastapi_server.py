@@ -15,22 +15,35 @@ from datetime import datetime
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from event_publisher import publish_agent_status  # Ensure import after edits
+# from event_publisher import publish_agent_status  # Ensure import after edits
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from redis_cache import get_redis_client, list_symbols as redis_list_symbols
-from .historical_analysis_api import router as historical_router
-from .rag_api import router as rag_router
-from .bullbear_api import router as bullbear_router
-from .report_fetch_api import router as report_router
-from .sentiment_api import router as sentiment_router
-from .news_api import router as news_router
-from .drift_api import router as drift_router
 
-from .backtesting_api import router as backtesting_router
-from .workflow_api import router as workflow_router
-from .strategist_api import router as strategist_router
+# Try relative imports first (when run as module), fall back to absolute imports
+try:
+    from .historical_analysis_api import router as historical_router
+    from .rag_api import router as rag_router
+    from .bullbear_api import router as bullbear_router
+    from .report_fetch_api import router as report_router
+    from .sentiment_api import router as sentiment_router
+    from .news_api import router as news_router
+    from .drift_api import router as drift_router
+    from .backtesting_api import router as backtesting_router
+    from .workflow_api import router as workflow_router
+    from .strategist_api import router as strategist_router
+except ImportError:
+    from api.historical_analysis_api import router as historical_router
+    from api.rag_api import router as rag_router
+    from api.bullbear_api import router as bullbear_router
+    from api.report_fetch_api import router as report_router
+    from api.sentiment_api import router as sentiment_router
+    from api.news_api import router as news_router
+    from api.drift_api import router as drift_router
+    from api.backtesting_api import router as backtesting_router
+    from api.workflow_api import router as workflow_router
+    from api.strategist_api import router as strategist_router
 
 
 app = FastAPI(
