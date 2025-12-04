@@ -30,14 +30,119 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 
 # ============================================================================
+# Yahoo Finance Constraints
+# ============================================================================
+
+# Valid intervals supported by Yahoo Finance
+VALID_INTERVALS = ["1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "4h", "1d", "5d", "1wk", "1mo", "3mo"]
+
+# Valid periods supported by Yahoo Finance
+VALID_PERIODS = ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"]
+
+# Maximum lookback days for each interval (Yahoo Finance constraints)
+# Intraday data has strict limits; exceeding returns empty DataFrame
+INTERVAL_MAX_DAYS = {
+    "1m": 7,       # 7 days max
+    "2m": 60,      # 60 days max
+    "5m": 60,      # 60 days max
+    "15m": 60,     # 60 days max
+    "30m": 60,     # 60 days max
+    "60m": 730,    # ~2 years
+    "90m": 60,     # 60 days max
+    "1h": 730,     # ~2 years
+    "4h": 730,     # ~2 years (same as 1h)
+    "1d": None,    # No limit
+    "5d": None,    # No limit
+    "1wk": None,   # No limit
+    "1mo": None,   # No limit
+    "3mo": None,   # No limit
+}
+
+# Approximate days for each period (for validation)
+PERIOD_APPROX_DAYS = {
+    "1d": 1,
+    "5d": 5,
+    "1mo": 30,
+    "3mo": 90,
+    "6mo": 180,
+    "1y": 365,
+    "2y": 730,
+    "5y": 1825,
+    "10y": 3650,
+    "ytd": 365,  # Approximate
+    "max": 10000,  # Very large
+}
+
+
+def validate_interval(interval: str) -> tuple[bool, str]:
+    """Validate interval is supported by Yahoo Finance."""
+    if interval not in VALID_INTERVALS:
+        return False, f"Invalid interval '{interval}'. Valid intervals: {VALID_INTERVALS}"
+    return True, ""
+
+
+def validate_period(period: str) -> tuple[bool, str]:
+    """Validate period is supported by Yahoo Finance."""
+    if period not in VALID_PERIODS:
+        return False, f"Invalid period '{period}'. Valid periods: {VALID_PERIODS}"
+    return True, ""
+
+
+def validate_interval_period_combo(interval: str, period: str) -> tuple[bool, str]:
+    """
+    Validate that the interval+period combination is valid.
+    Yahoo Finance silently returns empty data for invalid combos.
+    """
+    max_days = INTERVAL_MAX_DAYS.get(interval)
+    if max_days is None:
+        return True, ""  # No limit for daily+ intervals
+    
+    period_days = PERIOD_APPROX_DAYS.get(period, 0)
+    if period_days > max_days:
+        return False, (
+            f"Period '{period}' (~{period_days} days) exceeds maximum for interval '{interval}' "
+            f"({max_days} days max). Use a shorter period or longer interval."
+        )
+    return True, ""
+
+
+def validate_config(interval: str, period: str, start_date: Optional[str] = None) -> tuple[bool, str]:
+    """
+    Full validation of interval, period, and their combination.
+    Returns (is_valid, error_message).
+    """
+    # Validate interval
+    valid, msg = validate_interval(interval)
+    if not valid:
+        return False, msg
+    
+    # If using start_date, we can't easily validate without knowing the date
+    # But we can still check the interval is valid
+    if start_date:
+        return True, ""
+    
+    # Validate period
+    valid, msg = validate_period(period)
+    if not valid:
+        return False, msg
+    
+    # Validate combo
+    valid, msg = validate_interval_period_combo(interval, period)
+    if not valid:
+        return False, msg
+    
+    return True, ""
+
+
+# ============================================================================
 # Configuration Models
 # ============================================================================
 
 class CandleConfig(BaseModel):
     """Configuration model for candle producer."""
-    symbols: List[str] = Field(default=["AAPL"], description="List of stock ticker symbols")
+    symbols: List[str] = Field(default=["AAPL", "GOOGL"], description="List of stock ticker symbols")
     interval: str = Field(default="1h", description="Candle interval (1m, 5m, 15m, 30m, 1h, 1d)")
-    period: str = Field(default="1mo", description="Historical period (1d, 5d, 1mo, 3mo, 6mo, 1y)")
+    period: str = Field(default="3mo", description="Historical period (1d, 5d, 1mo, 3mo, 6mo, 1y)")
     start_date: Optional[str] = Field(default=None, description="Start date (e.g., '2015-08-02') - overrides period if set")
     kafka_topic: str = Field(default="candles", description="Kafka topic for candle data")
     poll_interval: float = Field(default=60.0, description="Seconds between polling for new candles")
@@ -86,7 +191,21 @@ class ConfigManager:
             try:
                 with open(CONFIG_PATH, 'r') as f:
                     data = json.load(f)
-                    return CandleConfig(**data)
+                    config = CandleConfig(**data)
+                    
+                    # Validate loaded config
+                    is_valid, error_msg = validate_config(
+                        config.interval, 
+                        config.period, 
+                        config.start_date
+                    )
+                    if not is_valid:
+                        print(f"⚠️ Invalid config in file: {error_msg}")
+                        print(f"   Resetting to defaults...")
+                        config = CandleConfig()
+                        self._save_config(config)
+                    
+                    return config
             except Exception as e:
                 print(f"⚠️ Error loading config: {e}, using defaults")
         
@@ -190,7 +309,14 @@ class MultiSymbolProducer:
                 df = ticker.history(period=config.period, interval=config.interval)
             
             if df.empty:
-                print(f"  ⚠️ {symbol}: No data returned")
+                print(f"  ⚠️ {symbol}: No data returned from Yahoo Finance")
+                print(f"     This usually means:")
+                print(f"     - Invalid symbol (check if '{symbol}' exists)")
+                print(f"     - Period too long for interval (interval={config.interval} has lookback limit)")
+                print(f"     - Market was closed for the requested period")
+                max_days = INTERVAL_MAX_DAYS.get(config.interval)
+                if max_days:
+                    print(f"     - Max lookback for {config.interval}: {max_days} days")
                 return []
             
             # Convert to list of dicts
@@ -404,7 +530,75 @@ async def root():
         "endpoints": {
             "GET /config": "View current config",
             "PUT /config": "Update config (triggers immediate re-fetch)",
+            "POST /config/validate": "Validate config without applying",
+            "GET /constraints": "View Yahoo Finance constraints",
             "GET /status": "View producer status"
+        }
+    }
+
+
+class ValidationRequest(BaseModel):
+    """Request model for config validation."""
+    interval: Optional[str] = None
+    period: Optional[str] = None
+    start_date: Optional[str] = None
+
+
+class ValidationResponse(BaseModel):
+    """Response model for config validation."""
+    valid: bool
+    message: str
+    interval: str
+    period: str
+    start_date: Optional[str]
+    max_lookback_days: Optional[int] = None
+
+
+@app.post("/config/validate", response_model=ValidationResponse, tags=["Config"])
+async def validate_config_endpoint(request: ValidationRequest):
+    """
+    Validate a configuration without applying it.
+    
+    Use this to check if an interval/period combination is valid
+    before setting it.
+    """
+    current = config_manager.get_config()
+    
+    interval = request.interval or current.interval
+    period = request.period or current.period
+    start_date = request.start_date if request.start_date is not None else current.start_date
+    
+    if start_date == "":
+        start_date = None
+    
+    is_valid, error_msg = validate_config(interval, period, start_date)
+    
+    return ValidationResponse(
+        valid=is_valid,
+        message=error_msg if not is_valid else "Configuration is valid",
+        interval=interval,
+        period=period,
+        start_date=start_date,
+        max_lookback_days=INTERVAL_MAX_DAYS.get(interval)
+    )
+
+
+@app.get("/constraints", tags=["Config"])
+async def get_constraints():
+    """
+    Get Yahoo Finance constraints for intervals and periods.
+    
+    Useful for understanding what combinations are valid.
+    """
+    return {
+        "valid_intervals": VALID_INTERVALS,
+        "valid_periods": VALID_PERIODS,
+        "interval_max_days": INTERVAL_MAX_DAYS,
+        "period_approx_days": PERIOD_APPROX_DAYS,
+        "notes": {
+            "intraday_limits": "1m=7days, 2m/5m/15m/30m/90m=60days, 1h/60m/4h=730days (~2yrs)",
+            "daily_and_above": "1d, 5d, 1wk, 1mo, 3mo have no lookback limit",
+            "start_date": "When using start_date, period is ignored. Be mindful of intraday limits."
         }
     }
 
@@ -423,6 +617,11 @@ async def update_config(updates: ConfigUpdate):
     Changes take effect immediately - producer will re-fetch all 
     historical candles with new settings.
     
+    **Validation:**
+    - Interval must be one of: 1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 4h, 1d, 5d, 1wk, 1mo, 3mo
+    - Period must be one of: 1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max
+    - Intraday intervals have lookback limits (e.g., 1m = 7 days max, 5m/15m/30m = 60 days max)
+    
     Examples:
     - Change period: {"period": "6mo"}
     - Set start date: {"start_date": "2020-01-01"}
@@ -433,6 +632,23 @@ async def update_config(updates: ConfigUpdate):
     update_dict = updates.model_dump(exclude_none=True)
     if not update_dict:
         raise HTTPException(status_code=400, detail="No updates provided")
+    
+    # Get current config for validation
+    current = config_manager.get_config()
+    
+    # Determine final values after update
+    new_interval = update_dict.get("interval", current.interval)
+    new_period = update_dict.get("period", current.period)
+    new_start_date = update_dict.get("start_date", current.start_date)
+    
+    # Handle empty string for start_date (means clear it)
+    if new_start_date == "":
+        new_start_date = None
+    
+    # Validate the configuration
+    is_valid, error_msg = validate_config(new_interval, new_period, new_start_date)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=error_msg)
     
     return config_manager.update_config(update_dict)
 
