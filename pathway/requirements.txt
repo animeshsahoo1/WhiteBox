@@ -19,6 +19,9 @@ vaderSentiment>=3.3.2
 # PDF/Document Parsing
 landingai-ade  # Primary PDF/image parser
 
+# Drift detection with River
+river>=0.21.0
+
 # PostgreSQL
 psycopg2-binary>=2.9.0
 
