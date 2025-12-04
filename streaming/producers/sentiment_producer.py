@@ -2,6 +2,11 @@
 Enhanced Sentiment Producer with Reddit and Twitter Webhook support
 Sources: Reddit, Twitter (via webhook)
 Performs sentiment analysis on social media content about stocks
+
+Fetches three types of sentiment:
+- Company sentiment: Direct mentions of the stock symbol
+- Sector sentiment: Mentions of peer/competitor companies
+- Global sentiment: General market/economic discussions
 """
 
 import os
@@ -23,7 +28,24 @@ load_dotenv()
 
 
 class SentimentProducer(BaseProducer):
-    """Producer for social media sentiment analysis using Reddit and Twitter"""
+    """Producer for social media sentiment analysis using Reddit and Twitter
+    
+    Fetches three types of sentiment:
+    - Company sentiment: Direct mentions of the stock symbol
+    - Sector sentiment: Mentions of peer/competitor companies in same sector
+    - Global sentiment: General market/economic discussions affecting all stocks
+    """
+    
+    # Global/Macro subreddits for market-wide sentiment
+    GLOBAL_SUBREDDITS = ['economy', 'finance', 'economics', 'business', 'news']
+    
+    # Macro keywords for global sentiment search
+    MACRO_KEYWORDS = [
+        'stock market', 'Fed', 'Federal Reserve', 'inflation', 
+        'recession', 'bull market', 'bear market', 'interest rates',
+        'GDP', 'unemployment', 'earnings season', 'S&P 500', 'Dow Jones',
+        'NASDAQ', 'market crash', 'rally', 'economic outlook'
+    ]
     
     def __init__(self):
         stocks = os.getenv('STOCKS', 'AAPL,TSLA,NVDA').split(',')
@@ -34,6 +56,21 @@ class SentimentProducer(BaseProducer):
             fetch_interval=fetch_interval,
             stocks=stocks
         )
+        
+        # FMP API for peer data (shared cache with news producer)
+        self.fmp_key = os.getenv('FMP_API_KEY', '')
+        
+        # Cache for stock peers (shared with news producer)
+        self.peers_cache_file = os.path.join(os.path.dirname(__file__), 'peers_cache.json')
+        self.peers_cache = self._load_peers_cache()
+        
+        # Cache for stock profiles (shared with news producer)
+        self.profile_cache_file = os.path.join(os.path.dirname(__file__), 'profile_cache.json')
+        self.profile_cache = self._load_profile_cache()
+        
+        # Track last global sentiment fetch
+        self.last_global_fetch = None
+        self.global_fetch_interval = 1800  # Fetch global sentiment every 30 min
         
         # Twitter Webhook Configuration
         self.twitter_api_key = os.getenv('TWITTER_API_KEY', '')
@@ -80,6 +117,128 @@ class SentimentProducer(BaseProducer):
         
         # Sentiment analyzers
         self.vader_analyzer = None
+    
+    # ==================== PEER & PROFILE CACHE (SHARED WITH NEWS PRODUCER) ====================
+    
+    def _load_peers_cache(self):
+        """Load cached peer companies (shared with news producer)"""
+        if os.path.exists(self.peers_cache_file):
+            try:
+                with open(self.peers_cache_file, 'r') as f:
+                    cache = json.load(f)
+                    # Check if cache is still valid (24 hours)
+                    if cache.get('timestamp'):
+                        cache_time = datetime.fromisoformat(cache['timestamp'])
+                        if datetime.now() - cache_time < timedelta(hours=24):
+                            print(f"  📦 Loaded peers cache with {len(cache.get('peers', {}))} stocks")
+                            return cache.get('peers', {})
+            except:
+                pass
+        return {}
+    
+    def _save_peers_cache(self):
+        """Save peer companies cache"""
+        try:
+            with open(self.peers_cache_file, 'w') as f:
+                json.dump({
+                    'timestamp': datetime.now().isoformat(),
+                    'peers': self.peers_cache
+                }, f, indent=2)
+        except Exception as e:
+            print(f"Warning: Could not save peers cache: {e}")
+    
+    def _load_profile_cache(self):
+        """Load cached stock profiles (shared with news producer)"""
+        if os.path.exists(self.profile_cache_file):
+            try:
+                with open(self.profile_cache_file, 'r') as f:
+                    cache = json.load(f)
+                    # Profiles rarely change, cache for 7 days
+                    if cache.get('timestamp'):
+                        cache_time = datetime.fromisoformat(cache['timestamp'])
+                        if datetime.now() - cache_time < timedelta(days=7):
+                            print(f"  📦 Loaded profile cache with {len(cache.get('profiles', {}))} stocks")
+                            return cache.get('profiles', {})
+            except:
+                pass
+        return {}
+    
+    def _save_profile_cache(self):
+        """Save stock profile cache"""
+        try:
+            with open(self.profile_cache_file, 'w') as f:
+                json.dump({
+                    'timestamp': datetime.now().isoformat(),
+                    'profiles': self.profile_cache
+                }, f, indent=2)
+        except Exception as e:
+            print(f"Warning: Could not save profile cache: {e}")
+    
+    def _get_stock_peers(self, stock_symbol: str) -> List[str]:
+        """Get peer companies for a stock from FMP API - uses cache"""
+        # Check cache first
+        if stock_symbol in self.peers_cache:
+            return self.peers_cache[stock_symbol]
+        
+        if not self.fmp_key:
+            print(f"  ⚠️  No FMP API key, cannot fetch peers for {stock_symbol}")
+            return []
+        
+        try:
+            url = "https://financialmodelingprep.com/stable/stock-peers"
+            params = {'symbol': stock_symbol, 'apikey': self.fmp_key}
+            
+            response = requests.get(url, params=params, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data and isinstance(data, list) and len(data) > 0:
+                    peers = data[0].get('peersList', [])
+                    # Cache the result
+                    self.peers_cache[stock_symbol] = peers
+                    self._save_peers_cache()
+                    print(f"  📊 [{stock_symbol}] Found {len(peers)} peers: {peers[:5]}...")
+                    return peers
+            
+            print(f"  ⚠️  [{stock_symbol}] No peers found from FMP")
+            return []
+            
+        except Exception as e:
+            print(f"  ⚠️  [{stock_symbol}] Error fetching peers: {e}")
+            return []
+    
+    def _get_stock_profile(self, stock_symbol: str) -> Optional[Dict]:
+        """Get stock profile (sector, industry) from FMP - uses cache"""
+        # Check cache first
+        if stock_symbol in self.profile_cache:
+            return self.profile_cache[stock_symbol]
+        
+        if not self.fmp_key:
+            return None
+        
+        try:
+            url = "https://financialmodelingprep.com/stable/profile"
+            params = {'symbol': stock_symbol, 'apikey': self.fmp_key}
+            
+            response = requests.get(url, params=params, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data and isinstance(data, list) and len(data) > 0:
+                    profile = data[0]
+                    # Cache the result
+                    self.profile_cache[stock_symbol] = profile
+                    self._save_profile_cache()
+                    sector = profile.get('sector', 'Unknown')
+                    industry = profile.get('industry', 'Unknown')
+                    print(f"  📊 [{stock_symbol}] Profile: {sector} / {industry}")
+                    return profile
+            
+            return None
+            
+        except Exception as e:
+            print(f"  ⚠️  [{stock_symbol}] Error fetching profile: {e}")
+            return None
     
     def _load_reddit_accounts(self) -> List[Dict]:
         """Load multiple Reddit accounts from comma-separated environment variables"""
@@ -508,6 +667,8 @@ class SentimentProducer(BaseProducer):
                     'created_utc': created_at,
                     'match_type': 'twitter_webhook',
                     'timestamp': datetime.now().isoformat(),
+                    'sentiment_type': 'company',  # Direct company sentiment
+                    'related_to': stock_symbol,   # Self-reference for company sentiment
                 }
                 
                 processed_tweets.append(tweet_data)
@@ -657,7 +818,10 @@ class SentimentProducer(BaseProducer):
             return 'neutral'
 
     def fetch_and_send(self):
-        """Override to group posts by symbol before sending"""
+        """Override to group posts by symbol before sending - includes company, sector, and global sentiment
+        
+        Global sentiment is duplicated and attached to each stock for easier downstream processing.
+        """
         print(f"\n[{self.name}] [{datetime.now().strftime('%H:%M:%S')}] Starting fetch cycle...")
         
         self._print_source_status()
@@ -666,14 +830,58 @@ class SentimentProducer(BaseProducer):
         all_posts = []
         twitter_posts = []
         reddit_posts = []
+        global_posts_cache = []  # Cache global posts to duplicate for each stock
+        sector_posts = []
+        company_posts = []
         
+        # ==================== GLOBAL SENTIMENT (once per cycle, cached for duplication) ====================
+        should_fetch_global = (
+            self.last_global_fetch is None or
+            (datetime.now() - self.last_global_fetch).total_seconds() >= self.global_fetch_interval
+        )
+        
+        if should_fetch_global:
+            print(f"\n{'='*60}")
+            print(f"🌍 Fetching GLOBAL/MACRO market sentiment...")
+            print(f"{'='*60}")
+            
+            global_data = self._fetch_global_sentiment_reddit()
+            if global_data:
+                global_posts_cache.extend(global_data)
+                for post in global_data:
+                    if post.get('subreddit') == 'twitter':
+                        twitter_posts.append(post)
+                    else:
+                        reddit_posts.append(post)
+                print(f"  ✅ Fetched {len(global_data)} global sentiment posts (will attach to each stock)")
+            
+            # Also try Twitter advanced search for global sentiment
+            if self.twitter_api_key:
+                twitter_global = self._fetch_global_sentiment_twitter()
+                if twitter_global:
+                    global_posts_cache.extend(twitter_global)
+                    twitter_posts.extend(twitter_global)
+                    print(f"  ✅ Fetched {len(twitter_global)} global tweets (will attach to each stock)")
+            
+            self.last_global_fetch = datetime.now()
+        else:
+            time_since = (datetime.now() - self.last_global_fetch).total_seconds()
+            print(f"  ⏭️  Skipping global sentiment (fetched {time_since:.0f}s ago, interval: {self.global_fetch_interval}s)")
+        
+        # ==================== COMPANY & SECTOR SENTIMENT (per stock) ====================
         for stock in self.stocks:
             try:
+                print(f"\n{'='*60}")
+                print(f"📈 Processing {stock}: Company + Sector + Global sentiment")
+                print(f"{'='*60}")
+                
+                # --- Company Sentiment (existing logic) ---
                 data = self.fetch_data_with_fallback(stock)
                 
                 if data:
                     if isinstance(data, list):
                         all_posts.extend(data)
+                        company_posts.extend(data)
                         # Separate by source for logging
                         for post in data:
                             if post.get('subreddit') == 'twitter' or post.get('match_type') == 'twitter_webhook':
@@ -682,15 +890,49 @@ class SentimentProducer(BaseProducer):
                                 reddit_posts.append(post)
                     else:
                         all_posts.append(data)
+                        company_posts.append(data)
                         if data.get('subreddit') == 'twitter' or data.get('match_type') == 'twitter_webhook':
                             twitter_posts.append(data)
                         else:
                             reddit_posts.append(data)
                 
+                # --- Sector/Peer Sentiment (NEW) ---
+                peer_data = self._fetch_peer_sentiment_reddit(stock)
+                if peer_data:
+                    all_posts.extend(peer_data)
+                    sector_posts.extend(peer_data)
+                    for post in peer_data:
+                        if post.get('subreddit') == 'twitter':
+                            twitter_posts.append(post)
+                        else:
+                            reddit_posts.append(post)
+                    print(f"  ✅ [{stock}] Fetched {len(peer_data)} sector/peer sentiment posts")
+                
+                # Also try Twitter for peer sentiment
+                if self.twitter_api_key:
+                    twitter_peer = self._fetch_peer_sentiment_twitter(stock)
+                    if twitter_peer:
+                        all_posts.extend(twitter_peer)
+                        sector_posts.extend(twitter_peer)
+                        twitter_posts.extend(twitter_peer)
+                        print(f"  ✅ [{stock}] Fetched {len(twitter_peer)} sector tweets")
+                
+                # --- Attach Global Sentiment to this stock (duplicate with stock's symbol) ---
+                if global_posts_cache:
+                    for global_post in global_posts_cache:
+                        # Create a copy with this stock's symbol
+                        stock_global_post = global_post.copy()
+                        stock_global_post['ticker_symbol'] = stock  # Attach to this stock
+                        stock_global_post['related_to'] = 'GLOBAL'  # Mark original source
+                        all_posts.append(stock_global_post)
+                    print(f"  ✅ [{stock}] Attached {len(global_posts_cache)} global sentiment posts")
+                
                 # Sleep 5 seconds between stocks to respect Twitter API free tier rate limit (1 req/5sec)
                 time.sleep(5)
             except Exception as e:
                 print(f"  ❌ [{stock}] Processing error: {e}")
+                import traceback
+                traceback.print_exc()
         
         # Log the data
         if all_posts and self.enable_logging:
@@ -705,13 +947,22 @@ class SentimentProducer(BaseProducer):
                 send_to_kafka(self.producer, self.kafka_topic, grouped_message)
                 print(f"  ✅ [{symbol}] Sent {grouped_message['posts_count']} posts to Kafka")
         
+        # Calculate counts for summary
+        global_count_per_stock = len(global_posts_cache)
+        total_global_attached = global_count_per_stock * len(self.stocks)
+        
         # Print summary with source breakdown
-        if twitter_posts or reddit_posts:
-            print(f"\n  📊 Source Breakdown:")
-            if twitter_posts:
-                print(f"     🐦 Twitter: {len(twitter_posts)} tweets")
-            if reddit_posts:
-                print(f"     🔴 Reddit: {len(reddit_posts)} posts")
+        print(f"\n{'='*60}")
+        print(f"📊 SENTIMENT FETCH SUMMARY")
+        print(f"{'='*60}")
+        print(f"  📦 Total posts: {len(all_posts)}")
+        print(f"  🏢 Company sentiment: {len(company_posts)}")
+        print(f"  🏭 Sector/Peer sentiment: {len(sector_posts)}")
+        print(f"  🌍 Global/Macro sentiment: {global_count_per_stock} unique × {len(self.stocks)} stocks = {total_global_attached} attached")
+        print(f"  ---")
+        print(f"  🐦 Twitter: {len(twitter_posts)}")
+        print(f"  🔴 Reddit: {len(reddit_posts)}")
+        print(f"{'='*60}\n")
         
         self._print_fetch_summary()
     
@@ -942,6 +1193,8 @@ class SentimentProducer(BaseProducer):
                         'created_utc': datetime.fromtimestamp(post.created_utc).isoformat(),
                         'match_type': match_type,
                         'timestamp': datetime.now().isoformat(),
+                        'sentiment_type': 'company',  # Direct company sentiment
+                        'related_to': stock_symbol,   # Self-reference for company sentiment
                     }
                     
                     all_posts_data.append(post_data)
@@ -962,8 +1215,385 @@ class SentimentProducer(BaseProducer):
             current_idx = self.current_reddit_index
             print(f"  📊 API Usage: Account {current_idx + 1}/{len(self.reddit_accounts)} used {self.api_calls[current_idx]}/{self.max_calls_per_minute} calls")
         
-        print(f"  📦 [{stock_symbol}] Total posts collected: {len(all_posts_data)}")
+        print(f"  📦 [{stock_symbol}] Total company posts collected: {len(all_posts_data)}")
         return all_posts_data if all_posts_data else None
+    
+    # ==================== GLOBAL SENTIMENT METHODS ====================
+    
+    def _fetch_global_sentiment_reddit(self) -> Optional[List[Dict]]:
+        """Fetch global/macro market sentiment from economic subreddits"""
+        all_posts_data = []
+        
+        print(f"  🌍 Searching global subreddits: {self.GLOBAL_SUBREDDITS}")
+        
+        # Use combined subreddit search for efficiency
+        combined_subreddits = '+'.join(self.GLOBAL_SUBREDDITS)
+        
+        try:
+            reddit = self._get_reddit_client()
+            if not reddit:
+                print(f"  ❌ No Reddit client available for global sentiment")
+                return None
+            
+            subreddit = reddit.subreddit(combined_subreddits)
+            
+            # Search for macro keywords
+            search_queries = [
+                'stock market',
+                'Fed OR "Federal Reserve"',
+                'inflation OR recession',
+                'bull market OR bear market',
+                'S&P 500 OR NASDAQ OR "Dow Jones"',
+            ]
+            
+            posts_list = []
+            posts_seen_ids = set()
+            
+            for query in search_queries[:3]:  # Limit to 3 queries to conserve API calls
+                try:
+                    results = list(subreddit.search(
+                        query,
+                        limit=10,  # Fewer per query for global
+                        time_filter='day',  # Recent macro news
+                        sort='hot'
+                    ))
+                    
+                    for post in results:
+                        if post.id not in posts_seen_ids:
+                            posts_list.append(post)
+                            posts_seen_ids.add(post.id)
+                    
+                    if len(posts_list) >= 20:
+                        break
+                        
+                except Exception as e:
+                    print(f"  ⚠️  Global search error for '{query}': {e}")
+                    continue
+            
+            print(f"  📊 Found {len(posts_list)} global/macro posts")
+            
+            for post in posts_list:
+                self.api_calls[self.current_reddit_index] += 1
+                
+                post_id = f"reddit_global_{post.id}"
+                
+                # Skip if already seen
+                if post_id in self.seen_posts:
+                    continue
+                
+                # Mark as seen
+                self.seen_posts[post_id] = datetime.now().timestamp()
+                if len(self.seen_posts) > self.seen_posts_max_size:
+                    self.seen_posts.popitem(last=False)
+                
+                # Sentiment analysis
+                title_sentiment = self.analyze_sentiment_vader(post.title)
+                content_sentiment = self.analyze_sentiment_vader(post.selftext if post.selftext else "")
+                
+                # Format data - use 'MARKET' as ticker for global posts
+                post_data = {
+                    'post_id': post_id,
+                    'ticker_symbol': 'MARKET',  # Special symbol for global sentiment
+                    'company_name': 'Global Market',
+                    'subreddit': post.subreddit.display_name if hasattr(post.subreddit, 'display_name') else 'global',
+                    'post_title': post.title,
+                    'post_content': post.selftext[:500] if post.selftext else "",
+                    'post_comments': "",
+                    'sentiment_post_title': round(title_sentiment, 4),
+                    'sentiment_post_content': round(content_sentiment, 4),
+                    'sentiment_comments': 0.0,
+                    'post_url': f"https://reddit.com{post.permalink}",
+                    'num_comments': post.num_comments,
+                    'score': post.score,
+                    'created_utc': datetime.fromtimestamp(post.created_utc).isoformat(),
+                    'match_type': 'global_macro',
+                    'timestamp': datetime.now().isoformat(),
+                    'sentiment_type': 'global',
+                    'related_to': 'MARKET',
+                }
+                
+                all_posts_data.append(post_data)
+            
+            print(f"  📦 Global sentiment: {len(all_posts_data)} posts collected")
+            return all_posts_data if all_posts_data else None
+            
+        except Exception as e:
+            print(f"  ❌ Error fetching global sentiment: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def _fetch_global_sentiment_twitter(self) -> Optional[List[Dict]]:
+        """Fetch global/macro sentiment from Twitter using advanced search"""
+        if not self.twitter_api_key:
+            return None
+        
+        try:
+            url = "https://api.twitterapi.io/twitter/tweet/advanced_search"
+            headers = {
+                "X-API-Key": self.twitter_api_key,
+                "Content-Type": "application/json"
+            }
+            
+            # Search for market-wide keywords
+            query = '("stock market" OR "S&P 500" OR NASDAQ OR "Federal Reserve" OR "market crash" OR "bull market" OR "bear market") lang:en'
+            
+            params = {
+                "query": query,
+                "queryType": "Latest"
+            }
+            
+            print(f"  🐦 Searching Twitter for global sentiment...")
+            
+            response = requests.get(url, headers=headers, params=params, timeout=15)
+            
+            if response.status_code != 200:
+                print(f"  ⚠️  Twitter global search failed: {response.status_code}")
+                return None
+            
+            data = response.json()
+            tweets = data.get('tweets', [])
+            
+            if not tweets:
+                print(f"  ℹ️  No global tweets found")
+                return None
+            
+            processed_tweets = []
+            
+            for tweet in tweets[:15]:  # Limit to 15 global tweets
+                tweet_id = tweet.get('id')
+                
+                if f"twitter_global_{tweet_id}" in self.seen_posts:
+                    continue
+                
+                self.seen_posts[f"twitter_global_{tweet_id}"] = datetime.now().timestamp()
+                if len(self.seen_posts) > self.seen_posts_max_size:
+                    self.seen_posts.popitem(last=False)
+                
+                text = tweet.get('text', '')
+                author = tweet.get('author', {})
+                username = author.get('userName', 'unknown') if isinstance(author, dict) else 'unknown'
+                
+                sentiment_score = self.analyze_sentiment_vader(text)
+                
+                tweet_data = {
+                    'post_id': f"twitter_global_{tweet_id}",
+                    'ticker_symbol': 'MARKET',
+                    'company_name': 'Global Market',
+                    'subreddit': 'twitter',
+                    'post_title': text[:100] + '...' if len(text) > 100 else text,
+                    'post_content': text,
+                    'post_comments': '',
+                    'sentiment_post_title': round(sentiment_score, 4),
+                    'sentiment_post_content': round(sentiment_score, 4),
+                    'sentiment_comments': 0.0,
+                    'post_url': f"https://twitter.com/{username}/status/{tweet_id}",
+                    'num_comments': tweet.get('replyCount', 0),
+                    'score': tweet.get('likeCount', 0),
+                    'created_utc': tweet.get('createdAt', datetime.now().isoformat()),
+                    'match_type': 'twitter_global_search',
+                    'timestamp': datetime.now().isoformat(),
+                    'sentiment_type': 'global',
+                    'related_to': 'MARKET',
+                }
+                
+                processed_tweets.append(tweet_data)
+            
+            print(f"  📦 Global Twitter sentiment: {len(processed_tweets)} tweets collected")
+            return processed_tweets if processed_tweets else None
+            
+        except Exception as e:
+            print(f"  ❌ Error fetching global Twitter sentiment: {e}")
+            return None
+    
+    # ==================== SECTOR/PEER SENTIMENT METHODS ====================
+    
+    def _fetch_peer_sentiment_reddit(self, stock_symbol: str) -> Optional[List[Dict]]:
+        """Fetch sentiment for peer/competitor companies in the same sector"""
+        # Get peer companies
+        peers = self._get_stock_peers(stock_symbol)
+        
+        if not peers:
+            print(f"  ℹ️  [{stock_symbol}] No peers found, skipping sector sentiment")
+            return None
+        
+        # Limit to top 3 peers to conserve API calls
+        peers_to_search = peers[:3]
+        print(f"  🏭 [{stock_symbol}] Fetching sector sentiment for peers: {peers_to_search}")
+        
+        all_posts_data = []
+        
+        for peer_symbol in peers_to_search:
+            try:
+                reddit = self._get_reddit_client()
+                if not reddit:
+                    continue
+                
+                # Search in financial subreddits
+                combined_subreddits = '+'.join(self.subreddits[:3])  # Use top 3 subreddits
+                subreddit = reddit.subreddit(combined_subreddits)
+                
+                search_queries = [f"${peer_symbol}", peer_symbol]
+                posts_list = []
+                posts_seen_ids = set()
+                
+                for query in search_queries:
+                    try:
+                        results = list(subreddit.search(
+                            query,
+                            limit=10,
+                            time_filter='week',
+                            sort='relevance'
+                        ))
+                        
+                        for post in results:
+                            if post.id not in posts_seen_ids:
+                                posts_list.append(post)
+                                posts_seen_ids.add(post.id)
+                        
+                        if len(posts_list) >= 10:
+                            break
+                            
+                    except Exception as e:
+                        continue
+                
+                for post in posts_list:
+                    self.api_calls[self.current_reddit_index] += 1
+                    
+                    post_id = f"reddit_peer_{peer_symbol}_{post.id}"
+                    
+                    if post_id in self.seen_posts:
+                        continue
+                    
+                    self.seen_posts[post_id] = datetime.now().timestamp()
+                    if len(self.seen_posts) > self.seen_posts_max_size:
+                        self.seen_posts.popitem(last=False)
+                    
+                    title_sentiment = self.analyze_sentiment_vader(post.title)
+                    content_sentiment = self.analyze_sentiment_vader(post.selftext if post.selftext else "")
+                    
+                    # IMPORTANT: ticker_symbol is the ORIGINAL stock, peer is in related_to
+                    post_data = {
+                        'post_id': post_id,
+                        'ticker_symbol': stock_symbol,  # Original stock we're researching
+                        'company_name': self.ticker_to_company.get(stock_symbol, stock_symbol),
+                        'subreddit': post.subreddit.display_name if hasattr(post.subreddit, 'display_name') else 'unknown',
+                        'post_title': post.title,
+                        'post_content': post.selftext[:500] if post.selftext else "",
+                        'post_comments': "",
+                        'sentiment_post_title': round(title_sentiment, 4),
+                        'sentiment_post_content': round(content_sentiment, 4),
+                        'sentiment_comments': 0.0,
+                        'post_url': f"https://reddit.com{post.permalink}",
+                        'num_comments': post.num_comments,
+                        'score': post.score,
+                        'created_utc': datetime.fromtimestamp(post.created_utc).isoformat(),
+                        'match_type': f'peer_{peer_symbol}',
+                        'timestamp': datetime.now().isoformat(),
+                        'sentiment_type': 'sector',
+                        'related_to': peer_symbol,  # The peer company this post is about
+                    }
+                    
+                    all_posts_data.append(post_data)
+                
+                # Small delay between peers
+                time.sleep(0.5)
+                
+            except Exception as e:
+                print(f"  ⚠️  Error fetching peer {peer_symbol}: {e}")
+                continue
+        
+        print(f"  📦 [{stock_symbol}] Sector sentiment: {len(all_posts_data)} posts from {len(peers_to_search)} peers")
+        return all_posts_data if all_posts_data else None
+    
+    def _fetch_peer_sentiment_twitter(self, stock_symbol: str) -> Optional[List[Dict]]:
+        """Fetch Twitter sentiment for peer companies using advanced search"""
+        if not self.twitter_api_key:
+            return None
+        
+        peers = self._get_stock_peers(stock_symbol)
+        
+        if not peers:
+            return None
+        
+        # Limit to top 2 peers for Twitter (costs money)
+        peers_to_search = peers[:2]
+        
+        try:
+            url = "https://api.twitterapi.io/twitter/tweet/advanced_search"
+            headers = {
+                "X-API-Key": self.twitter_api_key,
+                "Content-Type": "application/json"
+            }
+            
+            all_tweets = []
+            
+            for peer_symbol in peers_to_search:
+                query = f"(${peer_symbol} OR {peer_symbol}) lang:en"
+                
+                params = {
+                    "query": query,
+                    "queryType": "Latest"
+                }
+                
+                try:
+                    response = requests.get(url, headers=headers, params=params, timeout=15)
+                    
+                    if response.status_code != 200:
+                        continue
+                    
+                    data = response.json()
+                    tweets = data.get('tweets', [])
+                    
+                    for tweet in tweets[:10]:  # Limit per peer
+                        tweet_id = tweet.get('id')
+                        
+                        if f"twitter_peer_{peer_symbol}_{tweet_id}" in self.seen_posts:
+                            continue
+                        
+                        self.seen_posts[f"twitter_peer_{peer_symbol}_{tweet_id}"] = datetime.now().timestamp()
+                        if len(self.seen_posts) > self.seen_posts_max_size:
+                            self.seen_posts.popitem(last=False)
+                        
+                        text = tweet.get('text', '')
+                        author = tweet.get('author', {})
+                        username = author.get('userName', 'unknown') if isinstance(author, dict) else 'unknown'
+                        
+                        sentiment_score = self.analyze_sentiment_vader(text)
+                        
+                        tweet_data = {
+                            'post_id': f"twitter_peer_{peer_symbol}_{tweet_id}",
+                            'ticker_symbol': stock_symbol,  # Original stock
+                            'company_name': self.ticker_to_company.get(stock_symbol, stock_symbol),
+                            'subreddit': 'twitter',
+                            'post_title': text[:100] + '...' if len(text) > 100 else text,
+                            'post_content': text,
+                            'post_comments': '',
+                            'sentiment_post_title': round(sentiment_score, 4),
+                            'sentiment_post_content': round(sentiment_score, 4),
+                            'sentiment_comments': 0.0,
+                            'post_url': f"https://twitter.com/{username}/status/{tweet_id}",
+                            'num_comments': tweet.get('replyCount', 0),
+                            'score': tweet.get('likeCount', 0),
+                            'created_utc': tweet.get('createdAt', datetime.now().isoformat()),
+                            'match_type': f'twitter_peer_{peer_symbol}',
+                            'timestamp': datetime.now().isoformat(),
+                            'sentiment_type': 'sector',
+                            'related_to': peer_symbol,
+                        }
+                        
+                        all_tweets.append(tweet_data)
+                    
+                    time.sleep(0.5)  # Rate limiting
+                    
+                except Exception as e:
+                    continue
+            
+            return all_tweets if all_tweets else None
+            
+        except Exception as e:
+            print(f"  ❌ Error fetching peer Twitter sentiment: {e}")
+            return None
     
     def _get_post_comments(self, post, limit=10) -> List[str]:
         """Fetch top-level comments from Reddit post"""
@@ -979,16 +1609,6 @@ class SentimentProducer(BaseProducer):
             return comment_texts
         except:
             return []
-
-
-def main():
-    """For standalone testing"""
-    producer = SentimentProducer()
-    producer.run()
-
-
-if __name__ == '__main__':
-    main()
 
 
 def main():
