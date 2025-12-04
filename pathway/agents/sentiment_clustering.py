@@ -30,10 +30,10 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 # Event publishing imports
 try:
     from redis_cache import get_redis_client
-    from event_publisher import publish_agent_status, publish_report
+    from event_publisher import publish_agent_status, publish_report, publish_alert
 except ImportError:
     from .redis_cache import get_redis_client
-    from .event_publisher import publish_agent_status, publish_report
+    from .event_publisher import publish_agent_status, publish_report, publish_alert
 
 
 load_dotenv()
@@ -58,36 +58,49 @@ CLUSTERS_OUTPUT_DIR = os.getenv("SENTIMENT_CLUSTERS_DIR", "/app/reports/sentimen
 _sentiment_alert_cooldowns = {}
 
 def trigger_sentiment_alert(symbol: str, overall_sentiment: float):
-    """Trigger BullBear alert if sentiment crosses threshold."""
-    import httpx
+    """Trigger alert if sentiment crosses threshold (pure math, no LLM)."""
     
     alert_min = float(os.getenv("SENTIMENT_ALERT_MIN", "-0.3"))
     alert_max = float(os.getenv("SENTIMENT_ALERT_MAX", "0.3"))
     alerts_enabled = os.getenv("SENTIMENT_ALERT_ENABLED", "true").lower() == "true"
     alert_cooldown = int(os.getenv("SENTIMENT_ALERT_COOLDOWN", "300"))
-    bullbear_url = os.getenv("BULLBEAR_API_URL", "http://unified-api:8000")
     
     if not alerts_enabled:
         return
     
+    # Check if sentiment crosses thresholds
     if overall_sentiment < alert_min or overall_sentiment > alert_max:
         now = datetime.now()
         last = _sentiment_alert_cooldowns.get(symbol)
-        print("*"*20)
-        print(last)
-        if not last or (now - last).total_seconds() >= alert_cooldown:
-            direction = "bearish" if overall_sentiment < alert_min else "bullish"
-            print(f"🚨 [{symbol}] SENTIMENT ALERT: {direction} ({overall_sentiment:.3f})")
-            try:
-                httpx.post(
-                    f"{bullbear_url}/debate/{symbol}",
-                    json={"max_rounds": 2, "background": True},
-                    timeout=10.0
-                )
-                _sentiment_alert_cooldowns[symbol] = now
-                print(f"✅ [{symbol}] BullBear debate triggered at {now.isoformat()}")
-            except Exception as e:
-                print(f"⚠️ [{symbol}] Alert failed: {e}")
+        
+        if last and (now - last).total_seconds() < alert_cooldown:
+            return
+        
+        # Determine direction and severity
+        if overall_sentiment < alert_min:
+            direction = "bearish"
+            severity = "critical" if overall_sentiment < -0.5 else "high"
+        else:
+            direction = "bullish"
+            severity = "critical" if overall_sentiment > 0.5 else "high"
+        
+        reason = f"Extreme {direction} sentiment detected ({overall_sentiment:.3f})"
+        print(f"🚨 [{symbol}] SENTIMENT ALERT: {reason}")
+        
+        try:
+            redis_client = get_redis_client()
+            publish_alert(
+                symbol=symbol,
+                alert_type="sentiment",
+                reason=reason,
+                severity=severity,
+                redis_sync=redis_client,
+                trigger_debate=True
+            )
+            _sentiment_alert_cooldowns[symbol] = now
+            print(f"✅ [{symbol}] Sentiment alert published at {now.isoformat()}")
+        except Exception as e:
+            print(f"⚠️ [{symbol}] Sentiment alert failed: {e}")
 
 
 def get_embedding(text: str) -> list:
