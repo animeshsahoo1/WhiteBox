@@ -146,28 +146,35 @@ def create_indicator_agent(llm):
         prompt_content = [
             {
                 "type": "text",
-                "text": f"""You are a HIGH-FREQUENCY TRADING technical indicator analyst.
-Analyze the following PRECOMPUTED indicators for {stock_name} ({time_frame} timeframe):
+                "text": f"""TECHNICAL MOMENTUM SCAN: {stock_name} ({time_frame})
 
-📊 INDICATOR VALUES (latest 5 periods):
-• RSI (14): {latest_rsi}
-• MACD: {latest_macd}
-• MACD Signal: {latest_macd_signal}
-• MACD Histogram: {latest_macd_hist}
-• Stochastic %K: {latest_stoch_k}
-• Stochastic %D: {latest_stoch_d}
-• Rate of Change: {latest_roc}
-• Williams %R: {latest_willr}
+LIVE READINGS (last 5 periods):
+• RSI(14): {latest_rsi}
+• MACD Line/Signal/Hist: {latest_macd} | {latest_macd_signal} | {latest_macd_hist}
+• Stochastic %K/%D: {latest_stoch_k} | {latest_stoch_d}
+• ROC(10): {latest_roc}
+• Williams %R(14): {latest_willr}
 
-Below are the visual plots for these indicators. Analyze the trends, divergences, and signals.
+[Indicator plots attached below]
 
-🎯 YOUR TASK:
-1. Interpret these indicators for HFT context using both values AND visual trends
-2. Identify overbought/oversold conditions
-3. Detect momentum shifts and divergences
-4. Provide actionable insights for short-term trading
+ANALYSIS FRAMEWORK:
 
-Be concise and focused on immediate trading signals."""
+1. MOMENTUM REGIME
+   • Current state: OVERBOUGHT (RSI>70, %K>80) | OVERSOLD (RSI<30, %K<20) | NEUTRAL
+   • Exhaustion signals: RSI divergence, MACD histogram contraction, %K/%D crossover
+   • Momentum velocity: ROC acceleration/deceleration, Williams %R thrust
+
+2. INDICATOR CONFLUENCE
+   • Alignment score: How many indicators agree on direction? (0-5 scale)
+   • Divergence alert: Price vs RSI/MACD divergence = potential reversal
+   • Lead indicators: Which is signaling first? (Stochastic leads, MACD confirms)
+
+3. TRADE SIGNAL
+   • Entry trigger: Specific condition (e.g., "RSI bouncing off 30 + MACD crossover")
+   • Invalidation: What reading kills the setup?
+   • Confidence: HIGH (4-5 align) | MEDIUM (2-3 align) | LOW (conflicting)
+
+Output format: Direct, numbers-based, skip fluff."""
             }
         ]
         
@@ -198,7 +205,7 @@ Be concise and focused on immediate trading signals."""
                 "image_url": {"url": f"data:image/png;base64,{willr_plot}"}
             })
         
-        system_msg = SystemMessage(content="You are an expert technical indicator analyst with visual chart interpretation skills.")
+        system_msg = SystemMessage(content="Quantitative momentum analyst. Parse indicator arrays, detect regime shifts, identify confluence. Output: actionable signals with specific trigger levels. No hedging language.")
         user_msg = HumanMessage(content=prompt_content)
         
         messages = state.get("messages", [])
@@ -241,46 +248,26 @@ def create_pattern_agent(llm):
             }
         
         pattern_definitions = """
-📈 CLASSIC CANDLESTICK PATTERNS:
-
-BULLISH PATTERNS:
-1. Inverse Head and Shoulders - Three lows, middle lowest, symmetrical
-2. Double Bottom - Two similar lows forming 'W' shape
-3. Rounded Bottom - Gradual decline then rise, 'U' shape
-4. Hidden Base - Horizontal consolidation before upward breakout
-5. Falling Wedge - Downward narrowing, usually breaks up
-6. Ascending Triangle - Rising support, flat resistance, breaks up
-7. Bullish Flag - Sharp rise, brief consolidation, continues up
-
-BEARISH PATTERNS:
-8. Rising Wedge - Upward narrowing, often breaks down
-9. Descending Triangle - Falling resistance, flat support, breaks down
-10. Bearish Flag - Sharp drop, brief rally, continues down
-
-NEUTRAL/REVERSAL:
-11. Rectangle - Horizontal support and resistance
-12. Island Reversal - Gaps isolate price island
-13. V-shaped Reversal - Sharp decline/rise reversal
-14. Rounded Top/Bottom - Arc-shaped peaking/bottoming
-15. Expanding Triangle - Widening highs and lows
-16. Symmetrical Triangle - Converging highs/lows, breakout pending
+KEY PATTERNS TO IDENTIFY:
+Bullish: Inverse H&S, Double Bottom, Falling Wedge, Ascending Triangle, Bullish Flag
+Bearish: Rising Wedge, Descending Triangle, Bearish Flag, Head & Shoulders
+Neutral: Rectangle, Symmetrical Triangle, Expanding Triangle
 """
         
         # Create vision prompt
         image_prompt = [
             {
                 "type": "text",
-                "text": f"""Analyze this candlestick chart for {stock_name} ({time_frame} timeframe).
-
+                "text": f"""Analyze this candlestick chart for {stock_name} ({time_frame}).
 {pattern_definitions}
+PROVIDE:
+1. PATTERN IDENTIFIED: Name + completion status (%)
+2. STRUCTURE: Key levels forming the pattern
+3. RELIABILITY: Historical accuracy of this pattern (high/medium/low)
+4. PRICE TARGET: Expected move based on pattern measurement
+5. INVALIDATION: Level where pattern fails
 
-🎯 YOUR TASK:
-1. Identify which pattern(s) are present in the chart
-2. Explain the pattern structure and key characteristics
-3. Assess pattern reliability and completion
-4. Predict likely price direction based on the pattern
-
-Focus on the most recent/relevant pattern for HFT decisions."""
+Focus on the most actionable pattern visible."""
             },
             {
                 "type": "image_url",
@@ -290,11 +277,11 @@ Focus on the most recent/relevant pattern for HFT decisions."""
         
         messages = state.get("messages", [])
         
-        print(f"📊 Pattern Agent analyzing {stock_name} chart...")
+        print(f"Pattern Agent analyzing {stock_name} chart...")
         final_response = invoke_with_retry(
             llm.invoke,
             [
-                SystemMessage(content="You are an expert candlestick pattern recognition specialist."),
+                SystemMessage(content="Chart pattern specialist. Identify formations using classical TA rules, calculate measured-move targets, assess completion probability. Quote specific price levels."),
                 HumanMessage(content=image_prompt),
             ],
         )
@@ -336,16 +323,30 @@ def create_trend_agent(llm):
         image_prompt = [
             {
                 "type": "text",
-                "text": f"""Analyze this trend chart for {stock_name} ({time_frame} timeframe).
+                "text": f"""TREND STRUCTURE ANALYSIS: {stock_name} ({time_frame})
 
-🎯 YOUR TASK:
-1. Identify support and resistance trendlines visible in the chart
-2. Determine overall trend direction (upward, downward, sideways)
-3. Assess trend strength and momentum
-4. Identify potential breakout or breakdown zones
-5. Provide SHORT-TERM trend prediction (next few periods)
+[Trend chart with support/resistance attached]
 
-Focus on actionable insights for high-frequency trading decisions."""
+TREND FRAMEWORK:
+
+1. MARKET STRUCTURE
+   • Primary trend: UPTREND (higher highs + higher lows) | DOWNTREND (lower highs + lower lows) | RANGE-BOUND
+   • Trend strength: STRONG (steep angle, no violations) | MODERATE (some noise) | WEAK (flat, choppy)
+   • Recent structure: Has the last swing violated the trend? (Higher low held? Lower high defended?)
+
+2. CRITICAL LEVELS
+   • Immediate resistance: [Price] — What's stopping upside NOW?
+   • Immediate support: [Price] — What's protecting downside NOW?
+   • Major levels: Swing highs/lows from this timeframe that matter
+   • Level quality: Tested multiple times? Clean rejection? Volume spike at level?
+
+3. TRENDLINE STATUS
+   • Primary trendline: INTACT (price respecting) | TESTING (currently at line) | BROKEN (decisive close through)
+   • Slope dynamics: Steepening (momentum increasing) | Flattening (momentum fading) | Curving (potential exhaustion)
+4. BREAKOUT RISK: Distance to nearest breakout/breakdown zone
+5. BIAS: Bullish/Bearish/Neutral for next 1-3 periods with confidence %
+
+Be precise with price levels."""
             },
             {
                 "type": "image_url",
@@ -355,11 +356,11 @@ Focus on actionable insights for high-frequency trading decisions."""
         
         messages = state.get("messages", [])
         
-        print(f"📈 Trend Agent analyzing {stock_name} trends...")
+        print(f"Trend Agent analyzing {stock_name} trends...")
         final_response = invoke_with_retry(
             llm.invoke,
             [
-                SystemMessage(content="You are an expert trend analysis and support/resistance specialist."),
+                SystemMessage(content="Trend structure analyst. Map support/resistance, assess trendline integrity, identify breakout/breakdown zones. Quote specific price levels with context."),
                 HumanMessage(content=image_prompt),
             ],
         )

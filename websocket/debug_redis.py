@@ -37,9 +37,9 @@ async def monitor_redis():
         print(f"🔗 Connected to local Redis")
     
     pubsub = redis.pubsub()
-    await pubsub.psubscribe('room:*')
+    await pubsub.psubscribe("room:*", "alerts", "reports")
+    print("🔍 Monitoring room:*, alerts, reports...")
     
-    print("🔍 Monitoring all room:* channels...")
     try:
         async for message in pubsub.listen():
             if message['type'] == 'pmessage':

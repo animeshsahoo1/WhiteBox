@@ -168,14 +168,14 @@ chart_llm = llm.with_structured_output(schema=CHART_SCHEMA)
 table_llm = llm.with_structured_output(schema=TABLE_SCHEMA)
 
 hallucination_grader_prompt = ChatPromptTemplate.from_messages([
-    ("system", "Grade if LLM generation is grounded in facts. Binary score 'yes' or 'no'."),
-    ("human", "Facts: {documents}\n\nGeneration: {generation}")
+    ("system", "Financial accuracy validator. Score 'yes' if metrics, ratios, and claims are directly supported by source data. Score 'no' if numbers appear fabricated, ratios miscalculated, or claims lack source attribution. Zero tolerance for invented financials."),
+    ("human", "SOURCE DATA:\n{documents}\n\nGENERATED CONTENT:\n{generation}")
 ])
 hallucination_grader = hallucination_grader_prompt | llm.with_structured_output(GradeHallucinations)
 
 answer_grader_prompt = ChatPromptTemplate.from_messages([
-    ("system", "Grade if answer addresses section goal. Binary score 'yes' or 'no'."),
-    ("human", "Goal: {goal}\n\nAnswer: {generation}")
+    ("system", "Section completeness validator. Score 'yes' if: (1) addresses the section goal directly, (2) includes specific metrics/numbers, (3) provides actionable insight. Score 'no' if: generic filler, missing key data points, or irrelevant tangent."),
+    ("human", "SECTION OBJECTIVE: {goal}\n\nGENERATED CONTENT:\n{generation}")
 ])
 answer_grader = answer_grader_prompt | llm.with_structured_output(GradeAnswer)
 
@@ -320,23 +320,20 @@ def generate_section_node(state: ReportState) -> Dict:
     
     if section_name == "Data Visualizations":
         system_prompt = (
-            "You must output ONLY valid JSON compliant with the chart schema below. "
-            "No prose or explanations.\n\nSchema:\n"
-            f"{json.dumps(CHART_SCHEMA, indent=2)}\n\nRules:\n"
-            "- chart_type must be one of bar, line, pie\n"
-            "- Use real numbers from the provided data\n"
-            "- data must be an array of objects with numeric fields"
+            "Output ONLY valid JSON matching this schema:\n"
+            f"{json.dumps(CHART_SCHEMA, indent=2)}\n\n"
+            "Rules: chart_type in [bar,line,pie], use real numbers from data, data is array of objects."
         )
 
-        user_prompt = f"""Symbol: {state['symbol']}
+        user_prompt = f"""{state['symbol']} Charts
 
-Financial Data:
+Data:
 {fundamental_data[:2000]}
 
 Context:
 {tools_output[:1000]}
 
-Return chart JSON now."""
+Generate 2-3 relevant charts (revenue trend, margins, etc)."""
 
         messages = [
             SystemMessage(content=system_prompt),
@@ -353,23 +350,20 @@ Return chart JSON now."""
     
     if section_name == "Tabular Insights":
         system_prompt = (
-            "You must output ONLY valid JSON compliant with the table schema below. "
-            "No prose or explanations.\n\nSchema:\n"
-            f"{json.dumps(TABLE_SCHEMA, indent=2)}\n\nRules:\n"
-            "- Include at least one table\n"
-            "- columns is an array of strings\n"
-            "- rows is an array of arrays, each matching the columns order"
+            "Output ONLY valid JSON matching this schema:\n"
+            f"{json.dumps(TABLE_SCHEMA, indent=2)}\n\n"
+            "Rules: columns is string array, rows is array of arrays matching columns order."
         )
 
-        user_prompt = f"""Symbol: {state['symbol']}
+        user_prompt = f"""{state['symbol']} Tables
 
-Financial Data:
+Data:
 {fundamental_data[:2000]}
 
 Context:
 {tools_output[:1000]}
 
-Return table JSON now."""
+Generate key metrics table and financial ratios table."""
 
         messages = [
             SystemMessage(content=system_prompt),
@@ -384,27 +378,21 @@ Return table JSON now."""
             "attempts": state.get("attempts", 0) + 1
         }
     
-    system_prompt = f"""You are a senior equity research analyst. Generate the '{section_name}' section for a fundamental analysis report.
+    system_prompt = f"""Institutional equity research analyst. Generate '{section_name}' section.
+STANDARDS: Professional tone, cite specific metrics from data, evidence-based conclusions, no filler phrases, no placeholders. Write as if for a hedge fund IC memo."""
 
-Guidelines:
-- Professional, analytical tone
-- Use specific numbers and metrics
-- Evidence-based reasoning
-- Concise and actionable
-- No placeholder text or incomplete information"""
+    user_prompt = f"""{state['symbol']} | Section: {section_name}
 
-    user_prompt = f"""Symbol: {state['symbol']}
-
-Financial Data:
+Data:
 {fundamental_data[:2000]}
 
-Previously Completed Sections:
+Prior Sections:
 {full_report[:1000]}
 
-Additional Context:
+Context:
 {tools_output[:1000]}
 
-Generate the '{section_name}' section now."""
+Generate section now."""
 
     messages = [
         SystemMessage(content=system_prompt),

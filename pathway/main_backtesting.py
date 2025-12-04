@@ -248,7 +248,17 @@ def main():
     print("   - Keeps metrics for all configs ever tested!")
     print("\n🚀 Starting stream processing...")
     
-    pw.run()
+    persistence_path = os.path.join(os.path.dirname(__file__), "pathway_state")
+    os.makedirs(persistence_path, exist_ok=True)
+    print(f"💾 Persistence enabled at: {persistence_path}")
+
+    print("\n✅ Fundamental pipeline with redis-backed architecture initialized. Starting stream processing...")
+    pw.run(
+        persistence_config=pw.persistence.Config.simple_config(
+            pw.persistence.Backend.filesystem(persistence_path),
+            snapshot_interval_ms=60000  # Snapshot every 60 seconds
+        )
+    )
 
 
 if __name__ == "__main__":

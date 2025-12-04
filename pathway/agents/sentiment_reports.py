@@ -186,15 +186,26 @@ Write a concise summary of the main theme/topic being discussed, noting if secto
         
         prompt = f"""Generate a sentiment analysis report for {company} ({symbol}).
 
-Overall Sentiment: {sentiment_label} ({overall_sentiment:.3f})
+OVERALL SCORE: {sentiment_label} ({overall_sentiment:.3f})
 
 {type_breakdown}
 
 Active Discussion Clusters:
 {cluster_summaries}
 
-Previous Report (for context):
-{current_report[:500] if current_report else 'None'}
+GENERATE REPORT:
+
+## SENTIMENT SNAPSHOT
+2-3 sentences: Current retail mood, confidence level, any notable shifts
+
+## DOMINANT NARRATIVES
+Top 3 themes driving discussion (bullish thesis, bear case, catalyst speculation, etc.)
+
+## RISK SIGNALS
+Red flags from crowd chatter: Excessive euphoria? Panic selling mentions? Bag-holder capitulation?
+
+## CONTRARIAN READ
+Is crowd sentiment a signal or noise? Historically, extreme readings = reversal warning.
 
 Create a professional report with:
 1. Executive summary of sentiment
@@ -203,7 +214,7 @@ Create a professional report with:
 4. How sector peers and macro factors are affecting sentiment (if applicable)
 5. Brief outlook
 
-Keep it concise (300-400 words)."""
+250 words max. Trading-relevant insights only."""
 
         try:
             messages = [{"role": "user", "content": prompt}]

@@ -61,17 +61,15 @@ def helper(text: str, full_text: str) -> str:
     This function creates a Pathway table with the prompt and calls the LLM.
     Returns the summary text.
     """
-    prompt_content = f"""Summarize the following text chunk in the context of the entire document.
-Provide a concise summary that captures the main points of the chunk.
+    prompt_content = f"""Summarize this chunk in context of the document. 2-3 sentences max.
 
-Full Document Context:
-{full_text[:500]}...
+Document context:
+{full_text[:400]}...
 
-Text Chunk:
+Chunk:
 {text}
 
-Summary:
-"""
+Summary:"""
     
     # Create a Pathway table with the prompt in chat format
     queries = pw.debug.table_from_markdown(
@@ -307,9 +305,9 @@ def refine_query(original_query: str, context: str) -> str:
         original_query: The original search query
         context: What information is still missing or needed
     """
-    refinement_prompt = f"""Based on this original query: "{original_query}"
-And the need for: {context}
-Generate a more specific search query (just the query, nothing else):"""
+    refinement_prompt = f"""Original: "{original_query}"
+Missing: {context}
+Generate a more specific search query (query only):"""
     
     response = llm.invoke(refinement_prompt)
     return f"Refined query: {response.content}"
@@ -322,39 +320,35 @@ llm_with_tools = llm.bind_tools(agent_tools)
 
 # Reflection LLM
 reflection_prompt = ChatPromptTemplate.from_messages([
-    ("system", """You are a critical evaluator. Assess if the generated answer is:
-1. Grounded in the retrieved context (no hallucinations)
-2. Completely addresses the user's question
-3. Needs more information retrieval
-
-Be strict but fair. If the answer makes claims not supported by context, mark as not grounded."""),
+    ("system", """Evaluate the answer:
+1. Grounded: Claims supported by context? (no hallucinations)
+2. Complete: Fully addresses the question?
+3. Sufficient: Needs more retrieval?
+Be strict. Unsupported claims = not grounded."""),
     ("human", "Question: {question}\n\nContext: {context}\n\nAnswer: {answer}")
 ])
 reflection_llm = reflection_prompt | llm.with_structured_output(ReflectionResult)
 
 # ==================== Agent System Prompt ====================
 
-AGENT_SYSTEM_PROMPT = """You are an intelligent financial research assistant with access to tools.
+AGENT_SYSTEM_PROMPT = """Financial research assistant with tool access.
 
-Your approach (ReAct reasoning):
-1. THINK: Analyze what information you need to answer the question
-2. ACT: Use tools to gather information
-   - retrieve_documents: For financial reports, earnings, company data from knowledge base
-   - web_search: For current news, real-time prices, recent events
-   - refine_query: To improve search if initial results are insufficient
-3. OBSERVE: Review the tool results
-4. REPEAT: If needed, use more tools to fill gaps
-5. ANSWER: When you have enough context, provide a comprehensive answer
+Workflow (ReAct):
+1. THINK: What information do I need?
+2. ACT: Use tools
+   - retrieve_documents: Financial reports, earnings, company data
+   - web_search: Current news, real-time prices
+   - refine_query: Improve search if results are insufficient
+3. OBSERVE: Review results
+4. REPEAT: Fill gaps if needed
+5. ANSWER: Provide comprehensive response with sources
 
-Guidelines:
-- Always start by retrieving relevant documents for financial questions
+Rules:
+- Start with document retrieval for financial questions
 - Use web search for current/recent information
-- If retrieval results seem incomplete, use refine_query and try again
-- Cite your sources in the answer
+- Cite sources
 - Be concise but thorough
-- If you truly cannot find the information, say so honestly
-
-IMPORTANT: When you have gathered enough information, provide your final answer directly WITHOUT calling any more tools.
+- If information unavailable, state clearly
 """
 
 # ==================== Agentic Workflow Nodes ====================

@@ -15,3 +15,5 @@ COPY . .
 
 # Expose FastAPI ports
 EXPOSE 8000
+
+ENV PYTHONUNBUFFERED=1

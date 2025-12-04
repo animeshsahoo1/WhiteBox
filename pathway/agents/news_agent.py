@@ -25,10 +25,10 @@ import hashlib
 # Import PostgreSQL save function
 try:
     from redis_cache import save_report_to_postgres, get_redis_client
-    from event_publisher import publish_agent_status, publish_report
+    from event_publisher import publish_agent_status, publish_report, publish_alert
 except ImportError:
     from .redis_cache import save_report_to_postgres, get_redis_client
-    from .event_publisher import publish_agent_status, publish_report
+    from .event_publisher import publish_agent_status, publish_report, publish_alert
 
 load_dotenv()
 
@@ -44,34 +44,91 @@ EMBEDDING_DIMENSIONS = 1536
 # Alert cooldowns (module-level)
 _news_alert_cooldowns = {}
 
-def trigger_news_alert(symbol: str, cluster_count: int, new_clusters: int = 0):
-    """Trigger alert when significant news arrives."""
-    import httpx
+def assess_news_impact(report: str, symbol: str) -> tuple[bool, str]:
+    """
+    Use LLM to assess if news is market-moving.
+    Returns (is_significant, reason).
+    """
+    try:
+        import litellm
+        
+        prompt = f"""NEWS IMPACT TRIAGE: {symbol}
+
+HEADLINE & CONTENT:
+{report[:2000]}
+
+MARKET-MOVING CRITERIA (flag if ANY apply):
+• EARNINGS: Beat/miss, guidance change, margin surprise, revenue acceleration/deceleration
+• CORPORATE ACTION: M&A, spinoff, buyback announcement, dividend change, stock split
+• MANAGEMENT: CEO/CFO change, board shakeup, insider buying/selling >$1M
+• REGULATORY: FDA approval/rejection, antitrust action, SEC investigation, license grant/revoke
+• COMPETITIVE: Major contract win/loss, market share shift, new product launch, partnership
+• MACRO EXPOSURE: Tariff impact, currency shock, supply chain disruption, geopolitical event
+
+IMPACT: YES or NO
+IF YES → CATALYST TYPE: [one of above categories]
+MAGNITUDE: HIGH (>5% move potential) | MEDIUM (2-5%) | LOW (<2%)
+DIRECTION: BULLISH | BEARISH | UNCERTAIN
+REASON: <20 words>"""
+
+        response = litellm.completion(
+            model="openai/gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            api_key=os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY"),
+            api_base="https://openrouter.ai/api/v1",
+            temperature=0.0,
+            max_tokens=100
+        )
+        
+        result = response.choices[0].message.content.strip()
+        
+        # Parse response
+        is_significant = "IMPACT: YES" in result.upper()
+        reason = "Significant market news detected"
+        
+        if "REASON:" in result:
+            reason = result.split("REASON:")[-1].strip()
+        
+        return is_significant, reason
+        
+    except Exception as e:
+        print(f"⚠️ [{symbol}] News impact assessment failed: {e}")
+        return False, ""
+
+
+def trigger_news_alert(symbol: str, report: str, cluster_count: int):
+    """Trigger alert when significant news arrives using LLM assessment."""
     
     alerts_enabled = os.getenv("NEWS_ALERT_ENABLED", "true").lower() == "true"
     alert_cooldown = int(os.getenv("NEWS_ALERT_COOLDOWN", "600"))  # 10 min default
-    min_clusters_for_alert = int(os.getenv("NEWS_ALERT_MIN_CLUSTERS", "3"))
-    bullbear_url = os.getenv("BULLBEAR_API_URL", "http://unified-api:8000")
     
     if not alerts_enabled:
         return
     
-    # Alert if we have significant news activity
-    if cluster_count >= min_clusters_for_alert or new_clusters >= 2:
-        now = datetime.now()
-        last = _news_alert_cooldowns.get(symbol)
-        if not last or (now - last).total_seconds() >= alert_cooldown:
-            print(f"📰 [{symbol}] NEWS ALERT: {cluster_count} active stories, {new_clusters} new")
-            try:
-                httpx.post(
-                    f"{bullbear_url}/debate/{symbol}",
-                    json={"max_rounds": 2, "background": True},
-                    timeout=10.0
-                )
-                _news_alert_cooldowns[symbol] = now
-                print(f"✅ [{symbol}] BullBear debate triggered (news)")
-            except Exception as e:
-                print(f"⚠️ [{symbol}] News alert failed: {e}")
+    # Check cooldown
+    now = datetime.now()
+    last = _news_alert_cooldowns.get(symbol)
+    if last and (now - last).total_seconds() < alert_cooldown:
+        return
+    
+    # Use LLM to assess impact
+    is_significant, reason = assess_news_impact(report, symbol)
+    
+    if is_significant:
+        print(f"📰 [{symbol}] NEWS ALERT: {reason}")
+        try:
+            redis_client = get_redis_client()
+            publish_alert(
+                symbol=symbol,
+                alert_type="news",
+                reason=reason,
+                severity="high",
+                redis_sync=redis_client,
+                trigger_debate=True
+            )
+            _news_alert_cooldowns[symbol] = now
+        except Exception as e:
+            print(f"⚠️ [{symbol}] News alert failed: {e}")
 
 
 def cosine_similarity(vec1: list, vec2: list) -> float:
@@ -204,7 +261,12 @@ class NewsClusterManager:
             return f"Developing story about {company}"
         
         titles = "\n".join([f"- {art.get('title', '')}" for art in articles[:8]])
-        prompt = f"Synthesize these headlines about {company} into ONE headline (max 12 words):\n\n{titles}\n\nHeadline:"
+        prompt = f"""HEADLINE SYNTHESIS: {company}
+
+Related headlines:
+{titles}
+
+Combine into ONE punchy headline (max 10 words) that captures the core story. Use active voice, be specific."""
         
         if self.has_valid_api_key:
             response = self.call_llm_sync([{"role": "user", "content": prompt}])
@@ -221,22 +283,18 @@ class NewsClusterManager:
             for i, sc in enumerate(story_clusters)
         ])
         
-        # Note: Story clusters may contain company, sector (peer), or global (macro) news
-        # The clustering groups related articles regardless of news_type
-        prompt = f"""# {company} News Digest
+        prompt = f"""# {company} NEWS DIGEST | {timestamp} UTC
 
-Stories (may include direct company news, sector/peer news, and macro/global news):
+ACTIVE STORIES:
 {clusters_text}
 
-For each story, write 1 sentence explaining the development and its relevance to {company}.
-If a story is about a sector peer or macro trend, explain the potential impact.
+FOR EACH STORY:
+### [#]. [Headline]
+**Coverage Depth**: [X] sources | **Developing**: Yes/No
+**What**: One sentence — the core event
+**So What**: One sentence — why traders should care (price implication, catalyst timing)
 
-Format:
-### [number]. [headline]
-**Articles**: [count]
-[1-sentence summary with relevance to {company}]
-
-End with: *Timestamp: {timestamp} UTC*"""
+Prioritize by market impact. Skip fluff stories."""
         
         return [{"role": "user", "content": prompt}]
 
@@ -654,9 +712,11 @@ def process_news_stream(
                 f.write(new_report)
             print(f"📝 [{symbol}] News report updated (update #{state['update_count']})")
             
-            # Trigger news alert
+            # Calculate new cluster count for reporting
             new_cluster_count = sum(1 for c in clusters if str(c['cluster_id']) not in prev)
-            trigger_news_alert(symbol, len(clusters), new_cluster_count)
+            
+            # Trigger news alert with LLM-based impact assessment
+            trigger_news_alert(symbol, new_report, len(clusters))
             
             # Save to PostgreSQL for historical storage
             try:

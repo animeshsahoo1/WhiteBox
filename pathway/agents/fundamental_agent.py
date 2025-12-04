@@ -310,58 +310,60 @@ No fundamental data analyzed yet for {company_name}.
         
         company_name = self.symbol_mapping.get(symbol, symbol)
         
-        system_message = f"""You are a senior investment analyst specializing in fundamental analysis for {company_name} ({symbol}).
-Your task is to update the comprehensive fundamental analysis report by analyzing the new fundamental data provided.
+        system_message = f"""Senior equity research analyst covering {company_name} ({symbol}).
 
-Focus on:
-1. **Financial Health**: Analyze balance sheet strength, liquidity, and solvency
-2. **Profitability**: Assess margins, returns, and efficiency metrics
-3. **Growth Trajectory**: Evaluate revenue, earnings, and cash flow growth
-4. **Valuation**: Determine if the stock is overvalued, fairly valued, or undervalued
-5. **Investment Quality**: Consider competitive position, management quality, and sustainability
-6. **Analyst Consensus**: Incorporate Wall Street analyst ratings and price targets
-7. **Recent Developments**: Analyze news, SEC filings, and web intelligence
-8. **Investment Recommendation**: Provide clear BUY/HOLD/SELL with price target and confidence level
+ANALYSIS MANDATE:
+You are producing institutional-grade fundamental research. Every claim must be supported by data from the provided materials.
 
-Structure your report professionally with:
-- Executive Summary (investment thesis and recommendation)
-- Company Overview & Business Model
-- Financial Performance Analysis
-- Valuation Analysis
-- Growth Prospects & Catalysts
-- Risk Assessment
-- Investment Recommendation (with specific price target and timeframe)
+FRAMEWORK:
+1. FINANCIAL HEALTH
+   • Liquidity: Current ratio, quick ratio, cash runway
+   • Solvency: Debt/Equity, interest coverage, debt maturity profile
+   • Quality of earnings: Cash conversion, accruals, one-time items
 
-Use specific numbers, ratios, and metrics from the data. Be balanced in presenting both opportunities and risks.
-Keep the report concise, actionable, and well-structured in markdown format.
-Always update the "Last Analysis" timestamp at the bottom.
-"""
+2. PROFITABILITY ENGINE
+   • Margin trajectory: Gross, operating, net — expanding or compressing?
+   • Return metrics: ROE, ROIC vs WACC, asset turnover
+   • Earnings quality: Recurring vs non-recurring, segment breakdown
+
+3. VALUATION FRAMEWORK
+   • Absolute: DCF-implied value, dividend discount if applicable
+   • Relative: P/E, EV/EBITDA, P/FCF vs sector peers and own history
+   • Margin of safety: Current price vs fair value range
+
+4. GROWTH VECTORS
+   • Revenue drivers: Volume vs price, organic vs inorganic
+   • Earnings trajectory: EPS growth, operating leverage potential
+   • Reinvestment: CapEx intensity, R&D yield, M&A track record
+
+5. CATALYST/RISK MAP
+   • Near-term catalysts: Earnings, product launches, regulatory decisions
+   • Key risks: Competition, margin pressure, macro sensitivity, management execution
+   • Asymmetry: Upside vs downside scenarios
+
+OUTPUT FORMAT (Markdown):
+• Executive Summary: 3-sentence thesis + Rating (BUY/HOLD/SELL) + Price Target
+• Key Metrics Dashboard: Table with critical ratios
+• Valuation Analysis: Fair value range with methodology
+• Risk Matrix: Top 3 risks with probability/impact
+• Recommendation: Rating, target, conviction %, investment horizon
+
+Use specific numbers from the data. Balanced analysis. No placeholders."""
 
         current_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
-        user_message = f"""Here is the CURRENT REPORT for {company_name} ({symbol}):
-
+        user_message = f"""CURRENT REPORT:
 {current_report}
 
 ---
 
-Here is the NEW FUNDAMENTAL DATA to analyze and incorporate:
-
+NEW DATA:
 {fundamental_data}
 
 ---
 
-TASK: Update the comprehensive fundamental analysis report by:
-1. Analyzing all financial statements and metrics
-2. Evaluating the company's financial health and profitability
-3. Assessing valuation using multiple approaches (P/E, P/B, DCF considerations)
-4. Incorporating analyst consensus and price targets
-5. Analyzing recent news and web intelligence for market sentiment
-6. Providing a clear investment recommendation (BUY/HOLD/SELL)
-7. Setting a price target with upside/downside potential
-8. Updating the timestamp to: {current_time} UTC
-
-Return ONLY the updated markdown report. Do not include explanations outside the report."""
+Update the report with new data. Timestamp: {current_time} UTC
+Return ONLY the markdown report."""
 
         return [
             {"role": "system", "content": system_message},
