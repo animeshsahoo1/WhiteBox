@@ -26,9 +26,11 @@ from typing import Optional
 
 # Import PostgreSQL save function
 try:
-    from redis_cache import save_report_to_postgres
+    from redis_cache import save_report_to_postgres, get_redis_client
+    from event_publisher import publish_agent_status, publish_report
 except ImportError:
-    from .redis_cache import save_report_to_postgres
+    from .redis_cache import save_report_to_postgres, get_redis_client
+    from .event_publisher import publish_agent_status, publish_report
 
 
 load_dotenv()
@@ -275,6 +277,14 @@ def process_sentiment_reports(
         _last_report_time[symbol] = current_time
         print(f"🔄 [{symbol}] Generating report (interval: {REPORT_GENERATION_INTERVAL}s)")
         
+        # Publish RUNNING status
+        try:
+            room_id = f"symbol:{symbol}"
+            redis_client = get_redis_client()
+            publish_agent_status(room_id, "Sentiment Report Agent", "RUNNING", redis_client)
+        except Exception as e:
+            print(f"⚠️ [{symbol}] Failed to publish Sentiment Report Agent status: {e}")
+        
         # First, generate summaries for clusters that need them
         processed_clusters = []
         for cluster in clusters:
@@ -313,14 +323,36 @@ def process_sentiment_reports(
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write(new_report)
             print(f"📝 [{symbol}] Generated sentiment report")
-                    # 2. Save to PostgreSQL for historical storage
+            
+            # Determine sentiment direction
+            sentiment_direction = "NEUTRAL"
+            if overall_sentiment > 0.1:
+                sentiment_direction = "BULLISH"
+            elif overall_sentiment < -0.1:
+                sentiment_direction = "BEARISH"
+            
+            # Publish report and COMPLETED status
+            try:
+                room_id = f"symbol:{symbol}"
+                redis_client = get_redis_client()
+                publish_report(room_id, "Sentiment Report Agent", {
+                    "symbol": symbol,
+                    "report_type": "sentiment_report",
+                    "overall_sentiment": round(overall_sentiment, 3),
+                    "sentiment_direction": sentiment_direction,
+                    "cluster_count": len(processed_clusters)
+                }, redis_client)
+                publish_agent_status(room_id, "Sentiment Report Agent", "COMPLETED", redis_client)
+            except Exception as e:
+                print(f"⚠️ [{symbol}] Failed to publish Sentiment Report Agent events: {e}")
+            
+            # Save to PostgreSQL for historical storage
             try:
                 entry = {
                     "symbol": symbol,
                     "report_type": "sentiment",
-                    "content": report_content,
-                    "last_updated": dt.utcnow().isoformat(),
-                    "cluster_data": cluster_data_json,
+                    "content": new_report,
+                    "last_updated": datetime.now(timezone.utc).isoformat(),
                 }
                 save_report_to_postgres(symbol, "sentiment", entry)
             except Exception as e:
@@ -330,6 +362,14 @@ def process_sentiment_reports(
         else:
             # Reset time if generation failed so we retry sooner
             _last_report_time[symbol] = last_time
+            
+            # Publish FAILED status
+            try:
+                room_id = f"symbol:{symbol}"
+                redis_client = get_redis_client()
+                publish_agent_status(room_id, "Sentiment Report Agent", "FAILED", redis_client)
+            except:
+                pass
         
         return new_report
     

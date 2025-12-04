@@ -213,7 +213,7 @@ services:
       REPORT_GENERATION_INTERVAL: ${REPORT_GENERATION_INTERVAL:-300}
     volumes:
       - ./reports/sentiment:/app/reports/sentiment
-      - ./sentiment_phase2_state:/app/sentiment_phase2_state
+      - ./pathway_state:/app/pathway_state
     restart: unless-stopped
     depends_on:
       redis:

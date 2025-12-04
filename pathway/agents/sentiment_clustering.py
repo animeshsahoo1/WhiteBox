@@ -27,6 +27,14 @@ from typing import Optional
 import litellm
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
+# Event publishing imports
+try:
+    from redis_cache import get_redis_client
+    from event_publisher import publish_agent_status, publish_report
+except ImportError:
+    from .redis_cache import get_redis_client
+    from .event_publisher import publish_agent_status, publish_report
+
 
 load_dotenv()
 
@@ -340,6 +348,14 @@ def process_sentiment_clustering(
         os.makedirs(output_dir, exist_ok=True)
         file_path = os.path.join(output_dir, f"{symbol}_clusters.json")
         
+        # Publish RUNNING status
+        try:
+            room_id = f"symbol:{symbol}"
+            redis_client = get_redis_client()
+            publish_agent_status(room_id, "Sentiment Agent", "RUNNING", redis_client)
+        except Exception as e:
+            print(f"⚠️ [{symbol}] Failed to publish Sentiment Agent status: {e}")
+        
         # Load existing state from file
         existing_clusters = {}
         if os.path.exists(file_path):
@@ -416,6 +432,30 @@ def process_sentiment_clustering(
         
         # Trigger alert if sentiment crosses threshold
         trigger_sentiment_alert(symbol, overall_sentiment)
+        
+        # Publish report and COMPLETED status
+        try:
+            room_id = f"symbol:{symbol}"
+            redis_client = get_redis_client()
+            
+            # Determine sentiment direction
+            sentiment_direction = "NEUTRAL"
+            if overall_sentiment > 0.1:
+                sentiment_direction = "BULLISH"
+            elif overall_sentiment < -0.1:
+                sentiment_direction = "BEARISH"
+            
+            publish_report(room_id, "Sentiment Agent", {
+                "symbol": symbol,
+                "report_type": "sentiment",
+                "overall_sentiment": round(overall_sentiment, 3),
+                "sentiment_direction": sentiment_direction,
+                "cluster_count": len(clusters_list),
+                "total_posts": total_posts
+            }, redis_client)
+            publish_agent_status(room_id, "Sentiment Agent", "COMPLETED", redis_client)
+        except Exception as e:
+            print(f"⚠️ [{symbol}] Failed to publish Sentiment Agent events: {e}")
         
         return json.dumps(result)
     

@@ -24,9 +24,11 @@ import hashlib
 
 # Import PostgreSQL save function
 try:
-    from redis_cache import save_report_to_postgres
+    from redis_cache import save_report_to_postgres, get_redis_client
+    from event_publisher import publish_agent_status, publish_report
 except ImportError:
-    from .redis_cache import save_report_to_postgres
+    from .redis_cache import save_report_to_postgres, get_redis_client
+    from .event_publisher import publish_agent_status, publish_report
 
 load_dotenv()
 
@@ -626,6 +628,14 @@ def process_news_stream(
             state['update_count'] += 1
             current_report = state.get('report') or cluster_manager._load_report(symbol)
             
+            # Publish RUNNING status
+            try:
+                room_id = f"symbol:{symbol}"
+                redis_client = get_redis_client()
+                publish_agent_status(room_id, "News Agent", "RUNNING", redis_client)
+            except Exception as e:
+                print(f"⚠️ [{symbol}] Failed to publish News Agent status: {e}")
+            
             if cluster_manager.has_valid_api_key:
                 new_report = cluster_manager.call_llm_sync(
                     cluster_manager.create_report_prompt(symbol, current_report, clusters)
@@ -655,6 +665,21 @@ def process_news_stream(
                 print(f"✈️ [{symbol}] Saved news report to PostgreSQL")
             except Exception as e:
                 print(f"⚠️ [{symbol}] Failed to save news to PostgreSQL: {e}")
+            
+            # Publish report and COMPLETED status
+            try:
+                room_id = f"symbol:{symbol}"
+                redis_client = get_redis_client()
+                publish_report(room_id, "News Agent", {
+                    "symbol": symbol,
+                    "report_type": "news",
+                    "cluster_count": len(clusters),
+                    "new_clusters": new_cluster_count,
+                    "update_number": state['update_count']
+                }, redis_client)
+                publish_agent_status(room_id, "News Agent", "COMPLETED", redis_client)
+            except Exception as e:
+                print(f"⚠️ [{symbol}] Failed to publish News Agent events: {e}")
 
             state['report'] = new_report
             state['cluster_states'] = {
@@ -663,7 +688,14 @@ def process_news_stream(
             }
             
         except Exception:
-            pass
+            # Publish FAILED status on error
+            try:
+                if symbol:
+                    room_id = f"symbol:{symbol}"
+                    redis_client = get_redis_client()
+                    publish_agent_status(room_id, "News Agent", "FAILED", redis_client)
+            except:
+                pass
         
         return state
 

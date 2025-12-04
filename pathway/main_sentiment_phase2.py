@@ -71,7 +71,7 @@ def main():
     print("=" * 70)
     
     # Enable persistence (separate from Phase 1)
-    persistence_path = os.path.join(os.path.dirname(__file__), "sentiment_phase2_state")
+    persistence_path = os.path.join(os.path.dirname(__file__), "pathway_state")
     os.makedirs(persistence_path, exist_ok=True)
     print(f"💾 Persistence enabled at: {persistence_path}")
     
