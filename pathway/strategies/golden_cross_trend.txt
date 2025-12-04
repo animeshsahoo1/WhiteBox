@@ -1,0 +1,47 @@
+def strategy(indicators):
+    """
+    Golden Cross Trend Following Strategy
+    
+    A classic institutional strategy that catches major trends.
+    
+    Entry: SMA_20 crosses above SMA_50 (Golden Cross)
+    Exit: SMA_20 crosses below SMA_50 (Death Cross)
+    
+    Risk Management:
+    - Trailing Stop: 5% (lets winners run)
+    - Position Size: 80% (high conviction on trend signals)
+    
+    Best for: Daily/Hourly charts, trending markets
+    """
+    import numpy as np
+    
+    sma_20 = indicators.get('sma_20')
+    sma_50 = indicators.get('sma_50')
+    close = indicators.get('close')
+    atr = indicators.get('atr_14')
+    
+    # Need all indicators to be valid
+    if any(v is None for v in [sma_20, sma_50, close]):
+        return None
+    if any(np.isnan(v) for v in [sma_20, sma_50, close]):
+        return None
+    
+    # Golden Cross - Fast MA above Slow MA = Uptrend
+    if sma_20 > sma_50:
+        # Use ATR for stop if available, otherwise 5% trailing
+        if atr is not None and not np.isnan(atr):
+            trailing_pct = min(0.05, (2 * atr) / close)
+        else:
+            trailing_pct = 0.05
+        
+        return {
+            'action': 'BUY',
+            'trailing_stop': trailing_pct,
+            'size': 0.8
+        }
+    
+    # Death Cross - Fast MA below Slow MA = Downtrend
+    if sma_20 < sma_50:
+        return {'action': 'SELL'}
+    
+    return None

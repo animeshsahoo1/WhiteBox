@@ -278,7 +278,7 @@ def process_sentiment_reports(
         
         try:
             clusters = clusters_json.as_list() if clusters_json else []
-        except:
+        except Exception:
             clusters = []
         
         if not clusters:
@@ -358,17 +358,18 @@ def process_sentiment_reports(
                 print(f"⚠️ [{symbol}] Failed to publish Sentiment Report Agent events: {e}")
             
             # Save to PostgreSQL for historical storage
+            # 2. Save to PostgreSQL for historical storage
             try:
                 entry = {
                     "symbol": symbol,
                     "report_type": "sentiment",
                     "content": new_report,
                     "last_updated": datetime.now(timezone.utc).isoformat(),
+                    "cluster_data": json.dumps(processed_clusters),
                 }
                 save_report_to_postgres(symbol, "sentiment", entry)
             except Exception as e:
                 print(f"⚠️ [{symbol}] Failed to save to PostgreSQL: {e}")
-        
 
         else:
             # Reset time if generation failed so we retry sooner

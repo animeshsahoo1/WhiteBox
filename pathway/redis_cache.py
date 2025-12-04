@@ -308,14 +308,14 @@ class RedisNewsClusterObserver(pw.io.python.ConnectorObserver):
             articles_json = row.get("articles_json", "[]")
             try:
                 articles = json.loads(articles_json) if isinstance(articles_json, str) else articles_json
-            except:
+            except Exception:
                 articles = []
             
             # Parse links
             links_json = row.get("links_json", "[]")
             try:
                 links = json.loads(links_json) if isinstance(links_json, str) else links_json
-            except:
+            except Exception:
                 links = []
             
             self._cluster_cache[symbol][cluster_id] = {
@@ -371,10 +371,17 @@ class RedisSentimentObserver(pw.io.python.ConnectorObserver):
 
 
 class RedisBacktestingObserver(pw.io.python.ConnectorObserver):
-    """Pathway observer that writes backtesting metrics into Redis."""
+    """Pathway observer that writes backtesting metrics into Redis.
+    
+    Keys are structured as backtesting:{strategy}:{symbol}:{interval} to support
+    multi-symbol, multi-interval backtesting. Each strategy+symbol+interval 
+    combination has its own set of metrics, allowing comparison across configs.
+    """
     
     BACKTESTING_KEY_PREFIX = "backtesting:"
     STRATEGIES_SET_KEY = "backtesting:strategies"
+    SYMBOLS_SET_KEY = "backtesting:symbols"
+    INTERVALS_SET_KEY = "backtesting:intervals"
     
     def __init__(self, ttl_seconds: Optional[int] = None):
         self.ttl_seconds = ttl_seconds
@@ -382,15 +389,35 @@ class RedisBacktestingObserver(pw.io.python.ConnectorObserver):
     
     def on_change(self, key: Any, row: Dict[str, Any], time: int, is_addition: bool) -> None:
         strategy = row.get("strategy")
+        symbol = row.get("symbol")
+        interval = row.get("interval")
         if not strategy:
             return
         
         strategy = str(strategy).upper()
-        strategy_key = f"{self.BACKTESTING_KEY_PREFIX}{strategy}"
+        symbol = str(symbol).upper() if symbol else "UNKNOWN"
+        interval = str(interval).lower() if interval else "unknown"
+        
+        # Key format: backtesting:{strategy}:{symbol}:{interval}
+        full_key = f"{self.BACKTESTING_KEY_PREFIX}{strategy}:{symbol}:{interval}"
         
         if not is_addition:
-            self.redis.delete(strategy_key)
-            self.redis.srem(self.STRATEGIES_SET_KEY, strategy)
+            self.redis.delete(full_key)
+            # Check if this strategy has any other entries
+            pattern = f"{self.BACKTESTING_KEY_PREFIX}{strategy}:*"
+            remaining = list(self.redis.scan_iter(match=pattern, count=100))
+            if not remaining:
+                self.redis.srem(self.STRATEGIES_SET_KEY, strategy)
+            # Check if this symbol has any other entries
+            pattern = f"{self.BACKTESTING_KEY_PREFIX}*:{symbol}:*"
+            remaining = list(self.redis.scan_iter(match=pattern, count=100))
+            if not remaining:
+                self.redis.srem(self.SYMBOLS_SET_KEY, symbol)
+            # Check if this interval has any other entries
+            pattern = f"{self.BACKTESTING_KEY_PREFIX}*:*:{interval}"
+            remaining = list(self.redis.scan_iter(match=pattern, count=100))
+            if not remaining:
+                self.redis.srem(self.INTERVALS_SET_KEY, interval)
             return
         
         # Extract metrics from row
@@ -406,16 +433,20 @@ class RedisBacktestingObserver(pw.io.python.ConnectorObserver):
         
         entry = {
             "strategy": strategy,
+            "symbol": symbol,
+            "interval": interval,
             "metrics": metrics_json,
             "last_updated": row.get("last_updated", time),
             "received_at": datetime.utcnow().isoformat(),
         }
         
-        self.redis.set(strategy_key, json.dumps(entry))
+        self.redis.set(full_key, json.dumps(entry))
         self.redis.sadd(self.STRATEGIES_SET_KEY, strategy)
+        self.redis.sadd(self.SYMBOLS_SET_KEY, symbol)
+        self.redis.sadd(self.INTERVALS_SET_KEY, interval)
         
         if self.ttl_seconds:
-            self.redis.expire(strategy_key, self.ttl_seconds)
+            self.redis.expire(full_key, self.ttl_seconds)
     
     def on_time_end(self, time: int) -> None:
         pass

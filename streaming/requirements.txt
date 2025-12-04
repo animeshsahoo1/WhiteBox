@@ -22,3 +22,6 @@ sec-api
 landingai-ade
 flask==3.0.0
 yfinance
+python-dateutil
+fastapi==0.109.0
+uvicorn==0.27.0
