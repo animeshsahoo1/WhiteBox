@@ -80,8 +80,8 @@ def create_backtesting_pipeline(
     1. CandleConsumer reads candles from Kafka (like other consumers)
     2. Strategies loaded from folder (streaming - new files picked up)
     3. Cross-join: each candle × each strategy
-    4. Group by strategy, reduce with trading_reducer (O(1) per candle)
-    5. Extract metrics and push to Redis cache
+    4. Group by (strategy, symbol), reduce with trading_reducer (O(1) per candle)
+    5. Extract metrics per strategy per symbol and push to Redis cache
     """
     
     # ===== INPUT: Candles from Kafka via CandleConsumer =====
@@ -105,6 +105,8 @@ def create_backtesting_pipeline(
     
     # ===== CROSS JOIN =====
     candles_with_strategies = candles.join(strategies).select(
+        symbol=candles.symbol,
+        interval=candles.interval,
         timestamp=candles.timestamp,
         open=candles.open,
         high=candles.high,
@@ -115,11 +117,13 @@ def create_backtesting_pipeline(
         strategy_code=strategies.strategy_code
     )
     
-    # ===== GROUP BY & REDUCE (O(1) incremental) =====
+    # ===== GROUP BY (strategy, symbol, interval) & REDUCE (O(1) incremental) =====
     results = candles_with_strategies.groupby(
-        pw.this.strategy_name
+        pw.this.strategy_name, pw.this.symbol, pw.this.interval
     ).reduce(
         strategy_name=pw.this.strategy_name,
+        symbol=pw.this.symbol,
+        interval=pw.this.interval,
         state=trading_reducer(
             pw.this.timestamp,
             pw.this.open,
@@ -134,6 +138,8 @@ def create_backtesting_pipeline(
     # ===== EXTRACT METRICS =====
     metrics = results.select(
         strategy=pw.this.strategy_name,
+        symbol=pw.this.symbol,
+        interval=pw.this.interval,
         total_pnl=extract_total_pnl(pw.this.state),
         total_trades=extract_total_trades(pw.this.state),
         win_rate=extract_win_rate(pw.this.state),
@@ -183,6 +189,8 @@ def create_backtesting_pipeline(
         
         backtesting_metrics = metrics.select(
             strategy=pw.this.strategy,
+            symbol=pw.this.symbol,
+            interval=pw.this.interval,
             metrics=format_metrics(
                 pw.this.total_pnl, pw.this.total_trades, pw.this.win_rate,
                 pw.this.max_drawdown, pw.this.volatility, pw.this.sharpe_ratio,
@@ -191,8 +199,10 @@ def create_backtesting_pipeline(
                 pw.this.position, pw.this.candles_processed
             ),
             last_updated=pw.this.candles_processed
-        ).groupby(pw.this.strategy).reduce(
+        ).groupby(pw.this.strategy, pw.this.symbol, pw.this.interval).reduce(
             strategy=pw.this.strategy,
+            symbol=pw.this.symbol,
+            interval=pw.this.interval,
             metrics=pw.reducers.latest(pw.this.metrics),
             last_updated=pw.reducers.latest(pw.this.last_updated)
         )
@@ -230,10 +240,12 @@ def main():
         strategies_folder=strategies_folder
     )
     
-    print("\n✅ Backtesting Pipeline initialized")
-    print("   - CandleConsumer reads from Kafka")
+    print("\n✅ Backtesting Pipeline initialized (Multi-Symbol, Multi-Interval)")
+    print("   - CandleConsumer reads from Kafka (extracts symbol + interval)")
+    print("   - Groups by (strategy, symbol, interval) for per-config metrics")
     print("   - Runs all strategies with O(1) incremental processing")
-    print("   - Metrics cached in Redis (key: reports:backtesting:{strategy})")
+    print("   - Metrics cached in Redis (key: backtesting:{strategy}:{symbol}:{interval})")
+    print("   - Keeps metrics for all configs ever tested!")
     print("\n🚀 Starting stream processing...")
     
     pw.run()

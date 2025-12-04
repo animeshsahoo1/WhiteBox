@@ -3,6 +3,11 @@ Trading State Management - Incremental Version
 
 Combines incremental indicators and metrics.
 No price history storage - everything is O(1) per candle.
+
+Reset Detection:
+- Tracks the latest processed timestamp
+- If an older candle arrives, assumes config change and resets state
+- This handles candle API config changes gracefully
 """
 
 import json
@@ -24,6 +29,10 @@ class TradingState:
     - Indicators calculated incrementally via IndicatorState
     - Metrics tracked incrementally via MetricsState
     - Total memory: O(indicator_periods) instead of O(candles)
+    
+    Reset Detection:
+    - Tracks latest_timestamp to detect out-of-order candles
+    - If older candle arrives, state is reset (config change detected)
     """
     
     # Incremental indicator state
@@ -32,9 +41,12 @@ class TradingState:
     # Incremental metrics state  
     metrics_state: Dict[str, Any] = field(default_factory=dict)
     
-    # For deduplication
+    # For detecting config changes / out-of-order candles
+    latest_timestamp: str = ""  # Track the most recent timestamp
+    
+    # For deduplication (small buffer for exact duplicates)
     processed_timestamps: list = field(default_factory=list)
-    max_timestamps: int = 500
+    max_timestamps: int = 100  # Reduced - just for immediate dedup
     
     @classmethod
     def initial(cls, initial_capital: float = 10000.0, commission: float = 0.001) -> 'TradingState':
@@ -45,6 +57,7 @@ class TradingState:
         return cls(
             indicator_state=asdict(indicator_state),
             metrics_state=asdict(metrics_state),
+            latest_timestamp="",
             processed_timestamps=[]
         )
     
@@ -159,19 +172,31 @@ def process_single_candle(
     - Trailing stop updates and execution
     - Position sizing
     - Short selling support
+    - Auto-reset on config change (detects old candles)
     
     T+1 Execution:
     - Signal is generated at the END of the current bar (using close price)
     - Order is executed at the OPEN of the NEXT bar
     - SL/TP are checked during the bar using high/low
+    
+    Reset Detection:
+    - If incoming timestamp < latest_timestamp, config changed
+    - Reset state and start fresh with this candle
     """
     
     if not is_insertion:
         return state
     
-    # Check if already processed (dedup)
+    # Check if already processed (exact duplicate)
     if timestamp in state.processed_timestamps:
         return state
+    
+    # === DETECT CONFIG CHANGE: Old candle arriving means reset needed ===
+    if state.latest_timestamp and timestamp < state.latest_timestamp:
+        # Old candle detected! Config must have changed.
+        # Reset state completely and start fresh.
+        state = TradingState.initial()
+        # Note: We don't return - we continue to process this candle as the first one
     
     # Get current states
     ind_state = state.get_indicator_state()
@@ -362,7 +387,11 @@ def process_single_candle(
     state.set_indicator_state(ind_state)
     state.set_metrics_state(met_state)
     
-    # Track processed timestamps (bounded)
+    # === STEP 8: Update tracking ===
+    # Update latest timestamp for reset detection
+    state.latest_timestamp = timestamp
+    
+    # Track processed timestamps for immediate dedup (bounded)
     state.processed_timestamps.append(timestamp)
     if len(state.processed_timestamps) > state.max_timestamps:
         state.processed_timestamps = state.processed_timestamps[-state.max_timestamps:]

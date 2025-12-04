@@ -35,6 +35,54 @@ from .config import get_config, BullBearConfig
 # Track current debate (only one at a time - global lock)
 _current_debate: Optional[Dict[str, Any]] = None
 _debate_lock = threading.Lock()
+_active_streams: Dict[str, bool] = {}  # Track active streams per symbol
+
+
+def get_facilitator_status(symbol: str) -> Optional[Dict[str, Any]]:
+    """
+    Get the status of the facilitator report for a symbol.
+    Returns dict with status info or None if no report exists.
+    """
+    try:
+        client = get_redis_client()
+        symbol_key = _build_symbol_key(symbol)
+        key = f"{symbol_key}:facilitator_report"
+        data = client.get(key)
+        if data:
+            report_data = json.loads(data)
+            return {
+                "exists": True,
+                "symbol": symbol,
+                "timestamp": report_data.get("timestamp"),
+                "recommendation": report_data.get("recommendation", "UNKNOWN"),
+            }
+    except Exception:
+        pass
+    
+    # Check file fallback
+    reports_dir = Path(__file__).parent.parent / "reports" / "debate"
+    report_path = reports_dir / symbol / "facilitator_report.md"
+    if report_path.exists():
+        return {
+            "exists": True,
+            "symbol": symbol,
+            "timestamp": datetime.fromtimestamp(report_path.stat().st_mtime).isoformat(),
+            "source": "file",
+        }
+    
+    return None
+
+
+def is_stream_active(symbol: str) -> bool:
+    """Check if a debate stream is currently active for a symbol."""
+    global _active_streams
+    return _active_streams.get(symbol.upper(), False)
+
+
+def set_stream_active(symbol: str, active: bool):
+    """Set stream active status for a symbol."""
+    global _active_streams
+    _active_streams[symbol.upper()] = active
 
 
 def save_debate_progress(symbol: str, progress: Dict[str, Any]):

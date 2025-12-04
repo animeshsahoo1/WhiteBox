@@ -15,8 +15,12 @@ from pydantic import BaseModel
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from bullbear.debate_runner import run_debate_and_generate_report, get_debate_progress
-from bullbear.researchers.facilitator import get_facilitator_status, is_stream_active
+from bullbear.debate_runner import (
+    run_debate_and_generate_report, 
+    get_debate_progress,
+    get_facilitator_status,
+    is_stream_active
+)
 
 router = APIRouter(prefix="/debate", tags=["Bull-Bear Debate"])
 

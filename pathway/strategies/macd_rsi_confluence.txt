@@ -2,11 +2,17 @@ def strategy(indicators):
     """
     MACD + RSI Confluence Strategy
     
-    Entry: MACD bullish AND RSI not overbought (< 60)
-    Exit: MACD bearish OR RSI overbought (> 75)
-    SL: 1.5x ATR below entry
-    TP: 3x ATR above entry (2:1 reward/risk)
-    Trailing: 2% once in profit
+    Multi-indicator strategy requiring confirmation from both
+    MACD momentum and RSI levels for higher probability trades.
+    
+    Entry: MACD bullish crossover AND RSI between 30-60
+    Exit: MACD bearish OR RSI > 75
+    
+    Risk Management:
+    - Stop Loss: 1.5x ATR below entry
+    - Take Profit: 3x ATR above entry (2:1 R/R)
+    - Trailing Stop: 3% to lock in profits
+    - Position Size: 60% of capital
     """
     import numpy as np
     
@@ -16,23 +22,25 @@ def strategy(indicators):
     atr = indicators.get('atr_14')
     close = indicators.get('close')
     
-    if any(v is None or np.isnan(v) for v in [macd_line, macd_signal, rsi, atr, close]):
+    if any(v is None for v in [macd_line, macd_signal, rsi, atr, close]):
+        return None
+    if any(np.isnan(v) for v in [macd_line, macd_signal, rsi, atr, close]):
         return None
     
     macd_bullish = macd_line > macd_signal
     macd_bearish = macd_line < macd_signal
     
-    # Entry: MACD bullish crossover with RSI confirmation
-    if macd_bullish and rsi < 60 and rsi > 30:
+    # Entry: MACD bullish + RSI not extreme
+    if macd_bullish and 30 < rsi < 60:
         return {
             'action': 'BUY',
-            'stop_loss': close - (1.5 * atr),     # 1.5 ATR stop
-            'take_profit': close + (3 * atr),    # 3 ATR target (2:1 R/R)
-            'trailing_stop': 0.02,                # 2% trailing once in profit
-            'size': 0.5
+            'stop_loss': close - (1.5 * atr),
+            'take_profit': close + (3 * atr),
+            'trailing_stop': 0.03,
+            'size': 0.6
         }
     
-    # Exit: MACD bearish or RSI overbought
+    # Exit: MACD bearish or overbought
     if macd_bearish or rsi > 75:
         return {'action': 'SELL'}
     
