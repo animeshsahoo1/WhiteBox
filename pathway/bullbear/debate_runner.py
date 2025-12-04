@@ -322,8 +322,8 @@ def _run_debate_sync(
         print(f"   Bear points: {final_bear_count}")
         print(f"   Rounds: {final_state.get('round_number', 0)}")
         
-        # Extract results
-        facilitator_report = final_state.get("facilitator_report", "")
+        # Extract results - note: state uses "final_facilitator_report"
+        facilitator_report = final_state.get("final_facilitator_report", "")
         recommendation = final_state.get("recommendation", "HOLD")
         conclusion_reason = final_state.get("conclusion_reason", "max_rounds")
         

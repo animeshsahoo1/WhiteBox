@@ -23,13 +23,15 @@ def main():
     # Configure sliding window parameters
     lookback_minutes = int(os.getenv("MARKET_LOOKBACK_MINUTES", "10"))
     hop_minutes = int(os.getenv("MARKET_HOP_MINUTES", "5"))
+    min_data_points = int(os.getenv("MARKET_MIN_DATA_POINTS", "3"))  # Lower default for sparse data
     
-    print(f"⚙️  Window Configuration: {lookback_minutes}min lookback, {hop_minutes}min hop")
+    print(f"⚙️  Window Configuration: {lookback_minutes}min lookback, {hop_minutes}min hop, {min_data_points} min points")
     
     analyzed_table = process_market_stream_with_agents(
         market_table, 
         lookback_minutes=lookback_minutes,
         hop_minutes=hop_minutes,
+        min_data_points=min_data_points,
         reports_directory=reports_directory
     )
 

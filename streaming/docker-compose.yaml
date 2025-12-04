@@ -4,6 +4,7 @@ networks:
     name: kafka_stock-network
 
 services:
+  # Hybrid Market Producer: Historical data first, then real-time updates
   market-producer:
     build: .
     command: ["python", "producers/market_data_producer.py"]
@@ -11,6 +12,11 @@ services:
       - stock-network
     environment:
       KAFKA_BROKER: kafka:29092
+      # Historical data settings (sent on startup)
+      MARKET_HISTORICAL_PERIOD: ${MARKET_HISTORICAL_PERIOD:-1d}
+      MARKET_HISTORICAL_INTERVAL: ${MARKET_HISTORICAL_INTERVAL:-1m}
+      # Real-time settings (after historical is sent)
+      MARKET_DATA_INTERVAL: ${MARKET_DATA_INTERVAL:-60}
     env_file:
       - ../.env
     restart: unless-stopped
@@ -69,13 +75,13 @@ services:
     build: .
     command: ["python", "candle_api.py"]
     ports:
-      - "8001:8001"
+      - "8002:8002"
     networks:
       - stock-network
     environment:
       KAFKA_BROKER: kafka:29092
       CANDLE_API_HOST: "0.0.0.0"
-      CANDLE_API_PORT: "8001"
+      CANDLE_API_PORT: "8002"
     env_file:
       - ../.env
     volumes:

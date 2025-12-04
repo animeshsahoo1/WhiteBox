@@ -7,6 +7,8 @@ import os
 import json
 import uuid
 import base64
+import asyncio
+import concurrent.futures
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Any
@@ -217,6 +219,10 @@ async def health():
     }
 
 
+# Thread pool executor for running Pathway in isolation from async event loop
+_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+
+
 @router.post("/analyze", response_model=AnalysisResponse)
 async def analyze(request: AnalysisRequest):
     """
@@ -231,7 +237,15 @@ async def analyze(request: AnalysisRequest):
     try:
         report_id = f"{request.ticker}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         
-        result = generate_historical_report(request, report_id)
+        # Run the synchronous Pathway function in a separate thread pool
+        # This prevents event loop conflicts with Pathway's async components
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            _executor,
+            generate_historical_report,
+            request,
+            report_id
+        )
         
         response = AnalysisResponse(
             status="success",

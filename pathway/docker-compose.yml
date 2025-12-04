@@ -56,6 +56,7 @@ services:
       - ./reports/bullbear:/app/reports/bullbear
       - ./api:/app/api
       - ./metrics:/app/metrics
+      - ./bullbear/debate:/app/bullbear/debate  # Debate points persistence
       - ./historical_reports:/app/historical_reports
       - ../knowledge_base:/app/knowledge_base
       - ./strategies:/app/strategies  # For strategy creation/management

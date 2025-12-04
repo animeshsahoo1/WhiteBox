@@ -192,8 +192,20 @@ def run_historical_analysis_with_pathway(
         pw.io.subscribe(analyzed_table, on_change=capture_result)
         
         # Run Pathway computation (this actually executes the pipeline)
+        # Create a new event loop for this thread to avoid conflicts with FastAPI's event loop
         print(f"⚙️ Executing Pathway computation...")
-        pw.run()
+        import asyncio
+        try:
+            # Try to get existing loop, if it fails or is from different thread, create new one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            pw.run()
+        finally:
+            # Clean up the event loop
+            try:
+                loop.close()
+            except:
+                pass
         
         print(f"✅ Pipeline execution complete!")
         print(f"📊 Captured {len(captured_results)} analysis results")
