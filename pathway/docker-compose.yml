@@ -257,6 +257,10 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_DB: 0
+      # Drift alert config
+      DRIFT_ALERT_ENABLED: ${DRIFT_ALERT_ENABLED:-true}
+      DRIFT_ALERT_COOLDOWN: ${DRIFT_ALERT_COOLDOWN:-300}
+      BULLBEAR_API_URL: http://unified-api:8000
     volumes:
       - ./agents:/app/agents
       - ./consumers:/app/consumers

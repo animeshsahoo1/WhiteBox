@@ -39,6 +39,14 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
+# Event publisher for alerts
+try:
+    from event_publisher import publish_alert
+    from redis_cache import get_redis_client as get_redis_client_cache
+except ImportError:
+    from .event_publisher import publish_alert
+    from .redis_cache import get_redis_client as get_redis_client_cache
+
 # River for drift detection
 try:
     from river import drift
@@ -416,6 +424,53 @@ class MarketDriftDetector:
 
 
 # ============================================================================
+# DRIFT ALERT SYSTEM
+# ============================================================================
+
+# Drift alert cooldowns (module-level)
+_drift_alert_cooldowns: Dict[str, datetime] = {}
+
+def trigger_drift_alert(symbol: str, drift_event: 'DriftEvent'):
+    """Trigger alert for high-severity drift events (pure math, no LLM)."""
+    
+    alerts_enabled = os.getenv("DRIFT_ALERT_ENABLED", "true").lower() == "true"
+    alert_cooldown = int(os.getenv("DRIFT_ALERT_COOLDOWN", "300"))  # 5 min default
+    
+    if not alerts_enabled:
+        return
+    
+    # Only alert on HIGH or CRITICAL severity
+    if drift_event.severity not in [DriftSeverity.HIGH, DriftSeverity.CRITICAL]:
+        return
+    
+    # Check cooldown
+    now = datetime.now()
+    last = _drift_alert_cooldowns.get(symbol)
+    if last and (now - last).total_seconds() < alert_cooldown:
+        return
+    
+    severity_str = drift_event.severity.value
+    reason = f"{drift_event.drift_type.value}: {drift_event.message}"
+    
+    logger.info(f"🚨 [{symbol}] DRIFT ALERT: {reason}")
+    
+    try:
+        redis_client = get_redis_client_cache()
+        publish_alert(
+            symbol=symbol,
+            alert_type="drift",
+            reason=reason,
+            severity=severity_str,
+            redis_sync=redis_client,
+            trigger_debate=True
+        )
+        _drift_alert_cooldowns[symbol] = now
+        logger.info(f"✅ [{symbol}] Drift alert published at {now.isoformat()}")
+    except Exception as e:
+        logger.error(f"⚠️ [{symbol}] Drift alert failed: {e}")
+
+
+# ============================================================================
 # GLOBAL STATE FOR PATHWAY UDF
 # ============================================================================
 
@@ -546,7 +601,7 @@ def detect_drift(
         except Exception as e:
             pass  # Ignore Redis errors for status
     
-    # Store alerts
+    # Store alerts and trigger alert system for high-severity events
     for event in events:
         alert = {
             'id': f"{symbol}_{event.timestamp.isoformat()}_{event.feature}",
@@ -556,6 +611,9 @@ def detect_drift(
         }
         _store_alert_in_redis(alert, symbol)
         logger.info(f"🚨 DRIFT: {symbol} | {event.feature} | {event.drift_type.value}")
+        
+        # Trigger WebSocket alert + Bull-Bear debate for high-severity events
+        trigger_drift_alert(symbol, event)
     
     if events:
         return json.dumps([e.to_dict() for e in events])
