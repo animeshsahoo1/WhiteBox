@@ -25,12 +25,12 @@ import time
 import litellm
 from typing import Optional
 
-# Import PostgreSQL save function
+# Import Redis and PostgreSQL save functions
 try:
-    from redis_cache import save_report_to_postgres, get_redis_client
+    from redis_cache import save_report_to_postgres, save_report_to_redis
     from event_publisher import publish_agent_status, publish_report
 except ImportError:
-    from .redis_cache import save_report_to_postgres, get_redis_client
+    from .redis_cache import save_report_to_postgres, save_report_to_redis
     from .event_publisher import publish_agent_status, publish_report
 
 
@@ -297,17 +297,16 @@ def process_sentiment_reports(
         if not clusters:
             return ""
         
+        # Publish RUNNING status at START of processing (before LLM call)
+        try:
+            room_id = f"symbol:{symbol}"
+            publish_agent_status(room_id, "Sentiment Report Agent", "RUNNING")
+        except Exception as e:
+            print(f"⚠️ [{symbol}] Failed to publish Sentiment Report Agent status: {e}")
+        
         # Update last report time BEFORE generating (to prevent concurrent calls)
         _last_report_time[symbol] = current_time
         print(f"🔄 [{symbol}] Generating report (interval: {REPORT_GENERATION_INTERVAL}s)")
-        
-        # Publish RUNNING status
-        try:
-            room_id = f"symbol:{symbol}"
-            redis_client = get_redis_client()
-            publish_agent_status(room_id, "Sentiment Report Agent", "RUNNING", redis_client)
-        except Exception as e:
-            print(f"⚠️ [{symbol}] Failed to publish Sentiment Report Agent status: {e}")
         
         # First, generate summaries for clusters that need them
         processed_clusters = []
@@ -358,17 +357,22 @@ def process_sentiment_reports(
             # Publish report and COMPLETED status
             try:
                 room_id = f"symbol:{symbol}"
-                redis_client = get_redis_client()
                 publish_report(room_id, "Sentiment Report Agent", {
                     "symbol": symbol,
                     "report_type": "sentiment_report",
                     "overall_sentiment": round(overall_sentiment, 3),
                     "sentiment_direction": sentiment_direction,
                     "cluster_count": len(processed_clusters)
-                }, redis_client)
-                publish_agent_status(room_id, "Sentiment Report Agent", "COMPLETED", redis_client)
+                })
+                publish_agent_status(room_id, "Sentiment Report Agent", "COMPLETED")
             except Exception as e:
                 print(f"⚠️ [{symbol}] Failed to publish Sentiment Report Agent events: {e}")
+            
+            # Save to Redis for API caching (this is what report_fetch_api reads!)
+            try:
+                save_report_to_redis(symbol, "sentiment", new_report)
+            except Exception as e:
+                print(f"⚠️ [{symbol}] Failed to cache sentiment report to Redis: {e}")
             
             # Save to PostgreSQL for historical storage
             try:
@@ -390,8 +394,7 @@ def process_sentiment_reports(
             # Publish FAILED status
             try:
                 room_id = f"symbol:{symbol}"
-                redis_client = get_redis_client()
-                publish_agent_status(room_id, "Sentiment Report Agent", "FAILED", redis_client)
+                publish_agent_status(room_id, "Sentiment Report Agent", "FAILED")
             except:
                 pass
         

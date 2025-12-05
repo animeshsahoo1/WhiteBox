@@ -52,6 +52,22 @@ app = FastAPI(
     description="Unified API for Reports, RAG, Backtesting, Bull-Bear Debate, and Strategist Agent",
 )
 
+# Ensure required directories exist at startup
+REQUIRED_DIRS = [
+    "/app/reports/fundamental",
+    "/app/reports/market", 
+    "/app/reports/news",
+    "/app/reports/sentiment",
+    "/app/reports/sentiment/clusters",
+    "/app/reports/facilitator",
+    "/app/reports/debate",
+    "/app/pathway_state",
+    "/app/knowledge_base",
+]
+for dir_path in REQUIRED_DIRS:
+    os.makedirs(dir_path, exist_ok=True)
+print(f"📁 Ensured {len(REQUIRED_DIRS)} required directories exist")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

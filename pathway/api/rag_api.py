@@ -44,7 +44,6 @@ from pathway.xpacks.llm.mcp_server import PathwayMcp
 
 load_dotenv()
 pw.set_license_key(os.getenv("PATHWAY_LICENSE_KEY", ""))
-print(os.getenv("PATHWAY_LICENSE_KEY"))
 # ==================== Pathway DocumentStore Setup ====================
 
 # Initialize LLM for contextual summarization
@@ -99,27 +98,61 @@ def prechunked_json_parser(data: bytes) -> list[tuple[str, dict]]:
     """
     Parse a JSONL file where each line is already a chunk.
     Returns a list with one tuple per line: (text, metadata_dict)
+    
+    Handles malformed JSONL where multiple JSON objects may be on the same line.
     """
     import json
-    lines = data.decode('utf-8').strip().split('\n')
+    import re
+    
+    content = data.decode('utf-8').strip()
     chunks = []
     
-    # First pass: collect all text to build full_text
-    all_texts = []
-    for line in lines:
-        if not line.strip():
-            continue
-        chunk = json.loads(line)
-        text = chunk.get("text", "")
-        all_texts.append(text)
+    # Split by newlines first
+    lines = content.split('\n')
     
+    # Collect all JSON objects, handling multiple per line
+    all_json_objects = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        
+        # Try parsing the line directly first
+        try:
+            obj = json.loads(line)
+            all_json_objects.append(obj)
+        except json.JSONDecodeError:
+            # Line might have multiple JSON objects concatenated
+            # Split by }{ pattern and reconstruct valid JSON
+            parts = re.split(r'\}\s*\{', line)
+            for i, part in enumerate(parts):
+                # Reconstruct the JSON object
+                if i == 0:
+                    part = part + '}'  # First part missing closing brace
+                elif i == len(parts) - 1:
+                    part = '{' + part  # Last part missing opening brace
+                else:
+                    part = '{' + part + '}'  # Middle parts missing both
+                
+                # Handle edge case where original was already complete
+                if not part.startswith('{'):
+                    part = '{' + part
+                if not part.endswith('}'):
+                    part = part + '}'
+                
+                try:
+                    obj = json.loads(part)
+                    all_json_objects.append(obj)
+                except json.JSONDecodeError as e:
+                    print(f"⚠️ Skipping malformed JSON chunk: {e}")
+                    continue
+    
+    # Build full_text from all objects
+    all_texts = [obj.get("text", "") for obj in all_json_objects]
     full_text = " ".join(all_texts)
     
-    # Second pass: build chunks with summaries
-    for line in lines:
-        if not line.strip():
-            continue
-        chunk = json.loads(line)
+    # Build chunks with summaries
+    for chunk in all_json_objects:
         text = chunk.get("text", "")
         timestamp = chunk.get("timestamp", datetime.now().isoformat())
         # Generate contextual summary using helper function

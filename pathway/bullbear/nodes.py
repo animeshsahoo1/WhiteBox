@@ -27,6 +27,19 @@ from .llm_utils import (
 )
 from .config import get_config
 
+# Event publishing imports
+try:
+    from event_publisher import publish_debate_point, publish_debate_progress, publish_recommendation, publish_graph_state
+except ImportError:
+    try:
+        from ..event_publisher import publish_debate_point, publish_debate_progress, publish_recommendation, publish_graph_state
+    except ImportError:
+        # Fallback if event_publisher not available
+        publish_debate_point = None
+        publish_debate_progress = None
+        publish_recommendation = None
+        publish_graph_state = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -53,6 +66,21 @@ class DebateNodes:
     # ============================================================
     # SHARED HELPER METHODS
     # ============================================================
+    
+    def _publish_event(self, state: DebateState, event_type: str, data: Dict[str, Any]) -> None:
+        """Safely publish an event to the room_id channel."""
+        room_id = state.get("room_id", f"symbol:{state.get('symbol', 'UNKNOWN')}")
+        try:
+            if event_type == "debate_point" and publish_debate_point:
+                publish_debate_point(room_id, data)
+            elif event_type == "debate_progress" and publish_debate_progress:
+                publish_debate_progress(room_id, data)
+            elif event_type == "recommendation" and publish_recommendation:
+                publish_recommendation(room_id, data)
+            elif event_type == "graph_state" and publish_graph_state:
+                publish_graph_state(room_id, data)
+        except Exception as e:
+            logger.warning(f"Failed to publish {event_type} event: {e}")
     
     def _get_memory_manager(self, session_id: str, symbol: str = "") -> MemoryManager:
         """Get or create memory manager for symbol (persists across sessions)"""
@@ -294,6 +322,28 @@ Fundamental Report: {state['fundamental_report']}
         state["current_point"] = point.to_dict()
         state["current_speaker"] = party
         
+        # Publish debate point event
+        self._publish_event(state, "debate_point", {
+            "symbol": state["symbol"],
+            "party": party,
+            "status": "SPEAKING",
+            "point_id": point_id,
+            "content": point.content,
+            "confidence": point.confidence,
+            "supporting_evidence": point.supporting_evidence,
+            "counter_to": point.counter_to,
+            "round": state.get("round_number", 0) + 1
+        })
+        
+        # Publish graph state for visualization
+        self._publish_event(state, "graph_state", {
+            "symbol": state["symbol"],
+            "current_node": f"{party}_present",
+            "current_speaker": party,
+            "round": state.get("round_number", 0) + 1,
+            "total_points": len(debate_points) + 1
+        })
+        
         # Check if RAG query is needed (for additional context)
         if response.get("needs_rag_query") and response.get("rag_query"):
             state["rag_query"] = response["rag_query"]
@@ -317,6 +367,23 @@ Fundamental Report: {state['fundamental_report']}
         print(f"{'='*60}")
         print(f"  Symbol: {state['symbol']}")
         logger.info(f"Fetching reports for {state['symbol']}")
+        
+        # Publish debate started event
+        self._publish_event(state, "debate_progress", {
+            "symbol": state["symbol"],
+            "status": "STARTED",
+            "current_round": 0,
+            "max_rounds": state.get("max_rounds", 5),
+            "message": "Fetching reports..."
+        })
+        
+        # Publish graph state
+        self._publish_event(state, "graph_state", {
+            "symbol": state["symbol"],
+            "current_node": "fetch_reports",
+            "nodes_completed": [],
+            "nodes_pending": ["compute_deltas", "fetch_memory_context", "debate_rounds", "generate_report"]
+        })
         
         try:
             reports = self.reports_client.fetch_all_reports(state["symbol"])
@@ -877,6 +944,27 @@ Fundamental Report: {state['fundamental_report']}
             state["recommendation"] = "HOLD"
         
         print(f"  🎯 Recommendation: {state['recommendation']}")
+        
+        # Publish recommendation event
+        self._publish_event(state, "recommendation", {
+            "symbol": state["symbol"],
+            "recommendation": state["recommendation"],
+            "conclusion_reason": conclusion_reason,
+            "total_rounds": current_round,
+            "bull_points": len([p for p in debate_points if p.get("party") == "bull"]),
+            "bear_points": len([p for p in debate_points if p.get("party") == "bear"]),
+            "report_length": len(report)
+        })
+        
+        # Publish debate progress - COMPLETED
+        self._publish_event(state, "debate_progress", {
+            "symbol": state["symbol"],
+            "status": "COMPLETED",
+            "current_round": current_round,
+            "max_rounds": max_rounds,
+            "conclusion_reason": conclusion_reason,
+            "recommendation": state["recommendation"]
+        })
         
         state["updated_at"] = datetime.utcnow().isoformat()
         print(f"✅ NODE COMPLETE: GENERATE FACILITATOR REPORT")

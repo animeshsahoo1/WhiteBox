@@ -88,13 +88,11 @@ def trigger_sentiment_alert(symbol: str, overall_sentiment: float):
         print(f"🚨 [{symbol}] SENTIMENT ALERT: {reason}")
         
         try:
-            redis_client = get_redis_client()
             publish_alert(
                 symbol=symbol,
                 alert_type="sentiment",
                 reason=reason,
                 severity=severity,
-                redis_sync=redis_client,
                 trigger_debate=True
             )
             _sentiment_alert_cooldowns[symbol] = now
@@ -358,6 +356,14 @@ def process_sentiment_clustering(
     @pw.udf
     def extract_clusters_and_save(symbol: str, cluster_state: pw.Json, output_dir: str) -> str:
         """Extract clusters, calculate sentiment, and save to file (read-modify-write)."""
+        
+        # Publish RUNNING status at START of processing
+        room_id = f"symbol:{symbol}"
+        try:
+            publish_agent_status(room_id, "Sentiment Agent", "RUNNING")
+        except Exception as e:
+            print(f"⚠️ [{symbol}] Failed to publish Sentiment Agent status: {e}")
+        
         os.makedirs(output_dir, exist_ok=True)
         file_path = os.path.join(output_dir, f"{symbol}_clusters.json")
         
@@ -367,14 +373,6 @@ def process_sentiment_clustering(
         except Exception as e:
             print(f"⚠️ [{symbol}] Failed to connect to Redis: {e}")
             redis_client = None
-        
-        # Publish RUNNING status
-        room_id = f"symbol:{symbol}"
-        if redis_client:
-            try:
-                publish_agent_status(room_id, "Sentiment Agent", "RUNNING", redis_client)
-            except Exception as e:
-                print(f"⚠️ [{symbol}] Failed to publish Sentiment Agent status: {e}")
         
         # Load existing state from file
         existing_clusters = {}
@@ -466,26 +464,26 @@ def process_sentiment_clustering(
         trigger_sentiment_alert(symbol, overall_sentiment)
         
         # Publish report and COMPLETED status
-        if redis_client:
-            try:
-                # Determine sentiment direction
-                sentiment_direction = "NEUTRAL"
-                if overall_sentiment > 0.1:
-                    sentiment_direction = "BULLISH"
-                elif overall_sentiment < -0.1:
-                    sentiment_direction = "BEARISH"
-                
-                publish_report(room_id, "Sentiment Agent", {
-                    "symbol": symbol,
-                    "report_type": "sentiment",
-                    "overall_sentiment": round(overall_sentiment, 3),
-                    "sentiment_direction": sentiment_direction,
-                    "cluster_count": len(clusters_list),
-                    "total_posts": total_posts
-                }, redis_client)
-                publish_agent_status(room_id, "Sentiment Agent", "COMPLETED", redis_client)
-            except Exception as e:
-                print(f"⚠️ [{symbol}] Failed to publish Sentiment Agent events: {e}")
+        try:
+            # Determine sentiment direction
+            sentiment_direction = "NEUTRAL"
+            if overall_sentiment > 0.1:
+                sentiment_direction = "BULLISH"
+            elif overall_sentiment < -0.1:
+                sentiment_direction = "BEARISH"
+            
+            publish_report(room_id, "Sentiment Agent", {
+                "symbol": symbol,
+                "report_type": "sentiment",
+                "overall_sentiment": round(overall_sentiment, 3),
+                "sentiment_direction": sentiment_direction,
+                "cluster_count": len(clusters_list),
+                "total_posts": total_posts,
+                "clusters": clusters_list  # Include cluster data for frontend
+            })
+            publish_agent_status(room_id, "Sentiment Agent", "COMPLETED")
+        except Exception as e:
+            print(f"⚠️ [{symbol}] Failed to publish Sentiment Agent events: {e}")
         
         return json.dumps(result)
     

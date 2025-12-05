@@ -19,7 +19,7 @@ from pydantic import BaseModel
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from redis_cache import get_redis_client, get_reports_for_symbol
+from redis_cache import get_reports_for_symbol
 from event_publisher import publish_agent_status, publish_event, publish_report
 from bullbear.debate_runner import run_debate_and_generate_report, get_debate_progress
 
@@ -86,15 +86,13 @@ def _update_workflow_status(
 
 def _run_workflow_background(room_id: str, user_id: str, symbol: str, max_rounds: int):
     """Run the complete workflow in background."""
-    redis_client = get_redis_client()
-    
     try:
         # ============================================================
         # STEP 1: Fetch Reports
         # ============================================================
         _update_workflow_status(room_id, "in_progress", current_step="fetching_reports")
-        publish_agent_status(room_id, "workflow", "RUNNING", redis_client)
-        publish_agent_status(room_id, "Analyst Agent", "FETCHING_REPORTS", redis_client)
+        publish_agent_status(room_id, "workflow", "RUNNING")
+        publish_agent_status(room_id, "Analyst Agent", "FETCHING_REPORTS")
         
         print(f"\n{'='*60}")
         print(f"🚀 WORKFLOW STARTED - Room: {room_id}, User: {user_id}, Symbol: {symbol}")
@@ -121,16 +119,16 @@ def _run_workflow_background(room_id: str, user_id: str, symbol: str, max_rounds
                 print(content_str[:500])
                 if len(content_str) > 500:
                     print(f"... [truncated, total {len(content_str)} chars]")
-                publish_agent_status(room_id, "Analyst Agent", f"{report_type}_REPORT RECEIVED", redis_client)
+                publish_agent_status(room_id, "Analyst Agent", f"{report_type}_REPORT RECEIVED")
                 # Publish the actual report content to Redis
                 publish_report(room_id, "Analyst Agent", {
                     "report_type": report_type,
                     "symbol": symbol,
                     "content": content_str
-                }, redis_client)
+                })
             else:
                 print(f"❌ No {report_type} report found")
-                publish_agent_status(room_id, "Analyst Agent", f"{report_type}_REPORT NOT_FOUND", redis_client)
+                publish_agent_status(room_id, "Analyst Agent", f"{report_type}_REPORT NOT_FOUND")
         
         _update_workflow_status(
             room_id, 
@@ -144,7 +142,7 @@ def _run_workflow_background(room_id: str, user_id: str, symbol: str, max_rounds
             error_msg = f"No reports found for {symbol}. Cannot proceed with debate."
             print(f"\n❌ ERROR: {error_msg}")
             _update_workflow_status(room_id, "error", error=error_msg)
-            publish_agent_status(room_id, "Analyst Agent", "ERROR", redis_client)
+            publish_agent_status(room_id, "Analyst Agent", "FAILED")
             return
         
         print(f"\n✅ Reports Summary: {reports_found}")
@@ -196,7 +194,7 @@ def _run_workflow_background(room_id: str, user_id: str, symbol: str, max_rounds
             bear_history = debate_result.get("bear_history", "")
             print(bear_history[:1000] if bear_history else "No bear arguments")
             
-            publish_agent_status(room_id, "bull_bear_debate", "CLOSED", redis_client)
+            publish_agent_status(room_id, "Bull Bear Debate", "COMPLETED")
             
         except ValueError as e:
             error_msg = f"Debate failed: {str(e)}"
@@ -238,7 +236,7 @@ def _run_workflow_background(room_id: str, user_id: str, symbol: str, max_rounds
         error_msg = f"Workflow error: {str(e)}"
         print(f"\n❌ WORKFLOW ERROR: {error_msg}")
         _update_workflow_status(room_id, "error", error=error_msg)
-        publish_agent_status(room_id, "workflow", "ERROR", redis_client)
+        publish_agent_status(room_id, "workflow", "FAILED")
 
 
 @router.post("/run_workflow")

@@ -22,12 +22,12 @@ import uuid
 import hashlib
 
 
-# Import PostgreSQL save function
+# Import Redis and PostgreSQL save functions
 try:
-    from redis_cache import save_report_to_postgres, get_redis_client
+    from redis_cache import save_report_to_postgres, save_report_to_redis
     from event_publisher import publish_agent_status, publish_report, publish_alert
 except ImportError:
-    from .redis_cache import save_report_to_postgres, get_redis_client
+    from .redis_cache import save_report_to_postgres, save_report_to_redis
     from .event_publisher import publish_agent_status, publish_report, publish_alert
 
 load_dotenv()
@@ -117,13 +117,11 @@ def trigger_news_alert(symbol: str, report: str, cluster_count: int):
     if is_significant:
         print(f"📰 [{symbol}] NEWS ALERT: {reason}")
         try:
-            redis_client = get_redis_client()
             publish_alert(
                 symbol=symbol,
                 alert_type="news",
                 reason=reason,
                 severity="high",
-                redis_sync=redis_client,
                 trigger_debate=True
             )
             _news_alert_cooldowns[symbol] = now
@@ -688,16 +686,15 @@ def process_news_stream(
             if not has_changes:
                 return state
             
-            state['update_count'] += 1
-            current_report = state.get('report') or cluster_manager._load_report(symbol)
-            
-            # Publish RUNNING status
+            # Publish RUNNING status at START of processing (before LLM call)
             try:
                 room_id = f"symbol:{symbol}"
-                redis_client = get_redis_client()
-                publish_agent_status(room_id, "News Agent", "RUNNING", redis_client)
+                publish_agent_status(room_id, "News Agent", "RUNNING")
             except Exception as e:
                 print(f"⚠️ [{symbol}] Failed to publish News Agent status: {e}")
+            
+            state['update_count'] += 1
+            current_report = state.get('report') or cluster_manager._load_report(symbol)
             
             if cluster_manager.has_valid_api_key:
                 new_report = cluster_manager.call_llm_sync(
@@ -718,6 +715,12 @@ def process_news_stream(
             # Trigger news alert with LLM-based impact assessment
             trigger_news_alert(symbol, new_report, len(clusters))
             
+            # Save to Redis for API caching
+            try:
+                save_report_to_redis(symbol, "news", new_report)
+            except Exception as e:
+                print(f"⚠️ [{symbol}] Failed to cache news report to Redis: {e}")
+            
             # Save to PostgreSQL for historical storage
             try:
                 entry = {
@@ -734,15 +737,14 @@ def process_news_stream(
             # Publish report and COMPLETED status
             try:
                 room_id = f"symbol:{symbol}"
-                redis_client = get_redis_client()
                 publish_report(room_id, "News Agent", {
                     "symbol": symbol,
                     "report_type": "news",
                     "cluster_count": len(clusters),
                     "new_clusters": new_cluster_count,
                     "update_number": state['update_count']
-                }, redis_client)
-                publish_agent_status(room_id, "News Agent", "COMPLETED", redis_client)
+                })
+                publish_agent_status(room_id, "News Agent", "COMPLETED")
             except Exception as e:
                 print(f"⚠️ [{symbol}] Failed to publish News Agent events: {e}")
 
@@ -757,8 +759,7 @@ def process_news_stream(
             try:
                 if symbol:
                     room_id = f"symbol:{symbol}"
-                    redis_client = get_redis_client()
-                    publish_agent_status(room_id, "News Agent", "FAILED", redis_client)
+                    publish_agent_status(room_id, "News Agent", "FAILED")
             except:
                 pass
         

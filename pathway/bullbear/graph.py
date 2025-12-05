@@ -339,7 +339,8 @@ class BullBearDebate:
         self,
         symbol: str,
         max_rounds: int = 5,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        room_id: Optional[str] = None
     ) -> dict:
         """
         Run a complete Bull-Bear debate.
@@ -348,6 +349,7 @@ class BullBearDebate:
             symbol: Stock symbol to debate
             max_rounds: Maximum debate rounds
             session_id: Optional session ID (generated if not provided)
+            room_id: Optional room ID for WebSocket events
             
         Returns:
             Final state dict with facilitator report and recommendation
@@ -358,7 +360,8 @@ class BullBearDebate:
         initial_state = create_initial_state(
             symbol=symbol,
             session_id=session_id,
-            max_rounds=max_rounds
+            max_rounds=max_rounds,
+            room_id=room_id
         )
         
         print(f"\n{'='*60}")
@@ -390,7 +393,8 @@ class BullBearDebate:
         self,
         symbol: str,
         max_rounds: int = 5,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        room_id: Optional[str] = None
     ):
         """
         Stream a Bull-Bear debate, yielding state after each node.
@@ -399,6 +403,7 @@ class BullBearDebate:
             symbol: Stock symbol to debate
             max_rounds: Maximum debate rounds
             session_id: Optional session ID
+            room_id: Optional room ID for WebSocket events
             
         Yields:
             State dict after each node execution
@@ -409,7 +414,8 @@ class BullBearDebate:
         initial_state = create_initial_state(
             symbol=symbol,
             session_id=session_id,
-            max_rounds=max_rounds
+            max_rounds=max_rounds,
+            room_id=room_id
         )
         
         logger.info(f"Streaming Bull-Bear debate for {symbol}")

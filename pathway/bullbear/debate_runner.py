@@ -280,7 +280,7 @@ def _run_debate_sync(
         final_state = None
         current_round = 0
         
-        for event in debate.stream(symbol, max_rounds, room_id):
+        for event in debate.stream(symbol, max_rounds, session_id=None, room_id=room_id):
             node_name = list(event.keys())[0]
             state = event[node_name]
             

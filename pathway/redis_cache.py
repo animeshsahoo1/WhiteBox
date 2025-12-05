@@ -96,6 +96,41 @@ def save_report_to_postgres(symbol: str, report_type: str, entry: Dict[str, Any]
         return False
 
 
+def save_report_to_redis(symbol: str, report_type: str, content: str) -> bool:
+    """
+    Save a report to Redis cache for fast retrieval by the API.
+    
+    Args:
+        symbol: Stock symbol (e.g., "AAPL")
+        report_type: Type of report (e.g., "sentiment", "market", "news", "fundamental")
+        content: Report content (markdown or text)
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        client = get_redis_client()
+        symbol_key = _build_symbol_key(symbol.upper())
+        
+        entry = {
+            "symbol": symbol.upper(),
+            "report_type": report_type,
+            "content": content,
+            "last_updated": datetime.utcnow().isoformat(),
+            "received_at": datetime.utcnow().isoformat(),
+        }
+        
+        client.hset(symbol_key, report_type, json.dumps(entry))
+        client.sadd(REPORT_SYMBOL_SET_KEY, symbol.upper())
+        
+        print(f"✅ [REDIS] Cached {report_type} report for {symbol}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Failed to cache report to Redis: {e}")
+        return False
+
+
 @lru_cache(maxsize=1)
 def get_redis_client() -> redis.Redis:
     """Return a cached Redis client configured via environment variables."""

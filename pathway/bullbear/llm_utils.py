@@ -261,7 +261,7 @@ SCORING GUIDELINES:
 - THESIS_VALIDATED: Correct direction AND correct reasoning
 - CORRECT_BY_LUCK: Correct direction but different catalysts drove the move
 - WRONG_DIRECTION: Opposite of recommendation occurred
-- WRONG_MAGNITUDE: Direction correct but move was significantly larger/smaller than confidence implied""""""
+- WRONG_MAGNITUDE: Direction correct but move was significantly larger/smaller than confidence implied"""
 
 
 BULL_POINT_PROMPT = """You are a senior long-biased portfolio manager advocating for {symbol} in an investment committee debate.
@@ -323,7 +323,7 @@ OUTPUT (strict JSON):
 QUALITY STANDARDS:
 - Avoid generic statements like "strong fundamentals" without specific supporting data
 - Each argument should be falsifiable and time-bounded where possible
-- Counter-arguments should address the Bear's specific concern, not pivot to unrelated bullish points"""
+- Counter-arguments should address the Bear's specific concern, not pivot to unrelated bullish points """
 
 
 BEAR_POINT_PROMPT = """You are a senior risk analyst and short-biased portfolio manager challenging the bull case for {symbol} in an investment committee debate.
@@ -420,7 +420,7 @@ OUTPUT (strict JSON):
     "differentiation_suggestion": "If not unique, what angle could make this point acceptable?"
 }}
 
-THRESHOLD: Reject if uniqueness_score < 0.6 or similarity_type is IDENTICAL""""""
+THRESHOLD: Reject if uniqueness_score < 0.6 or similarity_type is IDENTICAL"""
 
 
 FACILITATOR_CONCLUSION_PROMPT = """You are the Chief Investment Officer synthesizing the bull-bear debate into an actionable investment decision for {symbol}.
