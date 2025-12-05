@@ -109,19 +109,18 @@ def publish_strategist_event(room_id: str, event_type: str, data: dict):
     """Publish event to WebSocket via Redis if available."""
     if HAS_EVENT_PUBLISHER and room_id:
         try:
-            from redis_cache import get_redis_client
-            redis_client = get_redis_client()
-            
             # Use consistent agent_status for status events
             if event_type == "strategist_thinking":
-                publish_agent_status(room_id, "Strategist Agent", "RUNNING", redis_client)
+                publish_agent_status(room_id, "Strategist Agent", "THINKING")
             elif event_type == "strategist_response":
-                publish_report(room_id, "Strategist Agent", data, redis_client)
-                publish_agent_status(room_id, "Strategist Agent", "COMPLETED", redis_client)
+                publish_report(room_id, "Strategist Agent", data)
+                publish_agent_status(room_id, "Strategist Agent", "COMPLETED")
             elif event_type == "strategist_error":
-                publish_agent_status(room_id, "Strategist Agent", "FAILED", redis_client)
+                publish_agent_status(room_id, "Strategist Agent", "FAILED")
+            elif event_type == "strategist_chunk":
+                publish_event(room_id, "strategist_chunk", data)
             else:
-                publish_event(room_id, event_type, data, redis_client)
+                publish_event(room_id, event_type, data)
         except Exception as e:
             print(f"[WARN] Failed to publish event: {e}")
 

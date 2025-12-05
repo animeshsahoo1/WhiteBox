@@ -6,9 +6,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 from datetime import timedelta
 
-# Event publishing imports
-from redis_cache import get_redis_client
+# Event publishing and caching imports
 from event_publisher import publish_agent_status, publish_report
+from redis_cache import save_report_to_redis
 
 load_dotenv()
 
@@ -342,13 +342,12 @@ def _setup_report_saving(analyzed_table: pw.Table, reports_dir: Path):
         try:
             symbol = row['symbol']
             room_id = f"symbol:{symbol}"
-            redis_client = get_redis_client()
             
-            # Publish RUNNING status
-            publish_agent_status(room_id, "Market Agent", "RUNNING", redis_client)
+            # Publish RUNNING status at the START of processing
+            publish_agent_status(room_id, "Market Agent", "RUNNING")
             
             print(f"\n{'='*60}", flush=True)
-            print(f"🔄 WINDOW CLOSED for {symbol}", flush=True)
+            print(f"🔄 WINDOW CLOSED for {symbol} - Starting analysis...", flush=True)
             print(f"   Time range: {row['window_start']} to {row['window_end']}", flush=True)
             print(f"   Data points: {row['data_points']}", flush=True)
             print(f"{'='*60}\n", flush=True)
@@ -429,6 +428,12 @@ def _setup_report_saving(analyzed_table: pw.Table, reports_dir: Path):
             
             print(f"✅ Report successfully saved: {report_path}", flush=True)
             
+            # Save to Redis for API caching
+            try:
+                save_report_to_redis(symbol, "market", report_content)
+            except Exception as e:
+                print(f"⚠️ [{symbol}] Failed to cache market report to Redis: {e}")
+            
             # Publish report ready event
             publish_report(room_id, "Market Agent", {
                 "symbol": symbol,
@@ -437,10 +442,10 @@ def _setup_report_saving(analyzed_table: pw.Table, reports_dir: Path):
                 "strength": market_data['technical_indicators']['trend_indicators']['trend_strength'],
                 "price": market_data['technical_indicators']['price_metrics']['current_price'],
                 "change_percent": market_data['technical_indicators']['momentum_indicators']['latest_change_percent']
-            }, redis_client)
+            })
             
             # Publish COMPLETED status
-            publish_agent_status(room_id, "Market Agent", "COMPLETED", redis_client)
+            publish_agent_status(room_id, "Market Agent", "COMPLETED")
             
         except Exception as e:
             import traceback
@@ -451,8 +456,7 @@ def _setup_report_saving(analyzed_table: pw.Table, reports_dir: Path):
             # Publish FAILED status
             try:
                 room_id = f"symbol:{row.get('symbol', 'unknown')}"
-                redis_client = get_redis_client()
-                publish_agent_status(room_id, "Market Agent", "FAILED", redis_client)
+                publish_agent_status(room_id, "Market Agent", "FAILED")
             except:
                 pass
     

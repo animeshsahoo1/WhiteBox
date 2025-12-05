@@ -90,6 +90,7 @@ class DebateState(TypedDict):
     # Identifiers
     symbol: Annotated[str, "Stock symbol being debated"]
     session_id: Annotated[str, "Unique session identifier"]
+    room_id: Annotated[str, "Room ID for WebSocket events"]
     
     # Reports (raw)
     news_report: Annotated[str, "Current news report"]
@@ -137,12 +138,13 @@ class DebateState(TypedDict):
     errors: Annotated[List[str], "Any errors encountered"]
 
 
-def create_initial_state(symbol: str, session_id: str, max_rounds: int = 5) -> DebateState:
+def create_initial_state(symbol: str, session_id: str, max_rounds: int = 5, room_id: str = None) -> DebateState:
     """Create initial debate state"""
     now = datetime.utcnow().isoformat()
     return DebateState(
         symbol=symbol,
         session_id=session_id,
+        room_id=room_id or f"symbol:{symbol}",
         news_report="",
         sentiment_report="",
         market_report="",

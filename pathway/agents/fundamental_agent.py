@@ -5,12 +5,12 @@ from datetime import datetime
 from dotenv import load_dotenv
 import json
 
-# Import PostgreSQL save function
+# Import Redis and PostgreSQL save functions
 try:
-    from redis_cache import save_report_to_postgres, get_redis_client
+    from redis_cache import save_report_to_postgres, save_report_to_redis
     from event_publisher import publish_agent_status, publish_report
 except ImportError:
-    from .redis_cache import save_report_to_postgres, get_redis_client
+    from .redis_cache import save_report_to_postgres, save_report_to_redis
     from .event_publisher import publish_agent_status, publish_report
 
 load_dotenv()
@@ -438,6 +438,13 @@ def process_fundamental_stream(
         # Take the latest data item (most recent fundamental data)
         latest_data = data_items[-1]
         
+        # Publish RUNNING status at START of processing (before LLM call)
+        try:
+            room_id = f"symbol:{symbol}"
+            publish_agent_status(room_id, "Fundamental Agent", "RUNNING")
+        except Exception as e:
+            print(f"⚠️ [{symbol}] Failed to publish Fundamental Agent status: {e}")
+        
         # Reconstruct the full data dictionary from row values
         # The order matches get_output_schema(): profile, peers, income_annual, etc.
         # Convert all pw.Json objects to Python dicts/lists
@@ -489,20 +496,18 @@ def process_fundamental_stream(
         """UDF to save the report to filesystem."""
         print(f"\n[SAVE] Saving report for {symbol}...")
         
-        # Publish RUNNING status
-        try:
-            room_id = f"symbol:{symbol}"
-            redis_client = get_redis_client()
-            publish_agent_status(room_id, "Fundamental Agent", "RUNNING", redis_client)
-        except Exception as e:
-            print(f"⚠️ [{symbol}] Failed to publish Fundamental Agent status: {e}")
-        
         report_path = report_updater._get_report_path(symbol)
         with open(report_path, "w", encoding="utf-8") as f:
             f.write(report_content)
         print(
             f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] ✓ Saved fundamental report for {symbol} to {report_path}"
         )
+        
+        # Save to Redis for API caching
+        try:
+            save_report_to_redis(symbol, "fundamental", report_content)
+        except Exception as e:
+            print(f"⚠️ [{symbol}] Failed to cache fundamental report to Redis: {e}")
         
         # Save to PostgreSQL for historical storage
         try:
@@ -519,7 +524,6 @@ def process_fundamental_stream(
         # Publish report and COMPLETED status
         try:
             room_id = f"symbol:{symbol}"
-            redis_client = get_redis_client()
             
             # Extract rating from report content if possible
             rating = "N/A"
@@ -534,8 +538,8 @@ def process_fundamental_stream(
                 "symbol": symbol,
                 "report_type": "fundamental",
                 "rating": rating
-            }, redis_client)
-            publish_agent_status(room_id, "Fundamental Agent", "COMPLETED", redis_client)
+            })
+            publish_agent_status(room_id, "Fundamental Agent", "COMPLETED")
         except Exception as e:
             print(f"⚠️ [{symbol}] Failed to publish Fundamental Agent events: {e}")
         

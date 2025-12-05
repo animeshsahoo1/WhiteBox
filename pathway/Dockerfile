@@ -13,6 +13,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application code
 COPY . .
 
+# Create required directories (in case volumes don't exist on host)
+RUN mkdir -p /app/reports/fundamental /app/reports/market /app/reports/news \
+    /app/reports/sentiment /app/reports/facilitator /app/reports/debate \
+    /app/pathway_state /app/knowledge_base
+
 # Expose FastAPI ports
 EXPOSE 8000
 

@@ -42,10 +42,8 @@ from enum import Enum
 # Event publisher for alerts
 try:
     from event_publisher import publish_alert
-    from redis_cache import get_redis_client as get_redis_client_cache
 except ImportError:
     from .event_publisher import publish_alert
-    from .redis_cache import get_redis_client as get_redis_client_cache
 
 # River for drift detection
 try:
@@ -455,13 +453,11 @@ def trigger_drift_alert(symbol: str, drift_event: 'DriftEvent'):
     logger.info(f"🚨 [{symbol}] DRIFT ALERT: {reason}")
     
     try:
-        redis_client = get_redis_client_cache()
         publish_alert(
             symbol=symbol,
             alert_type="drift",
             reason=reason,
             severity=severity_str,
-            redis_sync=redis_client,
             trigger_debate=True
         )
         _drift_alert_cooldowns[symbol] = now

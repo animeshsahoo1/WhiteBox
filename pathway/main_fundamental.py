@@ -13,10 +13,14 @@ def main():
     print("Pathway Fundamental Analysis System (Redis-Backed Architecture)")
     print("=" * 70)
 
+    # Ensure reports directory exists
+    reports_directory = "/app/reports/fundamental"
+    os.makedirs(reports_directory, exist_ok=True)
+    print(f"📁 Reports directory ready: {reports_directory}")
+
     # Initialize consumer
     fundamental_consumer = FundamentalDataConsumer()
     fundamental_table = fundamental_consumer.consume()
-    reports_directory = "/app/reports/fundamental"
     
     # Process fundamental data
     updated_fundamental_reports = process_fundamental_stream(

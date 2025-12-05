@@ -38,6 +38,9 @@ def main():
     # Directories
     clusters_directory = os.getenv("SENTIMENT_CLUSTERS_DIR", "/app/reports/sentiment/clusters")
     reports_directory = "/app/reports/sentiment"
+    os.makedirs(clusters_directory, exist_ok=True)
+    os.makedirs(reports_directory, exist_ok=True)
+    print(f"📁 Directories ready: {clusters_directory}, {reports_directory}")
     
     print(f"\n📊 Phase 2 Steps:")
     print(f"  1️⃣  Watch cluster files in: {clusters_directory}")

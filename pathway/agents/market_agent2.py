@@ -19,17 +19,17 @@ from langchain_openai import ChatOpenAI
 from openai import RateLimitError
 from dotenv import load_dotenv
 
-# Import PostgreSQL save function
+# Import Redis and PostgreSQL save functions
 try:
-    from redis_cache import save_report_to_postgres, get_redis_client
+    from redis_cache import save_report_to_postgres, save_report_to_redis
     from event_publisher import publish_agent_status, publish_report
 except ImportError:
     try:
-        from .redis_cache import save_report_to_postgres, get_redis_client
+        from .redis_cache import save_report_to_postgres, save_report_to_redis
         from .event_publisher import publish_agent_status, publish_report
     except ImportError:
-        save_report_to_postgres = None  # Will be None if import fails
-        get_redis_client = None
+        save_report_to_postgres = None
+        save_report_to_redis = None
         publish_agent_status = None
         publish_report = None
 
@@ -591,15 +591,6 @@ def _precompute_and_analyze(windowed_table: pw.Table, indicators: list = None) -
         """
         import base64
         
-        # Publish RUNNING status
-        try:
-            if publish_agent_status and get_redis_client:
-                room_id = f"symbol:{symbol}"
-                redis_client = get_redis_client()
-                publish_agent_status(room_id, "Market Agent", "RUNNING", redis_client)
-        except Exception as e:
-            print(f"⚠️ [{symbol}] Failed to publish Market Agent status: {e}")
-        
         try:
             reports_dir = Path("./reports/market") / symbol
             reports_subdir = reports_dir / "reports"
@@ -734,6 +725,13 @@ The following chart images have been saved separately:
             
             print(f"✅ Comprehensive report saved: {comprehensive_report_path}")
             
+            # Save to Redis for API caching
+            if save_report_to_redis:
+                try:
+                    save_report_to_redis(symbol, "market", comprehensive_content)
+                except Exception as e:
+                    print(f"⚠️ [{symbol}] Failed to cache market report to Redis: {e}")
+            
             # Save to PostgreSQL for historical storage
             if save_report_to_postgres:
                 try:
@@ -793,9 +791,8 @@ The following chart images have been saved separately:
             
             # Publish report and COMPLETED status
             try:
-                if publish_report and publish_agent_status and get_redis_client:
+                if publish_report and publish_agent_status:
                     room_id = f"symbol:{symbol}"
-                    redis_client = get_redis_client()
                     publish_report(room_id, "Market Agent", {
                         "symbol": symbol,
                         "report_type": "market",
@@ -803,8 +800,8 @@ The following chart images have been saved separately:
                         "confidence": agent_results.get('confidence_score', 0.5),
                         "window_start": str(window_start),
                         "window_end": str(window_end)
-                    }, redis_client)
-                    publish_agent_status(room_id, "Market Agent", "COMPLETED", redis_client)
+                    })
+                    publish_agent_status(room_id, "Market Agent", "COMPLETED")
             except Exception as e:
                 print(f"⚠️ [{symbol}] Failed to publish Market Agent events: {e}")
                 
@@ -815,10 +812,9 @@ The following chart images have been saved separately:
             
             # Publish FAILED status
             try:
-                if publish_agent_status and get_redis_client:
+                if publish_agent_status:
                     room_id = f"symbol:{symbol}"
-                    redis_client = get_redis_client()
-                    publish_agent_status(room_id, "Market Agent", "FAILED", redis_client)
+                    publish_agent_status(room_id, "Market Agent", "FAILED")
             except:
                 pass
     
@@ -978,6 +974,13 @@ The following chart images have been saved separately:
     ) -> pw.Json:
         """Run complete LangGraph agent analysis"""
         try:
+            # Publish RUNNING status at START of analysis (before LLM calls)
+            try:
+                room_id = f"symbol:{symbol}"
+                publish_agent_status(room_id, "Market Agent", "RUNNING")
+            except Exception as e:
+                print(f"⚠️ [{symbol}] Failed to publish Market Agent status: {e}")
+            
             kline_dict = kline_data.as_dict()
             indicators_dict = indicators.as_dict()
             images_dict = images.as_dict()

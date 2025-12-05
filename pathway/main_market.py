@@ -13,12 +13,16 @@ def main():
     print("Pathway Market Data Consumer System (Multi-Agent + Redis)")
     print("=" * 70)
 
+    # Ensure reports directory exists
+    reports_directory = "/app/reports/market"
+    os.makedirs(reports_directory, exist_ok=True)
+    print(f"📁 Reports directory ready: {reports_directory}")
+
     # Initialize consumer
     market_consumer = MarketDataConsumer()
     market_table = market_consumer.consume()
 
     # Process market data with multi-agent system and generate comprehensive reports
-    reports_directory = "/app/reports/market"
     
     # Configure sliding window parameters
     lookback_minutes = int(os.getenv("MARKET_LOOKBACK_MINUTES", "10"))

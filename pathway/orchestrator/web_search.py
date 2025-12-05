@@ -506,16 +506,16 @@ async def web_search(
 async def decompose_query_with_llm(query: str) -> List[str]:
     """Use LLM to decompose a complex trading query into focused sub-queries."""
     
-    prompt = f\"\"\"Break down this trading query into 2-4 focused search queries.
+    prompt = f"""Break down this trading query into 2-4 focused search queries.
 
-Query: \"{query}\"
+Query: "{query}"
 
 Rules:
 - Each sub-query: ONE specific aspect
 - Include trading terms (RSI, MACD, SMA, backtest) when relevant
-- Add \"trading strategy\" to ambiguous queries
+- Add "trading strategy" to ambiguous queries
 
-Return JSON array only: [\"query1\", \"query2\", \"query3\"]\"\"\"
+Return JSON array only: ["query1", "query2", "query3"]"""
 
     try:
         response = await openai_client.chat.completions.create(

@@ -24,10 +24,14 @@ def main():
     news_consumer = NewsConsumer()
     news_table = news_consumer.consume()
 
-    # Process news data and generate AI reports with story clustering
+    # Ensure directories exist
     reports_directory = "/app/reports/news"
     knowledge_base_dir = "/app/knowledge_base"
-    
+    os.makedirs(reports_directory, exist_ok=True)
+    os.makedirs(knowledge_base_dir, exist_ok=True)
+    print(f"📁 Directories ready: {reports_directory}, {knowledge_base_dir}")
+
+    # Process news data and generate AI reports with story clustering
     updated_news_reports, cluster_viz_table = process_news_stream(
         news_table, 
         reports_directory=reports_directory,

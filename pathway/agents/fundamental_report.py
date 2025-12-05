@@ -15,14 +15,11 @@ from typing_extensions import TypedDict
 
 # Event publishing imports
 try:
-    from redis_cache import get_redis_client
     from event_publisher import publish_event
 except ImportError:
     try:
-        from .redis_cache import get_redis_client
         from .event_publisher import publish_event
     except ImportError:
-        get_redis_client = None
         publish_event = None
 
 load_dotenv()
@@ -100,16 +97,16 @@ REPORT_SECTIONS = [
         "tools": ["rag"],
         "description": "High-level snapshot of the company’s business, financial condition, and key fundamental insights."
     },
-    # {
-    #     "name": "Business Overview",
-    #     "tools": ["rag"],
-    #     "description": "Core operations, segments, revenue sources, business model mechanics, industry structure."
-    # },
-    # {
-    #     "name": "Financial Statements Analysis",
-    #     "tools": ["rag"],
-    #     "description": "Income statement, balance sheet, and cash-flow trends; margin behavior; capital structure; liquidity."
-    # },
+    {
+        "name": "Business Overview",
+        "tools": ["rag"],
+        "description": "Core operations, segments, revenue sources, business model mechanics, industry structure."
+    },
+    {
+        "name": "Financial Statements Analysis",
+        "tools": ["rag"],
+        "description": "Income statement, balance sheet, and cash-flow trends; margin behavior; capital structure; liquidity."
+    },
     # {
     #     "name": "Operational Performance",
     #     "tools": ["rag"],
@@ -235,17 +232,16 @@ def plan_section_node(state: ReportState) -> Dict:
         print(f"✓ All sections complete!")
         
         # Publish report_completed event
-        if publish_event and get_redis_client:
+        if publish_event:
             try:
                 room_id = f"symbol:{symbol}"
-                redis_client = get_redis_client()
                 publish_event(room_id, "report_progress", {
                     "agent": "Fundamental Agent",
                     "status": "report_completed",
                     "symbol": symbol,
                     "total_sections": len(REPORT_SECTIONS),
                     "sections_completed": idx
-                }, redis_client)
+                })
             except Exception as e:
                 print(f"⚠️ [{symbol}] Failed to publish report_completed event: {e}")
         
@@ -258,10 +254,9 @@ def plan_section_node(state: ReportState) -> Dict:
     print(f"\n[PLAN] Section {idx+1}/{len(REPORT_SECTIONS)}: {section['name']}")
     
     # Publish section_started event
-    if publish_event and get_redis_client:
+    if publish_event:
         try:
             room_id = f"symbol:{symbol}"
-            redis_client = get_redis_client()
             publish_event(room_id, "report_progress", {
                 "agent": "Fundamental Agent",
                 "status": "section_started",
@@ -269,7 +264,7 @@ def plan_section_node(state: ReportState) -> Dict:
                 "section_name": section["name"],
                 "section_index": idx + 1,
                 "total_sections": len(REPORT_SECTIONS)
-            }, redis_client)
+            })
         except Exception as e:
             print(f"⚠️ [{symbol}] Failed to publish section_started event: {e}")
     
@@ -480,10 +475,9 @@ def accumulate_section_node(state: ReportState) -> Dict:
     new_completed = completed_sections + [section_name]
     
     # Publish section_completed event
-    if publish_event and get_redis_client:
+    if publish_event:
         try:
             room_id = f"symbol:{symbol}"
-            redis_client = get_redis_client()
             publish_event(room_id, "report_progress", {
                 "agent": "Fundamental Agent",
                 "status": "section_completed",
@@ -492,7 +486,7 @@ def accumulate_section_node(state: ReportState) -> Dict:
                 "section_index": current_idx + 1,
                 "total_sections": len(REPORT_SECTIONS),
                 "sections_completed": len(new_completed)
-            }, redis_client)
+            })
         except Exception as e:
             print(f"⚠️ [{symbol}] Failed to publish section_completed event: {e}")
     
