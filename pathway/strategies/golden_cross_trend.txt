@@ -1,3 +1,6 @@
+# interval: 1d
+# lookback: 2y
+
 def strategy(indicators):
     """
     Golden Cross Trend Following Strategy
@@ -11,7 +14,7 @@ def strategy(indicators):
     - Trailing Stop: 5% (lets winners run)
     - Position Size: 80% (high conviction on trend signals)
     
-    Best for: Daily/Hourly charts, trending markets
+    Best for: Daily charts, trending markets
     """
     import numpy as np
     

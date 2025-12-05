@@ -71,21 +71,18 @@ services:
       - ../knowledge_base:/knowledge_base
     restart: unless-stopped
 
-  candle-api:
+  # Multi-symbol × multi-interval candle producer
+  candle-producer:
     build: .
-    command: ["python", "candle_api.py"]
-    ports:
-      - "8002:8002"
+    command: ["python", "producers/candle_producer.py"]
     networks:
       - stock-network
-    environment:
-      KAFKA_BROKER: kafka:29092
-      CANDLE_API_HOST: "0.0.0.0"
-      CANDLE_API_PORT: "8002"
     env_file:
       - ../.env
+    environment:
+      KAFKA_BROKER: kafka:29092
     volumes:
-      - ./candle_config.json:/app/candle_config.json
+      - ./data:/app/data  # For candle state persistence
     restart: unless-stopped
 
   twitter-webhook:
