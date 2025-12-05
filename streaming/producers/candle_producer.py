@@ -1,23 +1,21 @@
 """
-Candle Data Producer - OHLCV market data for backtesting
+Candle Data Producer - Multi-Symbol, Multi-Interval OHLCV market data
 
-Fetches historical candles from yfinance and streams to Kafka.
-Supports CSV fallback when yfinance is unavailable.
+Fetches historical candles from yfinance for all symbol × interval combinations
+and streams to Kafka. Supports CSV fallback when yfinance is unavailable.
 
 Sources (priority order):
 1. yfinance (live market data)
 2. CSV fallback (historical data file)
 
-Configuration:
-- Environment variables (legacy mode)
-- JSON config file (via candle_api.py for dynamic control)
+Configuration via Environment Variables:
+    STOCKS: Comma-separated list of symbols (e.g., "AAPL,GOOGL,TSLA")
+    INTERVALS: Comma-separated list of intervals (e.g., "1h,1d")
+    CANDLE_KAFKA_TOPIC: Kafka topic (default: "candles")
+    CANDLE_POLL_INTERVAL: Seconds between polls (default: 60)
 
 Usage:
-    # CLI mode (uses env vars)
-    python candle_producer.py --symbol AAPL --interval 1h --period 1mo
-    
-    # API mode (uses candle_config.json)
-    python candle_api.py
+    STOCKS=AAPL,GOOGL INTERVALS=1h,1d python candle_producer.py
 """
 
 import os
@@ -26,7 +24,7 @@ import json
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 
 import pandas as pd
 
@@ -34,7 +32,6 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.kafka_utils import get_kafka_producer, send_to_kafka
-from producers.base_producer import BaseProducer
 
 # Optional yfinance
 try:
@@ -45,171 +42,148 @@ except ImportError:
     print("⚠️ yfinance not installed - will use CSV fallback")
 
 
-# Config file path (relative to streaming directory)
-CONFIG_FILE_PATH = Path(__file__).parent.parent / "candle_config.json"
+# ============================================================================
+# YFINANCE CONSTRAINTS
+# ============================================================================
+
+# Maximum period allowed for each interval (yfinance limits)
+INTERVAL_MAX_PERIOD = {
+    "1m": "7d",      # 7 days max
+    "2m": "60d",     # 60 days max
+    "5m": "60d",     # 60 days max
+    "15m": "60d",    # 60 days max
+    "30m": "60d",    # 60 days max
+    "60m": "2y",     # ~2 years (730 days)
+    "90m": "60d",    # 60 days max
+    "1h": "2y",      # ~2 years
+    "4h": "2y",      # ~2 years (same as 1h)
+    "1d": "max",     # No limit
+    "5d": "max",     # No limit
+    "1wk": "max",    # No limit
+    "1mo": "max",    # No limit
+}
+
+# Valid intervals
+VALID_INTERVALS = list(INTERVAL_MAX_PERIOD.keys())
+
+# State file path - in mounted data directory for persistence
+STATE_FILE_PATH = Path(__file__).parent.parent / "data" / "candle_state.json"
 
 
-def load_config_from_file() -> Optional[Dict[str, Any]]:
-    """Load configuration from JSON file if it exists."""
-    if CONFIG_FILE_PATH.exists():
+# ============================================================================
+# STATE MANAGEMENT
+# ============================================================================
+
+def load_state() -> Dict[str, str]:
+    """Load last timestamps from state file. Key: 'symbol:interval' -> timestamp"""
+    if STATE_FILE_PATH.exists():
         try:
-            with open(CONFIG_FILE_PATH, 'r') as f:
-                return json.load(f)
+            with open(STATE_FILE_PATH, 'r') as f:
+                data = json.load(f)
+                return data.get('last_timestamps', {})
         except Exception as e:
-            print(f"⚠️ Error loading config file: {e}")
-    return None
+            print(f"⚠️ Error loading state file: {e}")
+    return {}
 
 
-def save_config_to_file(config: Dict[str, Any]) -> None:
-    """Save configuration to JSON file."""
+def save_state(last_timestamps: Dict[str, str]) -> None:
+    """Save last timestamps to state file."""
     try:
-        # Load existing config to preserve other fields
-        existing = {}
-        if CONFIG_FILE_PATH.exists():
-            with open(CONFIG_FILE_PATH, 'r') as f:
-                existing = json.load(f)
-        
-        # Update with new values
-        existing.update(config)
-        existing['updated_at'] = datetime.now().isoformat()
-        
-        with open(CONFIG_FILE_PATH, 'w') as f:
-            json.dump(existing, f, indent=4, default=str)
+        data = {
+            'last_timestamps': last_timestamps,
+            'updated_at': datetime.now().isoformat()
+        }
+        with open(STATE_FILE_PATH, 'w') as f:
+            json.dump(data, f, indent=2)
     except Exception as e:
-        print(f"⚠️ Error saving config file: {e}")
+        print(f"⚠️ Error saving state file: {e}")
 
 
-class CandleProducer(BaseProducer):
+def get_state_key(symbol: str, interval: str) -> str:
+    """Generate state key for symbol:interval combo."""
+    return f"{symbol}:{interval}"
+
+
+# ============================================================================
+# CANDLE PRODUCER
+# ============================================================================
+
+class MultiCandleProducer:
     """
-    Producer for OHLCV candle data.
+    Producer for OHLCV candle data across multiple symbols and intervals.
     
-    Supports multiple data sources with automatic fallback:
-    - yfinance: Real-time and historical market data
-    - CSV: Local fallback for testing/offline
-    
-    Configuration can be loaded from:
-    - Constructor arguments
-    - Environment variables
-    - JSON config file (candle_config.json)
+    Produces candles for all symbol × interval combinations using max allowed
+    period for each interval (respecting yfinance limits).
     """
     
     def __init__(
         self,
-        symbol: str = "AAPL",
-        interval: str = "1h",
-        period: str = "1mo",
-        csv_path: Optional[str] = None,
+        symbols: List[str],
+        intervals: List[str],
         kafka_topic: str = "candles",
-        fetch_interval: int = 60,
-        config_file: Optional[str] = None,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None
+        poll_interval: float = 60.0,
+        csv_fallback_dir: Optional[str] = None
     ):
         """
-        Initialize the candle producer.
+        Initialize the multi-candle producer.
         
         Args:
-            symbol: Stock ticker symbol (e.g., 'AAPL', 'GOOGL')
-            interval: Candle interval ('1m', '5m', '15m', '30m', '1h', '1d')
-            period: Historical period ('1d', '5d', '1mo', '3mo', '6mo', '1y')
-            csv_path: Path to CSV fallback file
+            symbols: List of stock ticker symbols (e.g., ['AAPL', 'GOOGL'])
+            intervals: List of candle intervals (e.g., ['1h', '1d'])
             kafka_topic: Kafka topic for candle data
-            fetch_interval: Seconds between fetches
-            config_file: Path to JSON config file (optional)
-            start_date: Start date for historical data (e.g., '2015-08-02') - overrides period
-            end_date: End date for historical data (e.g., '2024-12-01') - defaults to today
+            poll_interval: Seconds between polling for new candles
+            csv_fallback_dir: Directory for CSV fallback files
         """
-        # Call parent with required args
-        super().__init__(
-            kafka_topic=kafka_topic,
-            fetch_interval=fetch_interval,
-            stocks=[symbol]  # Single stock for this producer
-        )
+        self.symbols = [s.strip().upper() for s in symbols]
+        self.intervals = [i.strip().lower() for i in intervals]
+        self.kafka_topic = kafka_topic
+        self.poll_interval = poll_interval
+        self.csv_fallback_dir = Path(csv_fallback_dir) if csv_fallback_dir else Path(__file__).parent.parent / "data"
         
-        self.symbol = symbol
-        self.interval = interval
-        self.period = period
-        self.csv_path = Path(csv_path) if csv_path else Path(__file__).parent.parent / "data" / "candles.csv"
-        self.last_timestamp: Optional[str] = None
-        self.last_successful_source: Optional[str] = None
-        self.config_file = Path(config_file) if config_file else CONFIG_FILE_PATH
-        self.start_date = start_date  # If set, overrides period
-        self.end_date = end_date
+        # State tracking: {symbol:interval -> last_timestamp}
+        self.last_timestamps: Dict[str, str] = load_state()
         
-        # Load last_timestamp from config file if available
-        self._load_state_from_config()
-    
-    def _load_state_from_config(self) -> None:
-        """Load last_timestamp from config file if available."""
-        config = load_config_from_file()
-        if config:
-            if config.get('last_timestamp'):
-                self.last_timestamp = config['last_timestamp']
-                print(f"📍 Loaded last_timestamp from config: {self.last_timestamp}")
-            if config.get('last_successful_source'):
-                self.last_successful_source = config['last_successful_source']
-    
-    def save_state(self) -> None:
-        """Save current state to config file."""
-        save_config_to_file({
-            'last_timestamp': self.last_timestamp,
-            'last_successful_source': self.last_successful_source
-        })
-    
-    def setup_sources(self):
-        """Register available data sources with priority."""
-        print(f"  Setting up sources for {self.symbol}...")
+        # Kafka producer (initialized on run)
+        self.producer = None
         
-        if YFINANCE_AVAILABLE:
-            self.register_source(
-                name="yfinance",
-                fetch_func=self._fetch_from_yfinance,
-                priority=0  # Highest priority
-            )
+        # Statistics
+        self.total_candles_sent = 0
+        self.candles_per_combo: Dict[str, int] = {}
         
-        if self.csv_path.exists():
-            self.register_source(
-                name="csv_fallback",
-                fetch_func=self._fetch_from_csv,
-                priority=1  # Lower priority
-            )
-            print(f"  📁 CSV fallback: {self.csv_path}")
-        else:
-            print(f"  ⚠️ CSV fallback not found: {self.csv_path}")
+        # Validate intervals
+        for interval in self.intervals:
+            if interval not in VALID_INTERVALS:
+                print(f"⚠️ Invalid interval '{interval}', valid: {VALID_INTERVALS}")
     
-    def _fetch_from_yfinance(self, symbol: str) -> List[Dict[str, Any]]:
-        """Fetch candles from yfinance."""
+    def _fetch_candles_yfinance(self, symbol: str, interval: str) -> List[Dict[str, Any]]:
+        """Fetch candles from yfinance with max allowed period."""
+        if not YFINANCE_AVAILABLE:
+            raise RuntimeError("yfinance not available")
+        
+        period = INTERVAL_MAX_PERIOD.get(interval, "1mo")
         ticker = yf.Ticker(symbol)
         
-        # Use start/end dates if provided, otherwise use period
-        if self.start_date:
-            print(f"  📅 Fetching from {self.start_date} to {self.end_date or 'now'}")
-            df = ticker.history(
-                start=self.start_date,
-                end=self.end_date,  # None means up to today
-                interval=self.interval
-            )
-        else:
-            df = ticker.history(period=self.period, interval=self.interval)
+        df = ticker.history(period=period, interval=interval)
         
         if df.empty:
-            raise ValueError(f"No data returned for {symbol}")
+            raise ValueError(f"No data returned for {symbol} @ {interval}")
         
-        print(f"  📊 Fetched {len(df)} candles from yfinance")
-        self.last_successful_source = "yfinance"
-        return self._dataframe_to_candles(df)
+        return self._dataframe_to_candles(df, symbol, interval)
     
-    def _fetch_from_csv(self, symbol: str) -> List[Dict[str, Any]]:
+    def _fetch_candles_csv(self, symbol: str, interval: str) -> List[Dict[str, Any]]:
         """Fetch candles from CSV fallback."""
-        df = pd.read_csv(self.csv_path)
-        self.last_successful_source = "csv_fallback"
-        return self._dataframe_to_candles(df)
+        csv_path = self.csv_fallback_dir / f"{symbol}_{interval}.csv"
+        if not csv_path.exists():
+            raise FileNotFoundError(f"CSV not found: {csv_path}")
+        
+        df = pd.read_csv(csv_path)
+        return self._dataframe_to_candles(df, symbol, interval)
     
-    def _dataframe_to_candles(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
+    def _dataframe_to_candles(self, df: pd.DataFrame, symbol: str, interval: str) -> List[Dict[str, Any]]:
         """Convert DataFrame to list of candle dicts."""
-        # Standardize column names
         df = df.reset_index()
         
+        # Standardize column names
         column_mapping = {
             'Datetime': 'timestamp', 'Date': 'timestamp', 'index': 'timestamp',
             'Open': 'open', 'High': 'high', 'Low': 'low',
@@ -223,10 +197,29 @@ class CandleProducer(BaseProducer):
             if col not in df.columns:
                 raise ValueError(f"Missing required column: {col}")
         
-        df = df[required]
+        df = df[required].copy()
         df['timestamp'] = df['timestamp'].astype(str)
+        df['symbol'] = symbol
+        df['interval'] = interval
         
         return df.to_dict('records')
+    
+    def fetch_candles(self, symbol: str, interval: str) -> List[Dict[str, Any]]:
+        """Fetch candles with fallback mechanism."""
+        # Try yfinance first
+        if YFINANCE_AVAILABLE:
+            try:
+                return self._fetch_candles_yfinance(symbol, interval)
+            except Exception as e:
+                print(f"  ⚠️ yfinance failed for {symbol}@{interval}: {e}")
+        
+        # Fallback to CSV
+        try:
+            return self._fetch_candles_csv(symbol, interval)
+        except Exception as e:
+            print(f"  ⚠️ CSV fallback failed for {symbol}@{interval}: {e}")
+        
+        return []
     
     def format_message(self, candle: Dict[str, Any]) -> Dict[str, Any]:
         """Format a single candle for Kafka."""
@@ -237,160 +230,192 @@ class CandleProducer(BaseProducer):
             'low': float(candle['low']),
             'close': float(candle['close']),
             'volume': float(candle['volume']),
-            'symbol': self.symbol,
-            'interval': self.interval,
-            'source': self.last_successful_source or 'unknown'
+            'symbol': candle['symbol'],
+            'interval': candle['interval'],
+            'source': 'yfinance' if YFINANCE_AVAILABLE else 'csv'
         }
     
-    def backfill_historical(self, batch_size: int = 50):
-        """Backfill all historical candles to Kafka."""
-        print(f"\n📥 Backfilling historical candles for {self.symbol}...")
+    def backfill_all(self, batch_size: int = 100) -> int:
+        """Backfill historical candles for all symbol × interval combinations."""
+        print("\n" + "=" * 70)
+        print("📥 BACKFILLING HISTORICAL CANDLES")
+        print("=" * 70)
         
-        # Fetch using fallback mechanism
-        candles = self.fetch_data_with_fallback(self.symbol)
-        if not candles:
-            print("⚠️ No candles to backfill")
-            return 0
+        total_sent = 0
         
-        # Sort candles by timestamp to ensure correct order
-        candles = sorted(candles, key=lambda c: str(c['timestamp']))
+        for symbol in self.symbols:
+            for interval in self.intervals:
+                state_key = get_state_key(symbol, interval)
+                last_ts = self.last_timestamps.get(state_key)
+                
+                print(f"\n📊 {symbol} @ {interval} (period: {INTERVAL_MAX_PERIOD.get(interval, '?')})")
+                if last_ts:
+                    print(f"   Last timestamp: {last_ts}")
+                
+                try:
+                    candles = self.fetch_candles(symbol, interval)
+                    if not candles:
+                        print(f"   ⚠️ No candles fetched")
+                        continue
+                    
+                    # Sort by timestamp
+                    candles = sorted(candles, key=lambda c: str(c['timestamp']))
+                    
+                    # Filter to new candles only
+                    if last_ts:
+                        candles = [c for c in candles if str(c['timestamp']) > last_ts]
+                    
+                    if not candles:
+                        print(f"   ✅ Up to date")
+                        continue
+                    
+                    print(f"   Sending {len(candles)} candles...")
+                    
+                    for i, candle in enumerate(candles):
+                        message = self.format_message(candle)
+                        send_to_kafka(self.producer, self.kafka_topic, message)
+                        
+                        # Update state
+                        self.last_timestamps[state_key] = str(candle['timestamp'])
+                        total_sent += 1
+                        
+                        if (i + 1) % batch_size == 0:
+                            print(f"   Sent {i + 1}/{len(candles)}...")
+                            save_state(self.last_timestamps)
+                    
+                    # Save state after each symbol×interval
+                    save_state(self.last_timestamps)
+                    self.candles_per_combo[state_key] = len(candles)
+                    print(f"   ✅ Sent {len(candles)} candles")
+                    
+                except Exception as e:
+                    print(f"   ❌ Error: {e}")
         
-        # Filter to candles after last_timestamp
-        if self.last_timestamp:
-            candles = [c for c in candles if str(c['timestamp']) > self.last_timestamp]
-        
-        if not candles:
-            print("✅ No new candles to backfill")
-            return 0
-        
-        total = len(candles)
-        print(f"   Sending {total} candles to '{self.kafka_topic}'...")
-        
-        for i, candle in enumerate(candles):
-            message = self.format_message(candle)
-            send_to_kafka(self.producer, self.kafka_topic, message)
-            
-            # Update last timestamp
-            self.last_timestamp = str(candle['timestamp'])
-            
-            if (i + 1) % batch_size == 0:
-                print(f"   Sent {i + 1}/{total} candles...")
-                # Save state periodically
-                self.save_state()
-        
-        # Final save
-        self.save_state()
-        print(f"✅ Backfill complete: {total} candles sent")
-        return total
+        self.total_candles_sent += total_sent
+        print(f"\n📊 Backfill complete: {total_sent} total candles sent")
+        return total_sent
     
-    def stream_live(self, poll_interval: float = 60.0):
+    def poll_for_updates(self) -> int:
+        """Poll for new candles across all combinations."""
+        new_candles = 0
+        
+        for symbol in self.symbols:
+            for interval in self.intervals:
+                state_key = get_state_key(symbol, interval)
+                last_ts = self.last_timestamps.get(state_key)
+                
+                try:
+                    candles = self.fetch_candles(symbol, interval)
+                    if not candles:
+                        continue
+                    
+                    # Sort and filter
+                    candles = sorted(candles, key=lambda c: str(c['timestamp']))
+                    if last_ts:
+                        candles = [c for c in candles if str(c['timestamp']) > last_ts]
+                    
+                    for candle in candles:
+                        message = self.format_message(candle)
+                        send_to_kafka(self.producer, self.kafka_topic, message)
+                        self.last_timestamps[state_key] = str(candle['timestamp'])
+                        new_candles += 1
+                        print(f"📤 {symbol}@{interval}: {candle['timestamp']} | close={candle['close']:.2f}")
+                    
+                    if candles:
+                        save_state(self.last_timestamps)
+                        
+                except Exception as e:
+                    print(f"⚠️ Poll error {symbol}@{interval}: {e}")
+        
+        self.total_candles_sent += new_candles
+        return new_candles
+    
+    def stream_live(self):
         """Continuously poll for new candles."""
-        print(f"\n📡 Starting live stream for {self.symbol}...")
-        print(f"   Poll interval: {poll_interval}s")
-        print(f"   Last timestamp: {self.last_timestamp}")
+        print(f"\n📡 Starting live stream (poll every {self.poll_interval}s)...")
         
         while True:
             try:
-                candles = self.fetch_data_with_fallback(self.symbol)
-                
-                if candles:
-                    # Sort candles by timestamp
-                    candles = sorted(candles, key=lambda c: str(c['timestamp']))
-                    
-                    # Filter to only new candles
-                    if self.last_timestamp:
-                        new_candles = [c for c in candles if str(c['timestamp']) > self.last_timestamp]
-                    else:
-                        new_candles = candles
-                    
-                    for candle in new_candles:
-                        message = self.format_message(candle)
-                        send_to_kafka(self.producer, self.kafka_topic, message)
-                        self.last_timestamp = str(candle['timestamp'])
-                        self.save_state()  # Save state after each candle
-                        print(f"📤 New candle: {candle['timestamp']} | close={candle['close']:.2f}")
-                
+                new_count = self.poll_for_updates()
+                if new_count == 0:
+                    print(f"⏳ No new candles @ {datetime.now().strftime('%H:%M:%S')}")
             except Exception as e:
-                print(f"⚠️ Polling error: {e}")
+                print(f"⚠️ Stream error: {e}")
             
-            time.sleep(poll_interval)
+            time.sleep(self.poll_interval)
     
-    def run(self, backfill: bool = True, poll_interval: float = 60.0):
-        """Run the producer: setup, backfill, then stream live."""
-        print("=" * 60)
-        print(f"🚀 CANDLE PRODUCER - {self.symbol}")
-        print("=" * 60)
-        print(f"  Symbol: {self.symbol}")
-        print(f"  Interval: {self.interval}")
-        print(f"  Period: {self.period}")
+    def run(self, backfill: bool = True):
+        """Run the producer: connect, backfill, then stream."""
+        print("=" * 70)
+        print("🚀 MULTI-CANDLE PRODUCER")
+        print("=" * 70)
+        print(f"  Symbols: {self.symbols}")
+        print(f"  Intervals: {self.intervals}")
+        print(f"  Combinations: {len(self.symbols) * len(self.intervals)}")
         print(f"  Topic: {self.kafka_topic}")
-        print(f"  CSV Path: {self.csv_path}")
-        print("=" * 60)
+        print(f"  Poll Interval: {self.poll_interval}s")
+        print(f"  yfinance: {'Available' if YFINANCE_AVAILABLE else 'Not available'}")
+        print("=" * 70)
         
-        # Setup (registers sources)
-        if not self.setup():
-            print("❌ Setup failed - cannot continue")
-            return
+        # Print interval limits
+        print("\n📋 Interval → Max Period:")
+        for interval in self.intervals:
+            print(f"   {interval}: {INTERVAL_MAX_PERIOD.get(interval, 'unknown')}")
         
         # Connect to Kafka
         self.producer = get_kafka_producer()
         if not self.producer:
             print("❌ Cannot connect to Kafka")
             return
+        print(f"\n✅ Connected to Kafka")
         
-        print(f"✅ Connected to Kafka")
-        print(f"  Sources available: {[s.name for s in self.sources]}")
-        
+        # Backfill historical data
         if backfill:
-            self.backfill_historical()
+            self.backfill_all()
         
-        self.stream_live(poll_interval)
+        # Start live streaming
+        self.stream_live()
 
 
 def main():
-    """Entry point for candle producer."""
+    """Entry point for multi-candle producer."""
     from dotenv import load_dotenv
     load_dotenv()
     
-    import argparse
+    # Parse environment variables
+    stocks_str = os.getenv("STOCKS", "AAPL,GOOGL")
+    intervals_str = os.getenv("INTERVALS", "1h,1d")
+    kafka_topic = os.getenv("CANDLE_KAFKA_TOPIC", "candles")
+    poll_interval = float(os.getenv("CANDLE_POLL_INTERVAL", "60"))
+    no_backfill = os.getenv("CANDLE_NO_BACKFILL", "false").lower() == "true"
     
-    # Get symbol from STOCKS env var (first stock) or CANDLE_SYMBOL
-    default_symbol = os.getenv("CANDLE_SYMBOL") or os.getenv("STOCKS", "AAPL").split(",")[0].strip()
+    # Parse lists
+    symbols = [s.strip() for s in stocks_str.split(",") if s.strip()]
+    intervals = [i.strip() for i in intervals_str.split(",") if i.strip()]
     
-    parser = argparse.ArgumentParser(description="Candle Data Producer")
-    parser.add_argument("--symbol", default=default_symbol, help="Stock ticker")
-    parser.add_argument("--interval", default=os.getenv("CANDLE_INTERVAL", "1h"), 
-                       choices=['1m', '5m', '15m', '30m', '1h', '1d'])
-    parser.add_argument("--period", default=os.getenv("CANDLE_PERIOD", "1mo"),
-                       choices=['1d', '5d', '1mo', '3mo', '6mo', '1y'])
-    parser.add_argument("--topic", default=os.getenv("CANDLE_KAFKA_TOPIC", "candles"))
-    parser.add_argument("--poll-interval", type=float, 
-                       default=float(os.getenv("CANDLE_POLL_INTERVAL", "60")))
-    parser.add_argument("--csv-path", default=os.getenv("CANDLE_CSV_PATH"))
-    parser.add_argument("--no-backfill", action="store_true", 
-                       default=os.getenv("CANDLE_NO_BACKFILL", "false").lower() == "true",
-                       help="Skip historical backfill")
+    print("\n🔧 Configuration (from environment):")
+    print(f"   STOCKS: {symbols}")
+    print(f"   INTERVALS: {intervals}")
+    print(f"   CANDLE_KAFKA_TOPIC: {kafka_topic}")
+    print(f"   CANDLE_POLL_INTERVAL: {poll_interval}s")
+    print(f"   Backfill: {not no_backfill}")
     
-    args = parser.parse_args()
+    if not symbols:
+        print("❌ No symbols specified. Set STOCKS env var.")
+        return
     
-    print(f"\n🔧 Configuration (from env + args):")
-    print(f"   CANDLE_SYMBOL: {args.symbol}")
-    print(f"   CANDLE_INTERVAL: {args.interval}")
-    print(f"   CANDLE_PERIOD: {args.period}")
-    print(f"   CANDLE_KAFKA_TOPIC: {args.topic}")
-    print(f"   CANDLE_POLL_INTERVAL: {args.poll_interval}s")
-    print(f"   CANDLE_CSV_PATH: {args.csv_path or 'default'}")
-    print(f"   Backfill: {not args.no_backfill}")
+    if not intervals:
+        print("❌ No intervals specified. Set INTERVALS env var.")
+        return
     
-    producer = CandleProducer(
-        symbol=args.symbol,
-        interval=args.interval,
-        period=args.period,
-        csv_path=args.csv_path,
-        kafka_topic=args.topic
+    producer = MultiCandleProducer(
+        symbols=symbols,
+        intervals=intervals,
+        kafka_topic=kafka_topic,
+        poll_interval=poll_interval
     )
     
-    producer.run(backfill=not args.no_backfill, poll_interval=args.poll_interval)
+    producer.run(backfill=not no_backfill)
 
 
 if __name__ == "__main__":

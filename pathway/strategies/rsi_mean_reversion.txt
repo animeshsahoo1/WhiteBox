@@ -1,3 +1,6 @@
+# interval: 1h
+# lookback: 1mo
+
 def strategy(indicators):
     """
     RSI Mean Reversion Strategy
@@ -12,6 +15,8 @@ def strategy(indicators):
     - Stop Loss: 2% below entry
     - Take Profit: 5% above entry (2.5:1 reward/risk)
     - Position Size: 50% of capital
+    
+    Best for: Hourly charts, ranging markets
     """
     import numpy as np
     
