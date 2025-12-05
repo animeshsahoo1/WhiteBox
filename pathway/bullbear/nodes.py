@@ -125,6 +125,8 @@ class DebateNodes:
         print(f"🔍 NODE: GENERATE {party_upper} RAG QUERY + MEMORY")
         print(f"{'='*60}")
         
+        self._publish_event(state, "graph_state", {"symbol": state["symbol"], "current_node": f"gen_{party}_rag_query", "status": "RUNNING"})
+        
         # Get opponent's last point
         debate_points = state.get("debate_points", [])
         opponent_point = ""
@@ -451,6 +453,13 @@ Fundamental Report: {state['fundamental_report']}
         
         symbol = state["symbol"]
         
+        # Publish graph state
+        self._publish_event(state, "graph_state", {
+            "symbol": symbol,
+            "current_node": "compute_deltas",
+            "status": "RUNNING"
+        })
+        
         # Get cached reports
         print(f"  📂 Checking cached reports for {symbol}...")
         cached = self.cache_manager.get_all_cached_reports(symbol)
@@ -551,6 +560,8 @@ Fundamental Report: {state['fundamental_report']}
         print(f"{'='*60}")
         logger.info("Fetching memory context")
         
+        self._publish_event(state, "graph_state", {"symbol": state["symbol"], "current_node": "fetch_memory_context", "status": "RUNNING"})
+        
         memory = self._get_memory_manager(state["session_id"], state["symbol"])
         symbol = state["symbol"]
         
@@ -625,6 +636,8 @@ Fundamental Report: {state['fundamental_report']}
         print(f"\n{'='*60}")
         print(f"📚 NODE: FETCH RAG EVIDENCE")
         print(f"{'='*60}")
+        
+        self._publish_event(state, "graph_state", {"symbol": state["symbol"], "current_node": "fetch_rag_evidence", "status": "RUNNING"})
         
         query = state.get("pending_rag_query")
         if not query:
@@ -710,6 +723,13 @@ Fundamental Report: {state['fundamental_report']}
         print(f"{'='*60}")
         logger.info("Checking point uniqueness")
         
+        # Publish graph state
+        self._publish_event(state, "graph_state", {
+            "symbol": state["symbol"],
+            "current_node": "check_uniqueness",
+            "status": "RUNNING"
+        })
+        
         memory = self._get_memory_manager(state["session_id"], state["symbol"])
         party = current_point.get("party", "bull")
         point_content = current_point.get("content", "")
@@ -754,6 +774,8 @@ Fundamental Report: {state['fundamental_report']}
         print(f"✏️ NODE: REPHRASE POINT")
         print(f"{'='*60}")
         logger.info("Rephrasing point for uniqueness")
+        
+        self._publish_event(state, "graph_state", {"symbol": state["symbol"], "current_node": "rephrase_point", "status": "RUNNING"})
         
         party = current_point.get("party", "bull")
         print(f"  Rephrasing {party.upper()}'s point for uniqueness...")
@@ -812,6 +834,14 @@ Fundamental Report: {state['fundamental_report']}
         print(f"  Committing {party.upper()}'s point to history, memory, and disk")
         logger.info(f"Committing {party} point")
         
+        # Publish graph state
+        self._publish_event(state, "graph_state", {
+            "symbol": state["symbol"],
+            "current_node": "commit_point",
+            "current_speaker": party,
+            "status": "RUNNING"
+        })
+        
         # Add to debate points (in-memory state)
         debate_points = state.get("debate_points", [])
         debate_points.append(current_point)
@@ -863,6 +893,13 @@ Fundamental Report: {state['fundamental_report']}
         print(f"📋 NODE: GENERATE FACILITATOR REPORT")
         print(f"{'='*60}")
         logger.info("Generating facilitator report")
+        
+        # Publish graph state - facilitator is generating report
+        self._publish_event(state, "graph_state", {
+            "symbol": state["symbol"],
+            "current_node": "generate_report",
+            "status": "RUNNING"
+        })
         
         # Determine conclusion reason based on state
         current_round = state.get("round_number", 0)
@@ -995,6 +1032,8 @@ Fundamental Report: {state['fundamental_report']}
         print(f"{'='*60}")
         logger.info("Saving debate points and cleaning up")
         
+        self._publish_event(state, "graph_state", {"symbol": state["symbol"], "current_node": "save_cleanup", "status": "RUNNING"})
+        
         symbol = state["symbol"]
         session_id = state["session_id"]
         
@@ -1063,6 +1102,8 @@ Fundamental Report: {state['fundamental_report']}
         
         state["debate_concluded"] = True
         state["updated_at"] = datetime.utcnow().isoformat()
+        
+        self._publish_event(state, "graph_state", {"symbol": state["symbol"], "current_node": "end", "status": "COMPLETED"})
         
         print(f"✅ NODE COMPLETE: SAVE AND CLEANUP")
         return state
