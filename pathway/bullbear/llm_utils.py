@@ -1,6 +1,10 @@
 """
 LLM Utilities for Bull-Bear Debate
 Handles LLM interactions with proper prompting and parsing
+
+Optimizations:
+- Module-level OpenAI client caching (one per config hash)
+- Avoids recreating expensive client connections
 """
 import os
 import json
@@ -21,6 +25,49 @@ try:
     OPENAI_AVAILABLE = True
 except ImportError:
     OPENAI_AVAILABLE = False
+
+# ============================================================
+# MODULE-LEVEL CLIENT CACHING
+# ============================================================
+# Cache OpenAI clients by (api_key, api_base) to avoid recreating connections
+_cached_clients: Dict[tuple, 'OpenAI'] = {}
+
+
+def get_cached_openai_client(api_key: str, api_base: str) -> Optional['OpenAI']:
+    """
+    Get or create a cached OpenAI client.
+    
+    Avoids recreating expensive HTTP connections for repeated debates.
+    """
+    if not OPENAI_AVAILABLE:
+        return None
+    
+    cache_key = (api_key, api_base)
+    
+    if cache_key not in _cached_clients:
+        try:
+            _cached_clients[cache_key] = OpenAI(
+                api_key=api_key,
+                base_url=api_base
+            )
+            logger.info(f"Created new OpenAI client for {api_base}")
+        except Exception as e:
+            logger.error(f"Failed to create OpenAI client: {e}")
+            return None
+    
+    return _cached_clients[cache_key]
+
+
+def clear_llm_client_cache():
+    """
+    Clear all cached OpenAI clients.
+    
+    Useful for cleanup or when API keys change.
+    """
+    global _cached_clients
+    count = len(_cached_clients)
+    _cached_clients = {}
+    logger.info(f"Cleared {count} cached OpenAI clients")
 
 
 def _generate_mock_response(messages: List[Dict[str, str]], json_mode: bool = False) -> str:
@@ -75,6 +122,8 @@ def _generate_mock_response(messages: List[Dict[str, str]], json_mode: bool = Fa
 class LLMClient:
     """
     LLM client using OpenAI SDK (works with OpenRouter).
+    
+    Uses module-level client caching to avoid recreating connections.
     """
     
     def __init__(self, config: Optional[LLMConfig] = None):
@@ -83,14 +132,18 @@ class LLMClient:
         self._initialize_client()
     
     def _initialize_client(self):
-        """Initialize the OpenAI client for OpenRouter"""
+        """Initialize the OpenAI client for OpenRouter (uses cache)"""
         if OPENAI_AVAILABLE:
-            self._client = OpenAI(
-                api_key=self.config.api_key,
-                base_url=self.config.api_base
+            # Use cached client instead of creating new one
+            self._client = get_cached_openai_client(
+                self.config.api_key,
+                self.config.api_base
             )
-            logger.info(f"OpenAI client initialized for {self.config.api_base}")
-            print(f"  🔌 LLM: {self.config.model} via {self.config.api_base}")
+            if self._client:
+                logger.info(f"Using cached OpenAI client for {self.config.api_base}")
+                print(f"  🔌 LLM: {self.config.model} via {self.config.api_base}")
+            else:
+                logger.warning("Failed to get OpenAI client from cache")
         else:
             logger.warning("OpenAI SDK not available! pip install openai")
     

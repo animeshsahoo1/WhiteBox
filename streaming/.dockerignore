@@ -1,0 +1,56 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Git
+.git/
+.gitignore
+
+# Environment files (secrets should not be in image)
+.env
+.env.*
+*.env
+
+# Logs
+logs/
+*.log
+sentiment_logs/
+
+# Data files (mounted at runtime)
+data/
+*.csv
+*.jsonl
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Documentation
+*.md
+!README.md
+
+# Test files
+tests/
+test_*.py
+*_test.py
+conftest.py
+pytest.ini
+.pytest_cache/
+
+# Cloudflare config (secrets)
+cloudflared/

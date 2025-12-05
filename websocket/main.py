@@ -3,7 +3,18 @@ from app.websocket_manager import ws_manager
 from app.event_publisher import publish_agent_status
 from app.redis_util import get_async_redis  # Import the function, not the instance
 
-app = FastAPI()
+app = FastAPI(title="WebSocket Server", version="1.0.0")
+
+
+@app.get("/health")
+async def health():
+    """Health check endpoint for container orchestration."""
+    return {
+        "status": "healthy",
+        "connections": ws_manager.get_connection_count(),
+        "rooms": list(ws_manager.rooms.keys())
+    }
+
 
 @app.get("/ping")
 async def ping():
@@ -115,6 +126,7 @@ async def websocket_backtesting(websocket: WebSocket):
     room_id = "backtesting"   
     print("🔌 Attempting WebSocket connection for backtesting")
     
+    await websocket.accept()
     await ws_manager.connect(room_id, websocket)
     print("✅ WebSocket accepted for backtesting")
 
@@ -152,6 +164,7 @@ async def websocket_backtesting_strategy(websocket: WebSocket, strategy: str):
     room_id = f"backtesting:{strategy.upper()}"   
     print(f"🔌 Attempting WebSocket connection for backtesting strategy: {strategy}")
     
+    await websocket.accept()
     await ws_manager.connect(room_id, websocket)
     print(f"✅ WebSocket accepted for backtesting strategy: {strategy}")
 

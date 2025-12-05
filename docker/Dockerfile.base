@@ -1,0 +1,49 @@
+# ============================================================
+# BASE IMAGE: Common dependencies for all services
+# Build: docker build -f docker/Dockerfile.base -t pathway-iit-base .
+# ============================================================
+FROM python:3.11-slim AS base
+
+# Production environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV DEBUG=false
+ENV PYTHONPATH=/app
+
+WORKDIR /app
+
+# Install common system dependencies in single layer
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    gcc \
+    g++ \
+    libpq-dev \
+    libffi-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Install common Python packages used across services
+COPY docker/requirements.base.txt /tmp/requirements.base.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.base.txt \
+    && rm /tmp/requirements.base.txt
+
+# ============================================================
+# PATHWAY BASE: Extends base with Pathway-specific deps
+# ============================================================
+FROM pathwaycom/pathway:latest AS pathway-base
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV DEBUG=false
+ENV PYTHONPATH=/app
+
+WORKDIR /app
+
+# Install curl for healthchecks
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Create required directories
+RUN mkdir -p /app/reports/fundamental /app/reports/market /app/reports/news \
+    /app/reports/sentiment /app/reports/facilitator /app/reports/debate \
+    /app/pathway_state /app/knowledge_base

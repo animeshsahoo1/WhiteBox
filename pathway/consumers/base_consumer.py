@@ -4,24 +4,50 @@ from abc import ABC, abstractmethod
 class BaseConsumer(ABC):
     """Base class for all Pathway Kafka consumers"""
     
-    def __init__(self, topic_name, consumer_group_id=None):
+    def __init__(self, topic_name, consumer_group_id=None, from_beginning=True):
         """
-        Initialize base consumer
+        Initialize base consumer with optimized Kafka settings.
         
         Args:
             topic_name: Kafka topic to consume from
             consumer_group_id: Consumer group ID (auto-generated if None)
+            from_beginning: If True, use "earliest" offset (for backtesting).
+                           If False, use "latest" (for real-time, prevents RAM spikes on restart).
         """
+        import os
+        
         self.topic_name = topic_name
         self.consumer_group_id = consumer_group_id or f"pathway-{topic_name}-consumer"
+        
+        # CRITICAL: Use "latest" by default to prevent replaying millions of messages on restart
+        # Only backtesting consumers should use "earliest"
+        offset_reset = "earliest" if from_beginning else "latest"
+        
+        # Optimized rdkafka settings for better throughput and lower latency
         self.rdkafka_settings = {
-            "bootstrap.servers": "kafka:29092",
+            "bootstrap.servers": os.getenv("KAFKA_BROKER", "kafka:29092"),
             "group.id": self.consumer_group_id,
-            "auto.offset.reset": "earliest",
+            "auto.offset.reset": offset_reset,
             "enable.auto.commit": "true",
-            "auto.commit.interval.ms": "60000",
+            "auto.commit.interval.ms": "30000",  # Commit every 30s
+            # Performance optimizations
+            "fetch.min.bytes": "1024",  # Minimum 1KB per fetch
+            "fetch.wait.max.ms": "100",  # Max wait 100ms for fetch (correct rdkafka name)
+            "fetch.message.max.bytes": "52428800",  # 50MB max per fetch
+            "max.partition.fetch.bytes": "1048576",  # 1MB per partition
+            "queued.min.messages": "100000",  # Buffer 100K messages
+            "queued.max.messages.kbytes": "65536",  # 64MB message buffer
+            # Network optimizations
+            "socket.receive.buffer.bytes": "262144",  # 256KB receive buffer
+            "reconnect.backoff.ms": "50",  # Faster reconnect
+            "reconnect.backoff.max.ms": "1000",
         }
         self.table = None
+        
+        if from_beginning:
+            print(f"\u26a0\ufe0f {self.__class__.__name__}: Using 'earliest' offset - will replay all messages")
+        else:
+            print(f"\u2705 {self.__class__.__name__}: Using 'latest' offset - real-time only")
     
     @abstractmethod
     def get_output_schema(self):

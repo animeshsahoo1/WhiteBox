@@ -91,7 +91,9 @@ class SentimentProducer(BaseProducer):
         # Track API calls per account for rate limiting (MUST initialize before loading accounts)
         self.api_calls = {}
         self.api_window_start = {}
-        self.max_calls_per_minute = 50  # Conservative limit per account
+        # === OPTIMIZATION: Reddit allows 60 requests/min for OAuth apps ===
+        # Using 55 to have safety margin
+        self.max_calls_per_minute = int(os.getenv('REDDIT_RATE_LIMIT', '55'))
         
         # Reddit API credentials - Multiple accounts for rotation
         self.reddit_accounts = self._load_reddit_accounts()

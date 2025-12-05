@@ -1,0 +1,34 @@
+# ============================================================
+# ROOT DOCKER COMPOSE: Builds and manages all services
+# 
+# Usage:
+#   docker compose up -d                          # Start all
+#   docker compose up -d kafka streaming pathway  # Start specific
+#   docker compose build                          # Rebuild all
+#   docker compose build --no-cache               # Fresh rebuild
+#
+# Standalone usage (start kafka first for network):
+#   cd kafka && docker compose up -d
+#   cd streaming && docker compose up -d
+#   cd pathway && docker compose up -d
+# ============================================================
+
+# ============================================================
+# INCLUDE: Import all service compose files
+# ============================================================
+include:
+  # Kafka infrastructure (must start first)
+  - path: kafka/docker-compose.yml
+    project_directory: kafka
+    
+  # Data producers
+  - path: streaming/docker-compose.yaml
+    project_directory: streaming
+    
+  # Pathway consumers & API
+  - path: pathway/docker-compose.yml
+    project_directory: pathway
+    
+  # WebSocket server
+  - path: websocket/docker-compose.yml
+    project_directory: websocket

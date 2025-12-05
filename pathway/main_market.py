@@ -104,11 +104,16 @@ def main():
     print("   - Indicator images cached in Redis (key: images:{SYMBOL}:{TIMESTAMP})")
     print("   - Endpoint: /api/market/images/{symbol} or /api/market/images/{symbol}/{timestamp}")
     print("\n🚀 Starting stream processing...")
+    
+    # Optimized persistence configuration
+    # - snapshot_interval_ms: How often to save state (30s for faster recovery)
+    # - persistence_mode: SPEEDRUN_REPLAY for faster restarts
     pw.run(
         persistence_config=pw.persistence.Config.simple_config(
             pw.persistence.Backend.filesystem(persistence_path),
-            snapshot_interval_ms=60000  # Snapshot every 60 seconds
-        )
+            snapshot_interval_ms=30000  # Snapshot every 30 seconds (was 60s)
+        ),
+        monitoring_level=pw.MonitoringLevel.NONE  # Disable monitoring overhead in production
     )
 
 if __name__ == "__main__":

@@ -103,8 +103,8 @@ TWITTER_BEARER_TOKEN
 
 Create `streaming/.env`:
 ```bash
-# Kafka Configuration
-KAFKA_BROKER=localhost:9092
+# Kafka Configuration - Use kafka:29092 inside Docker, localhost:9093 from host
+KAFKA_BROKER=kafka:29092
 
 # Stock Symbols to Track
 STOCKS=AAPL,GOOGL,MSFT,TSLA
@@ -459,9 +459,9 @@ print(data)
 ### Kafka Message Verification
 
 ```bash
-# View messages in topic
+# View messages in topic (use localhost:29092 inside kafka container)
 docker exec -it kafka kafka-console-consumer \
-    --bootstrap-server localhost:9092 \
+    --bootstrap-server localhost:29092 \
     --topic market-data \
     --from-beginning
 

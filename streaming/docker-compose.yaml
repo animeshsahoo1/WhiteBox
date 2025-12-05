@@ -1,109 +1,111 @@
+# When running standalone: start kafka first (creates stock-network)
+# When running via root compose: network is shared
+
+include:
+  - ../kafka/docker-compose.yml
+
 networks:
   stock-network:
-    external: true
-    name: kafka_stock-network
+    name: stock-network
+
+# ============================================
+# YAML Anchors for DRY Configuration
+# ============================================
+x-streaming-base: &streaming-base
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: final
+  restart: unless-stopped
+  networks:
+    - stock-network
+  depends_on:
+    kafka:
+      condition: service_healthy
+  deploy:
+    resources:
+      limits:
+        memory: 256M
+      reservations:
+        memory: 128M
+
+x-common-env: &common-env
+  KAFKA_BROKER: kafka:29092
 
 services:
   # Hybrid Market Producer: Historical data first, then real-time updates
   market-producer:
-    build: .
+    <<: *streaming-base
     command: ["python", "producers/market_data_producer.py"]
-    networks:
-      - stock-network
     environment:
-      KAFKA_BROKER: kafka:29092
-      # Historical data settings (sent on startup)
+      <<: *common-env
       MARKET_HISTORICAL_PERIOD: ${MARKET_HISTORICAL_PERIOD:-1d}
       MARKET_HISTORICAL_INTERVAL: ${MARKET_HISTORICAL_INTERVAL:-1m}
-      # Real-time settings (after historical is sent)
       MARKET_DATA_INTERVAL: ${MARKET_DATA_INTERVAL:-60}
     env_file:
       - ../.env
-    restart: unless-stopped
 
   news-producer:
-    build: .
+    <<: *streaming-base
     command: ["python", "producers/news_producer.py"]
-    networks:
-      - stock-network
     environment:
-      KAFKA_BROKER: kafka:29092
+      <<: *common-env
     env_file:
       - ../.env
-    restart: unless-stopped
 
   sentiment-producer:
-    build: .
+    <<: *streaming-base
     command: ["python", "producers/sentiment_producer.py"]
-    networks:
-      - stock-network
     environment:
-      KAFKA_BROKER: kafka:29092
+      <<: *common-env
       WEBHOOK_URL: http://twitter-webhook:5001
     env_file:
       - ../.env
     volumes:
       - ./sentiment_logs:/app/sentiment_logs
-    restart: unless-stopped
 
   fundamental-producer:
-    build: .
+    <<: *streaming-base
     command: ["python", "producers/fundamental_data_producer.py"]
-    networks:
-      - stock-network
     environment:
-      KAFKA_BROKER: kafka:29092
+      <<: *common-env
     env_file:
       - ../.env
-    restart: unless-stopped
 
   fundamental-report-producer:
-    build: .
+    <<: *streaming-base
     command: ["python", "producers/fundamental_report.py"]
-    networks:
-      - stock-network
     environment:
-      KAFKA_BROKER: kafka:29092
+      <<: *common-env
       KNOWLEDGE_BASE_DIR: /knowledge_base
     env_file:
       - ../.env
     volumes:
       - ../knowledge_base:/knowledge_base
-    restart: unless-stopped
 
   # Multi-symbol × multi-interval candle producer
   candle-producer:
-    build: .
+    <<: *streaming-base
     command: ["python", "producers/candle_producer.py"]
-    networks:
-      - stock-network
+    environment:
+      <<: *common-env
     env_file:
       - ../.env
-    environment:
-      KAFKA_BROKER: kafka:29092
     volumes:
-      - ./data:/app/data  # For candle state persistence
-    restart: unless-stopped
+      - ./data:/app/data
 
   twitter-webhook:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *streaming-base
     command: ["python", "webhook_receiver.py"]
-    networks:
-      - stock-network
+    depends_on: {}
     environment:
       WEBHOOK_RECEIVER_PORT: 5001
     ports:
       - "5001:5001"
-    restart: unless-stopped
     volumes:
       - .:/app
 
-
-  ##########################################
-  # ADD THIS: Cloudflare Tunnel
-  ##########################################
+  # Cloudflare Tunnel
   cloudflare-tunnel:
     image: cloudflare/cloudflared:latest
     command: tunnel --config /etc/cloudflared/config.yml run
@@ -113,5 +115,3 @@ services:
       - twitter-webhook
     networks:
       - stock-network
-    restart: unless-stopped
-

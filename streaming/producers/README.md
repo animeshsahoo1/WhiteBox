@@ -193,9 +193,10 @@ print(data)
 
 ### Verify Kafka Messages
 ```bash
+# Use localhost:29092 inside kafka container via docker exec
 docker exec kafka kafka-console-consumer \
     --topic market-data \
-    --bootstrap-server localhost:9092 \
+    --bootstrap-server localhost:29092 \
     --from-beginning
 ```
 

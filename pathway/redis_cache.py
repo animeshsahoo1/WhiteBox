@@ -20,7 +20,7 @@ except ImportError:
     WEBSOCKET_ENABLED = False
     print("⚠️ event_publisher not available - WebSocket publishing disabled")
 
-REDIS_DEFAULT_HOST = "localhost"
+REDIS_DEFAULT_HOST = "redis"
 REDIS_DEFAULT_PORT = 6379
 REDIS_DEFAULT_DB = 0
 REPORT_SYMBOL_SET_KEY = "reports:symbols"
@@ -139,20 +139,47 @@ def save_report_to_redis(symbol: str, report_type: str, content: str) -> bool:
         return False
 
 
-@lru_cache(maxsize=1)
+# Connection pool for Redis - reuses connections instead of creating new ones
+_redis_pool: redis.ConnectionPool = None
+
+
 def get_redis_client() -> redis.Redis:
-    """Return a cached Redis client configured via environment variables."""
-
-    url = os.getenv("REDIS_URL")
-    if url:
-        print("############## Using REDIS_URL for Redis connection ################")
-        return redis.Redis.from_url(url, decode_responses=True)
+    """Return a Redis client with connection pooling for better performance.
     
-    host = os.getenv("REDIS_HOST", REDIS_DEFAULT_HOST)
-    port = int(os.getenv("REDIS_PORT", str(REDIS_DEFAULT_PORT)))
-    db = int(os.getenv("REDIS_DB", str(REDIS_DEFAULT_DB)))
-
-    return redis.Redis(host=host, port=port, db=db, decode_responses=True)
+    Uses connection pooling to reuse connections instead of creating new ones.
+    Pool is created lazily on first call and reused for all subsequent calls.
+    """
+    global _redis_pool
+    
+    if _redis_pool is None:
+        url = os.getenv("REDIS_URL")
+        if url:
+            print("🔌 Creating Redis connection pool from REDIS_URL...")
+            _redis_pool = redis.ConnectionPool.from_url(
+                url,
+                decode_responses=True,
+                max_connections=20,  # Limit concurrent connections
+                socket_timeout=5.0,
+                socket_connect_timeout=5.0,
+                retry_on_timeout=True
+            )
+        else:
+            host = os.getenv("REDIS_HOST", REDIS_DEFAULT_HOST)
+            port = int(os.getenv("REDIS_PORT", str(REDIS_DEFAULT_PORT)))
+            db = int(os.getenv("REDIS_DB", str(REDIS_DEFAULT_DB)))
+            print(f"🔌 Creating Redis connection pool: {host}:{port}/{db}")
+            _redis_pool = redis.ConnectionPool(
+                host=host,
+                port=port,
+                db=db,
+                decode_responses=True,
+                max_connections=20,
+                socket_timeout=5.0,
+                socket_connect_timeout=5.0,
+                retry_on_timeout=True
+            )
+    
+    return redis.Redis(connection_pool=_redis_pool)
 
 
 def _to_serializable_timestamp(value: Any, fallback_time: int) -> str:

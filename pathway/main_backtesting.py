@@ -168,13 +168,14 @@ def create_backtesting_pipeline(
     # ===== GROUP BY (strategy, symbol) & REDUCE =====
     # Interval is implicit (already filtered by join)
     # Lookback passed to reducer for time-based filtering
+    # Note: Use pw.reducers.any() instead of latest() to handle deletions gracefully
     results = candles_with_strategies.groupby(
         pw.this.strategy_name, pw.this.symbol
     ).reduce(
         strategy_name=pw.this.strategy_name,
         symbol=pw.this.symbol,
-        interval=pw.reducers.latest(pw.this.interval),
-        lookback=pw.reducers.latest(pw.this.lookback),
+        interval=pw.reducers.any(pw.this.interval),
+        lookback=pw.reducers.any(pw.this.lookback),
         state=trading_reducer(
             pw.this.timestamp,
             pw.this.open,
@@ -256,9 +257,9 @@ def create_backtesting_pipeline(
         ).groupby(pw.this.strategy, pw.this.symbol).reduce(
             strategy=pw.this.strategy,
             symbol=pw.this.symbol,
-            interval=pw.reducers.latest(pw.this.interval),
-            metrics=pw.reducers.latest(pw.this.metrics),
-            last_updated=pw.reducers.latest(pw.this.last_updated)
+            interval=pw.reducers.any(pw.this.interval),
+            metrics=pw.reducers.any(pw.this.metrics),
+            last_updated=pw.reducers.max(pw.this.last_updated)
         )
         
         backtesting_observer = get_report_observer("backtesting")
