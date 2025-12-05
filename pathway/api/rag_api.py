@@ -41,6 +41,7 @@ from pathway.xpacks.llm.servers import DocumentStoreServer
 from pathway.xpacks.llm.llms import LiteLLMChat
 from pathway.xpacks.llm.embedders import LiteLLMEmbedder
 from pathway.xpacks.llm.mcp_server import PathwayMcp
+from pathway.xpacks.llm.question_answering import AdaptiveRAGQuestionAnswerer
 
 load_dotenv()
 pw.set_license_key(os.getenv("PATHWAY_LICENSE_KEY", ""))
@@ -91,7 +92,9 @@ def enrich_chunks_batch(chunks: list, full_context: str, batch_size: int = 20) -
         # Build prompt for batch
         chunks_text = '\n'.join(f'Chunk {i+1}: {c.get("text", "")[:250]}' for i, c in enumerate(batch))
         
-        prompt = f"""Summarize this chunk in context of the document. 2-3 sentences max.
+        prompt = f"""You are analyzing an SEC 10-K financial filing. For each chunk, provide a brief context (1-2 sentences) that helps retrieve this chunk when searching.
+
+Focus on: company name, financial metrics, time periods, section references (Item 1, 7, 8), key topics.
 
 Document (first 1500 chars):
 {full_context[:1500]}
@@ -262,6 +265,32 @@ def start_pathway_docstore():
         parser=prechunked_json_parser,
         splitter=None,
     )
+    
+    # Adaptive RAG Configuration - Geometric strategy for better recall
+    # Starts with 2 docs, doubles until answer found (2 → 4 → 8 → 16)
+    ADAPTIVE_RAG_ENABLED = os.getenv("ADAPTIVE_RAG", "false").lower() == "true"
+    
+    if ADAPTIVE_RAG_ENABLED:
+        # Use LiteLLMChat for Pathway's native adaptive RAG
+        adaptive_llm = LiteLLMChat(
+            model="gpt-4o-mini",
+            api_key=os.getenv("OPENAI_API_KEY"),
+            api_base="https://openrouter.ai/api/v1",
+            temperature=0,
+        )
+        
+        adaptive_rag = AdaptiveRAGQuestionAnswerer(
+            llm=adaptive_llm,
+            indexer=store,
+            n_starting_documents=2,  # Start with 2 docs
+            factor=2,                # Double each iteration
+            max_iterations=4,        # Max 16 docs (2*2*2*2)
+            no_answer_string="Information not found in documents.",
+        )
+        
+        # Build and run Adaptive RAG server on port 8767
+        adaptive_rag.build_server(host="127.0.0.1", port=8767)
+        print("🔄 Adaptive RAG enabled on port 8767")
 
     server = DocumentStoreServer(
         host="127.0.0.1",
@@ -372,6 +401,40 @@ def rerank_documents(query: str, documents: list, top_n: int = 5) -> list:
     except Exception as e:
         print(f"⚠️ Rerank failed: {e}")
         return documents[:top_n]
+
+
+# Config: Enable Adaptive RAG (geometric strategy)
+ADAPTIVE_RAG_ENABLED = os.getenv("ADAPTIVE_RAG", "false").lower() == "true"
+
+
+def retrieve_with_adaptive_rag(query: str, use_rerank: bool = True) -> dict:
+    """
+    Use Pathway's Adaptive RAG - geometric strategy that progressively
+    retrieves more documents until an answer is found.
+    
+    Returns full answer with context docs (optionally reranked).
+    """
+    try:
+        url = "http://127.0.0.1:8767/v2/answer"
+        payload = {
+            "prompt": query,
+            "return_context_docs": True
+        }
+        r = requests.post(url, json=payload, timeout=120)
+        r.raise_for_status()
+        result = r.json()
+        
+        # Apply reranking to context docs if enabled
+        if use_rerank and RERANK_ENABLED and result.get("context_docs"):
+            docs = result["context_docs"]
+            reranked = rerank_documents(query, docs, top_n=len(docs))
+            result["context_docs"] = reranked
+            result["reranked"] = True
+        
+        return result
+    except Exception as e:
+        print(f"⚠️ Adaptive RAG error: {e}")
+        return {"response": str(e), "context_docs": []}
 
 
 def retrieve_from_pathway(query: str, k: int = 5, use_rerank: bool = True) -> list:
@@ -765,6 +828,31 @@ def debug_retrieve(q: str = "Apple", k: int = 5, rerank: bool = True):
         "count": len(results),
         "rerank_enabled": rerank and RERANK_ENABLED,
         "results": results
+    }
+
+
+@router.get("/debug/adaptive")
+def debug_adaptive_rag(q: str = "What was Apple's revenue in 2022?", rerank: bool = True):
+    """
+    Debug endpoint to test Adaptive RAG (geometric strategy).
+    Requires ADAPTIVE_RAG=true environment variable.
+    
+    Adaptive RAG progressively retrieves more docs until answer found:
+    2 docs → 4 docs → 8 docs → 16 docs
+    """
+    if not ADAPTIVE_RAG_ENABLED:
+        return {
+            "error": "Adaptive RAG not enabled",
+            "hint": "Set ADAPTIVE_RAG=true and restart"
+        }
+    
+    result = retrieve_with_adaptive_rag(q, use_rerank=rerank)
+    return {
+        "query": q,
+        "response": result.get("response", ""),
+        "reranked": result.get("reranked", False),
+        "context_docs_count": len(result.get("context_docs", [])),
+        "context_docs": result.get("context_docs", [])
     }
 
 

@@ -23,6 +23,9 @@ from redis_cache import get_reports_for_symbol
 from event_publisher import publish_agent_status, publish_event, publish_report
 from bullbear.debate_runner import run_debate_and_generate_report, get_debate_progress
 
+# Import guardrails
+from guardrails import guard_input
+
 router = APIRouter(prefix="/workflow", tags=["Workflow"])
 
 # Track workflow status
@@ -254,6 +257,19 @@ async def run_workflow(request: WorkflowRequest):
     user_id = request.user_id
     symbol = request.symbol.upper()
     max_rounds = max(1, min(request.max_rounds or 2, 5))
+    
+    # ===== INPUT GUARDRAILS =====
+    # Check the symbol input for jailbreak/off-topic attempts
+    input_guard = guard_input(f"Analyze stock {symbol}")
+    if not input_guard.allowed:
+        return {
+            "status": "blocked",
+            "room_id": room_id,
+            "user_id": user_id,
+            "symbol": symbol,
+            "message": input_guard.message,
+            "reason": input_guard.reason
+        }
     
     # Initialize workflow status
     _workflow_status[room_id] = {

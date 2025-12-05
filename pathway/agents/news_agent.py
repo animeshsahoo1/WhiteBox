@@ -742,7 +742,8 @@ def process_news_stream(
                     "report_type": "news",
                     "cluster_count": len(clusters),
                     "new_clusters": new_cluster_count,
-                    "update_number": state['update_count']
+                    "update_number": state['update_count'],
+                    "report_content": new_report
                 })
                 publish_agent_status(room_id, "News Agent", "COMPLETED")
             except Exception as e:
