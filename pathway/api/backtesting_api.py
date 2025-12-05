@@ -13,8 +13,10 @@ Endpoints:
 
 import os
 import re
+import ast
 import json
 import math
+import asyncio
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -238,6 +240,44 @@ class BacktestingMetricsStore:
         return False
     
     @classmethod
+    def delete_strategy_metrics(cls, strategy: str) -> int:
+        """
+        Delete all cached metrics for a strategy.
+        
+        Args:
+            strategy: Strategy name to delete metrics for
+        
+        Returns:
+            Number of keys deleted
+        """
+        redis_client = cls._get_redis()
+        deleted_count = 0
+        
+        if redis_client:
+            try:
+                strategy_upper = strategy.upper()
+                pattern = f"backtesting:{strategy_upper}:*:*"
+                
+                # Find and delete all matching keys
+                keys_to_delete = list(redis_client.scan_iter(match=pattern, count=100))
+                if keys_to_delete:
+                    deleted_count = redis_client.delete(*keys_to_delete)
+                    print(f"🗑️ Deleted {deleted_count} Redis metrics keys for strategy: {strategy}")
+                
+                # Also remove from strategies set
+                redis_client.srem("backtesting:strategies", strategy_upper)
+                
+            except Exception as e:
+                print(f"Redis delete error: {e}")
+        
+        # Also clean from fallback store
+        if strategy in cls._fallback_store:
+            del cls._fallback_store[strategy]
+            deleted_count = max(deleted_count, 1)
+        
+        return deleted_count
+    
+    @classmethod
     def get_redis_client(cls):
         """Get the Redis client for external use."""
         return cls._get_redis()
@@ -254,6 +294,7 @@ class StrategyMetrics(BaseModel):
     strategy: str
     symbol: Optional[str] = None
     interval: Optional[str] = None
+    lookback: Optional[str] = None
     total_pnl: float = 0.0
     total_trades: int = 0
     win_rate: float = 0.0
@@ -270,15 +311,44 @@ class StrategyMetrics(BaseModel):
     candles_processed: int = 0
 
 
+# Valid intervals and lookback periods
+VALID_INTERVALS = ["1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "4h", "1d", "5d", "1wk", "1mo"]
+VALID_LOOKBACKS = ["7d", "14d", "30d", "1mo", "2mo", "3mo", "6mo", "1y", "2y", "5y", "max"]
+
+
 class StrategyCreateRequest(BaseModel):
-    description: str
-    name: Optional[str] = None
+    description: str = Field(..., min_length=10, max_length=500, description="Strategy description in natural language")
+    name: Optional[str] = Field(default=None, max_length=50, pattern=r'^[a-zA-Z0-9_-]*$')
+    interval: str = Field(default="1h", description="Candle interval (1m, 5m, 15m, 30m, 1h, 1d)")
+    lookback: str = Field(default="6mo", description="Backtest lookback period (7d, 1mo, 3mo, 6mo, 1y, 2y)")
+    
+    @classmethod
+    def validate_interval(cls, v):
+        if v not in VALID_INTERVALS:
+            raise ValueError(f"Invalid interval '{v}'. Valid: {VALID_INTERVALS}")
+        return v
+    
+    @classmethod
+    def validate_lookback(cls, v):
+        if v not in VALID_LOOKBACKS:
+            raise ValueError(f"Invalid lookback '{v}'. Valid: {VALID_LOOKBACKS}")
+        return v
+    
+    def __init__(self, **data):
+        super().__init__(**data)
+        # Validate after init
+        if self.interval not in VALID_INTERVALS:
+            raise ValueError(f"Invalid interval '{self.interval}'. Valid: {VALID_INTERVALS}")
+        if self.lookback not in VALID_LOOKBACKS:
+            raise ValueError(f"Invalid lookback '{self.lookback}'. Valid: {VALID_LOOKBACKS}")
 
 
 class StrategyResponse(BaseModel):
     name: str
     code: str
     description: str
+    interval: str
+    lookback: str
     message: str
 
 
@@ -496,6 +566,22 @@ async def list_strategies(symbol: Optional[str] = None, interval: Optional[str] 
     result = []
     
     for name in strategies:
+        # Read strategy file to extract interval and lookback
+        filepath = STRATEGIES_FOLDER / f"{name}.txt"
+        code = filepath.read_text() if filepath.exists() else ""
+        
+        # Extract interval and lookback from header
+        strategy_interval = "1h"  # default
+        strategy_lookback = "6mo"  # default
+        
+        interval_match = re.search(r'^#\s*interval:\s*(\S+)', code, re.MULTILINE)
+        if interval_match:
+            strategy_interval = interval_match.group(1)
+        
+        lookback_match = re.search(r'^#\s*lookback:\s*(\S+)', code, re.MULTILINE)
+        if lookback_match:
+            strategy_lookback = lookback_match.group(1)
+        
         # Try to get metrics (strategy names are uppercase in Redis)
         metrics = MetricsStore.get(name, symbol=symbol, interval=interval) or \
                   MetricsStore.get(name.upper(), 
@@ -514,6 +600,8 @@ async def list_strategies(symbol: Optional[str] = None, interval: Optional[str] 
             result.append({
                 "name": name,
                 "description": description,
+                "interval": strategy_interval,
+                "lookback": strategy_lookback,
                 "has_metrics": bool(metrics),
                 "configs": config_keys,  # List of symbol:interval combos
                 "total_pnl_all_configs": total_pnl,
@@ -523,8 +611,10 @@ async def list_strategies(symbol: Optional[str] = None, interval: Optional[str] 
             result.append({
                 "name": name,
                 "description": description,
-                "symbol": symbol,
-                "interval": interval,
+                "interval": strategy_interval,
+                "lookback": strategy_lookback,
+                "filter_symbol": symbol,
+                "filter_interval": interval,
                 "has_metrics": metrics is not None,
                 "total_pnl": metrics.get("total_pnl") if metrics else None,
                 "total_trades": metrics.get("total_trades") if metrics else None,
@@ -562,6 +652,19 @@ async def get_strategy(name: str, symbol: Optional[str] = None, interval: Option
         raise HTTPException(404, f"Strategy not found: {name}")
     
     code = filepath.read_text()
+    
+    # Extract interval and lookback from strategy file header
+    strategy_interval = "1h"  # default
+    strategy_lookback = "6mo"  # default
+    
+    interval_match = re.search(r'^#\s*interval:\s*(\S+)', code, re.MULTILINE)
+    if interval_match:
+        strategy_interval = interval_match.group(1)
+    
+    lookback_match = re.search(r'^#\s*lookback:\s*(\S+)', code, re.MULTILINE)
+    if lookback_match:
+        strategy_lookback = lookback_match.group(1)
+    
     metrics = MetricsStore.get(name, symbol=symbol, interval=interval) or \
               MetricsStore.get(name.upper(), 
                                symbol=symbol.upper() if symbol else None,
@@ -573,8 +676,10 @@ async def get_strategy(name: str, symbol: Optional[str] = None, interval: Option
         "name": filepath.stem,
         "description": description,
         "code": code,
-        "symbol": symbol,
-        "interval": interval,
+        "interval": strategy_interval,
+        "lookback": strategy_lookback,
+        "filter_symbol": symbol,
+        "filter_interval": interval,
         "metrics": metrics,
         "available_symbols": MetricsStore.list_symbols(),
         "available_intervals": MetricsStore.list_intervals(),
@@ -584,7 +689,7 @@ async def get_strategy(name: str, symbol: Optional[str] = None, interval: Option
 
 @router.delete("/strategies/{name}")
 async def delete_strategy(name: str):
-    """Delete a strategy file."""
+    """Delete a strategy file and its cached metrics."""
     filepath = STRATEGIES_FOLDER / f"{name}.txt"
     
     if not filepath.exists():
@@ -601,18 +706,34 @@ async def delete_strategy(name: str):
         del embeddings[name]
         save_embeddings(embeddings)
     
-    return {"message": f"Strategy '{name}' deleted", "name": name}
+    # Remove cached metrics from Redis
+    deleted_metrics = MetricsStore.delete_strategy_metrics(name)
+    
+    return {
+        "message": f"Strategy '{name}' deleted", 
+        "name": name,
+        "metrics_deleted": deleted_metrics
+    }
 
 
 @router.post("/strategies", response_model=StrategyResponse)
 async def create_strategy(request: StrategyCreateRequest):
-    """Create a new strategy from natural language description using LLM."""
+    """
+    Create a new strategy from natural language description using LLM.
+    
+    The strategy will be created with the specified interval and lookback period
+    in the file header. These are used by the backtesting pipeline to:
+    - interval: Only process candles matching this interval
+    - lookback: Only backtest using data from this period
+    """
     if not OPENROUTER_API_KEY:
         raise HTTPException(500, "OPENAI_API_KEY or OPENROUTER_API_KEY not configured")
     
     prompt = f"""You are a trading strategy developer. Create a concise Python trading strategy function.
 
 User request: "{request.description}"
+Target interval: {request.interval}
+Backtest period: {request.lookback}
 
 IMPORTANT - Follow this exact style (short docstring, minimal code, return None for no action):
 
@@ -625,6 +746,8 @@ def strategy(indicators):
     Exit: condition
     SL: X%
     TP: Y%
+    
+    Best for: {request.interval} charts
     \"\"\"
     import numpy as np
     
@@ -652,7 +775,7 @@ def strategy(indicators):
     return None
 ```
 
-Available indicators: sma_10, sma_50, rsi_14, bb_upper, bb_middle, bb_lower, close, open, high, low, volume, position, entry_price, adx, plus_di, minus_di, macd, macd_signal, stoch_k, stoch_d
+Available indicators: sma_5, sma_10, sma_20, sma_50, sma_200, ema_9, ema_12, ema_26, rsi_14, bb_upper, bb_middle, bb_lower, atr_14, close, open, high, low, volume, position, entry_price, adx, plus_di, minus_di, macd_line, macd_signal, macd_histogram, stoch_k, stoch_d, williams_r, cci_20
 
 Rules:
 1. Keep docstring SHORT (5-7 lines max) - just strategy name and key parameters
@@ -661,60 +784,111 @@ Rules:
 4. Return dict with 'action' and optionally: stop_loss, take_profit, trailing_stop, size
 5. Keep code under 40 lines total
 6. NO verbose parameter documentation
+7. DO NOT include the # interval: or # lookback: headers - those will be added automatically
 
-Return ONLY the Python code, no markdown or explanation."""
+Return ONLY the Python code (the def strategy function), no markdown or explanation."""
 
+    # LLM call with retry logic (exponential backoff)
+    max_retries = 3
+    last_error = None
+    
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{OPENROUTER_BASE_URL}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://pathway-backtesting.local",
+                        "X-Title": "Pathway Backtesting"
+                    },
+                    json={
+                        "model": "openai/gpt-4o-mini",
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.3,
+                    },
+                    timeout=60.0
+                )
+                
+                if response.status_code == 429:
+                    # Rate limited - retry with backoff
+                    if attempt < max_retries - 1:
+                        wait_time = 2 ** attempt
+                        print(f"⚠️ Rate limited, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    raise HTTPException(429, "LLM rate limit exceeded. Please try again later.")
+                
+                if response.status_code != 200:
+                    raise HTTPException(500, f"LLM error: {response.text}")
+                
+                code = response.json()["choices"][0]["message"]["content"]
+                code = re.sub(r'^```python\s*', '', code, flags=re.MULTILINE)
+                code = re.sub(r'^```\s*$', '', code, flags=re.MULTILINE)
+                code = code.strip()
+                break  # Success - exit retry loop
+                
+        except HTTPException:
+            raise
+        except httpx.TimeoutException:
+            last_error = "Request timed out"
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt
+                print(f"⚠️ Timeout, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                await asyncio.sleep(wait_time)
+                continue
+            raise HTTPException(504, f"LLM request timed out after {max_retries} attempts")
+        except Exception as e:
+            last_error = str(e)
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt
+                print(f"⚠️ Error: {e}, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                await asyncio.sleep(wait_time)
+                continue
+            raise HTTPException(500, f"Strategy generation failed after {max_retries} attempts: {last_error}")
+    
+    # Validate generated code syntax
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{OPENROUTER_BASE_URL}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://pathway-backtesting.local",
-                    "X-Title": "Pathway Backtesting"
-                },
-                json={
-                    "model": "openai/gpt-4o-mini",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.3,
-                },
-                timeout=60.0
-            )
-            
-            if response.status_code != 200:
-                raise HTTPException(500, f"LLM error: {response.text}")
-            
-            code = response.json()["choices"][0]["message"]["content"]
-            code = re.sub(r'^```python\s*', '', code, flags=re.MULTILINE)
-            code = re.sub(r'^```\s*$', '', code, flags=re.MULTILINE)
-            code = code.strip()
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(500, f"Strategy generation failed: {str(e)}")
+        ast.parse(code)
+    except SyntaxError as e:
+        raise HTTPException(
+            400, 
+            f"LLM generated invalid Python code. Syntax error at line {e.lineno}: {e.msg}. "
+            f"Try rephrasing your strategy description."
+        )
     
     # Generate name from description
     name = request.name or "_".join(request.description.lower().split()[:4])
     name = re.sub(r'[^\w]', '_', name)[:50]
     
+    # Add interval and lookback header to the code
+    full_code = f"# interval: {request.interval}\n# lookback: {request.lookback}\n\n{code}"
+    
     # Save strategy file
     filepath = STRATEGIES_FOLDER / f"{name}.txt"
-    filepath.write_text(code)
+    filepath.write_text(full_code)
     
     # Generate and save embedding
     embedding = await get_embedding(request.description)
     if embedding:
         embeddings = load_embeddings()
-        embeddings[name] = {"description": request.description, "embedding": embedding}
+        embeddings[name] = {
+            "description": request.description, 
+            "embedding": embedding,
+            "interval": request.interval,
+            "lookback": request.lookback
+        }
         save_embeddings(embeddings)
         print(f"✅ Saved embedding for strategy: {name}")
     
     return StrategyResponse(
         name=name,
-        code=code,
+        code=full_code,
         description=request.description,
-        message=f"Strategy '{name}' created successfully. It will be picked up by the pipeline automatically."
+        interval=request.interval,
+        lookback=request.lookback,
+        message=f"Strategy '{name}' created with interval={request.interval}, lookback={request.lookback}. It will be picked up by the pipeline automatically."
     )
 
 

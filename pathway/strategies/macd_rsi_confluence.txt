@@ -1,3 +1,6 @@
+# interval: 1h
+# lookback: 3mo
+
 def strategy(indicators):
     """
     MACD + RSI Confluence Strategy
@@ -13,6 +16,8 @@ def strategy(indicators):
     - Take Profit: 3x ATR above entry (2:1 R/R)
     - Trailing Stop: 3% to lock in profits
     - Position Size: 60% of capital
+    
+    Best for: Hourly charts, momentum markets
     """
     import numpy as np
     

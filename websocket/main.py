@@ -97,10 +97,76 @@ async def websocket_alerts(websocket: WebSocket):
     try:
         async for msg in pubsub.listen():
             if msg["type"] == "message":
-                await ws_manager.broadcast(room_id, websocket)
+                await ws_manager.broadcast(room_id, msg["data"])
 
     finally:
         ws_manager.disconnect(room_id, websocket)
         await pubsub.unsubscribe("alerts")
+        await pubsub.close()
+        await redis_async.close()
+
+
+@app.websocket("/ws/backtesting")
+async def websocket_backtesting(websocket: WebSocket):
+    """
+    WebSocket endpoint for all backtesting metrics updates.
+    Subscribes to the 'reports' channel and filters for backtesting_metrics.
+    """
+    room_id = "backtesting"   
+    print("🔌 Attempting WebSocket connection for backtesting")
+    
+    await ws_manager.connect(room_id, websocket)
+    print("✅ WebSocket accepted for backtesting")
+
+    redis_async = get_async_redis()
+    pubsub = redis_async.pubsub()
+    # Subscribe to reports channel (backtesting publishes there)
+    await pubsub.subscribe("reports")
+    print(f"✅ Subscribed to Redis channel: reports (filtering for backtesting)")
+    
+    try:
+        async for msg in pubsub.listen():
+            if msg["type"] == "message":
+                try:
+                    import json
+                    data = json.loads(msg["data"])
+                    # Only forward backtesting_metrics events
+                    if data.get("type") == "backtesting_metrics":
+                        await ws_manager.broadcast(room_id, msg["data"])
+                except:
+                    pass
+
+    finally:
+        ws_manager.disconnect(room_id, websocket)
+        await pubsub.unsubscribe("reports")
+        await pubsub.close()
+        await redis_async.close()
+
+
+@app.websocket("/ws/backtesting/{strategy}")
+async def websocket_backtesting_strategy(websocket: WebSocket, strategy: str):
+    """
+    WebSocket endpoint for a specific strategy's backtesting updates.
+    Subscribes to room:backtesting:{strategy} channel.
+    """
+    room_id = f"backtesting:{strategy.upper()}"   
+    print(f"🔌 Attempting WebSocket connection for backtesting strategy: {strategy}")
+    
+    await ws_manager.connect(room_id, websocket)
+    print(f"✅ WebSocket accepted for backtesting strategy: {strategy}")
+
+    redis_async = get_async_redis()
+    pubsub = redis_async.pubsub()
+    await pubsub.subscribe(f"room:{room_id}")
+    print(f"✅ Subscribed to Redis channel: room:{room_id}")
+    
+    try:
+        async for msg in pubsub.listen():
+            if msg["type"] == "message":
+                await ws_manager.broadcast(room_id, msg["data"])
+
+    finally:
+        ws_manager.disconnect(room_id, websocket)
+        await pubsub.unsubscribe(f"room:{room_id}")
         await pubsub.close()
         await redis_async.close()
