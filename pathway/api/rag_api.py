@@ -91,9 +91,7 @@ def enrich_chunks_batch(chunks: list, full_context: str, batch_size: int = 20) -
         # Build prompt for batch
         chunks_text = '\n'.join(f'Chunk {i+1}: {c.get("text", "")[:250]}' for i, c in enumerate(batch))
         
-        prompt = f"""You are analyzing an SEC 10-K financial filing. For each chunk, provide a brief context (1-2 sentences) that helps retrieve this chunk when searching.
-
-Focus on: company name, financial metrics, time periods, section references (Item 1, 7, 8), key topics.
+        prompt = f"""Summarize this chunk in context of the document. 2-3 sentences max.
 
 Document (first 1500 chars):
 {full_context[:1500]}
