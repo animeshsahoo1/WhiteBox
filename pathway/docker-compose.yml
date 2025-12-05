@@ -1,10 +1,10 @@
 # Pathway Consumers & API Services
-# Uses stock-network (created by kafka or root compose)
+# When running standalone: start kafka first (creates stock-network)
+# When running via root compose: network is shared
 
 networks:
   stock-network:
     name: stock-network
-    external: true
 
 # Common build configuration for pathway services
 x-pathway-build: &pathway-build

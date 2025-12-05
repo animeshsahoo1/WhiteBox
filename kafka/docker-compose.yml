@@ -1,10 +1,9 @@
 # Kafka Infrastructure
-# Network is created by root docker-compose.yml or here if run standalone
+# Creates stock-network for all services to use
 
 networks:
   stock-network:
     name: stock-network
-    driver: bridge
 
 services:
   zookeeper:

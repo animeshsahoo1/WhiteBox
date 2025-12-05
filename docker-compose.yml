@@ -2,20 +2,16 @@
 # ROOT DOCKER COMPOSE: Builds and manages all services
 # 
 # Usage:
-#   docker compose -f docker-compose.yml up -d           # Start all
-#   docker compose -f docker-compose.yml build           # Rebuild all
-#   docker compose -f docker-compose.yml build --no-cache # Fresh rebuild
+#   docker compose up -d                          # Start all
+#   docker compose up -d kafka streaming pathway  # Start specific
+#   docker compose build                          # Rebuild all
+#   docker compose build --no-cache               # Fresh rebuild
 #
-# Benefits:
-#   - Single network for all services
-#   - Shared base image layers (cached)
-#   - Centralized resource management
+# Standalone usage (start kafka first for network):
+#   cd kafka && docker compose up -d
+#   cd streaming && docker compose up -d
+#   cd pathway && docker compose up -d
 # ============================================================
-
-networks:
-  stock-network:
-    driver: bridge
-    name: stock-network
 
 # ============================================================
 # INCLUDE: Import all service compose files

@@ -1,7 +1,8 @@
+# When running standalone: start kafka first (creates stock-network)
+# When running via root compose: network is shared
 networks:
   stock-network:
-    external: true
-    name: kafka_stock-network
+    name: stock-network
 
 # ============================================
 # YAML Anchors for DRY Configuration
@@ -10,7 +11,7 @@ x-websocket-build: &websocket-build
   build:
     context: .
     dockerfile: Dockerfile
-    target: dev
+    target: final
 
 services:
   fastapi-app:
