@@ -26,6 +26,9 @@ from pydantic import BaseModel
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Import guardrails
+from guardrails import guard_input, guard_output
+
 # Import event publisher for WebSocket integration
 try:
     from event_publisher import publish_event, publish_agent_status, publish_report
@@ -153,6 +156,18 @@ async def chat(request: ChatRequest):
     Optionally provide room_id to publish events to WebSocket.
     """
     try:
+        # ===== INPUT GUARDRAILS =====
+        input_guard = guard_input(request.message)
+        if not input_guard.allowed:
+            # Return guardrail's response without invoking LLM
+            return ChatResponse(
+                message=request.message,
+                response=input_guard.message,
+                user_id=request.user_id,
+                thread_id="guardrail_blocked",
+                timestamp=datetime.utcnow().isoformat()
+            )
+        
         strategist = await get_strategist()
         
         # Publish "thinking" event if room_id provided
@@ -163,22 +178,27 @@ async def chat(request: ChatRequest):
             })
         
         # Get response from agent - pass room_id for event publishing
+        # Use original message (not masked) per requirements
         response = await strategist.chat(
             request.message, 
             user_id=request.user_id,
             room_id=request.room_id
         )
         
+        # ===== OUTPUT GUARDRAILS =====
+        output_guard = guard_output(response)
+        final_response = output_guard.message
+        
         # Publish response event
         if request.room_id:
             publish_strategist_event(request.room_id, "strategist_response", {
                 "user_id": request.user_id,
-                "response": response
+                "response": final_response
             })
         
         return ChatResponse(
             message=request.message,
-            response=response,
+            response=final_response,
             user_id=request.user_id,
             thread_id=strategist.thread_id,
             timestamp=datetime.utcnow().isoformat()
@@ -201,6 +221,25 @@ async def chat_stream(request: ChatRequest):
     Returns chunked response as the agent generates it.
     """
     
+    # ===== INPUT GUARDRAILS (before streaming) =====
+    input_guard = guard_input(request.message)
+    if not input_guard.allowed:
+        # Return guardrail's response as a single event
+        async def blocked_response() -> AsyncGenerator[str, None]:
+            yield f"data: {json.dumps({'event': 'start', 'user_id': request.user_id})}\n\n"
+            yield f"data: {json.dumps({'event': 'chunk', 'content': input_guard.message})}\n\n"
+            yield f"data: {json.dumps({'event': 'done', 'full_response': input_guard.message})}\n\n"
+        
+        return StreamingResponse(
+            blocked_response(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
+    
     async def generate() -> AsyncGenerator[str, None]:
         try:
             strategist = await get_strategist()
@@ -216,6 +255,7 @@ async def chat_stream(request: ChatRequest):
                 })
             
             # Stream response chunks - pass room_id for event publishing
+            # Use original message (not masked) per requirements
             full_response = ""
             async for chunk in strategist.stream_chat(
                 request.message, 
@@ -231,14 +271,18 @@ async def chat_stream(request: ChatRequest):
                         "content": chunk
                     })
             
-            # Send completion event
-            yield f"data: {json.dumps({'event': 'done', 'full_response': full_response})}\n\n"
+            # ===== OUTPUT GUARDRAILS =====
+            output_guard = guard_output(full_response)
+            final_response = output_guard.message
+            
+            # Send completion event with guarded response
+            yield f"data: {json.dumps({'event': 'done', 'full_response': final_response})}\n\n"
             
             # Publish complete response
             if request.room_id:
                 publish_strategist_event(request.room_id, "strategist_response", {
                     "user_id": request.user_id,
-                    "response": full_response
+                    "response": final_response
                 })
                 
         except Exception as e:

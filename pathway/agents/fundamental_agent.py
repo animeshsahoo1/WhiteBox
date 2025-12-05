@@ -537,7 +537,8 @@ def process_fundamental_stream(
             publish_report(room_id, "Fundamental Agent", {
                 "symbol": symbol,
                 "report_type": "fundamental",
-                "rating": rating
+                "rating": rating,
+                "report_content": report_content
             })
             publish_agent_status(room_id, "Fundamental Agent", "COMPLETED")
         except Exception as e:

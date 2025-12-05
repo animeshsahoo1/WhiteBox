@@ -41,58 +41,111 @@ from pathway.xpacks.llm.servers import DocumentStoreServer
 from pathway.xpacks.llm.llms import LiteLLMChat
 from pathway.xpacks.llm.embedders import LiteLLMEmbedder
 from pathway.xpacks.llm.mcp_server import PathwayMcp
+from pathway.xpacks.llm.question_answering import AdaptiveRAGQuestionAnswerer
 
 load_dotenv()
 pw.set_license_key(os.getenv("PATHWAY_LICENSE_KEY", ""))
 # ==================== Pathway DocumentStore Setup ====================
 
-# Initialize LLM for contextual summarization
-summary_llm = LiteLLMChat(
-    model="openrouter/google/gemini-2.0-flash-lite-001",
-    api_key=os.getenv('OPENROUTER_API_KEY'),
-    api_base="https://openrouter.ai/api/v1",
-    temperature=0.0
-)
+# OpenRouter client for contextual enrichment (OpenAI-compatible API)
+from openai import OpenAI
+_openrouter_client = None
 
-def helper(text: str, full_text: str) -> str:
+def get_openrouter_client():
+    """Get OpenRouter client (OpenAI-compatible)."""
+    global _openrouter_client
+    if _openrouter_client is None:
+        _openrouter_client = OpenAI(
+            api_key=os.getenv("OPENROUTER_API_KEY"),
+            base_url="https://openrouter.ai/api/v1"
+        )
+    return _openrouter_client
+
+def enrich_chunks_batch(chunks: list, full_context: str, batch_size: int = 20) -> list:
     """
-    Generate a contextual summary of a chunk within the full document using LLM.
-    This function creates a Pathway table with the prompt and calls the LLM.
-    Returns the summary text.
+    Enrich chunks with contextual summaries using batched OpenRouter calls.
+    Much faster than per-chunk LLM calls.
+    
+    Args:
+        chunks: List of chunk dicts with 'text' field
+        full_context: Full document text for context
+        batch_size: Chunks per API call (default 20)
+    
+    Returns:
+        List of enriched text strings
     """
-    prompt_content = f"""Summarize this chunk in context of the document. 2-3 sentences max.
-
-Document context:
-{full_text[:400]}...
-
-Chunk:
-{text}
-
-Summary:"""
+    client = get_openrouter_client()
+    enriched_texts = []
+    total_batches = (len(chunks) + batch_size - 1) // batch_size
     
-    # Create a Pathway table with the prompt in chat format
-    queries = pw.debug.table_from_markdown(
-        """
-        prompt
-        placeholder
-        """
-    )
+    print(f"📝 Enriching {len(chunks)} chunks in {total_batches} batches...")
     
-    # Build the chat messages
-    queries = queries.select(
-        prompt=[{"role": "user", "content": prompt_content}]
-    )
-    
-    # Call the LLM
-    responses = queries.select(
-        result=summary_llm(pw.this.prompt)
-    )
+    for batch_idx in range(0, len(chunks), batch_size):
+        batch = chunks[batch_idx:batch_idx + batch_size]
+        batch_num = batch_idx // batch_size + 1
+        
+        # Progress indicator
+        progress = int((batch_num / total_batches) * 20)
+        bar = "█" * progress + "░" * (20 - progress)
+        print(f"\r  [{bar}] {batch_num}/{total_batches}", end="", flush=True)
+        
+        # Build prompt for batch
+        chunks_text = '\n'.join(f'Chunk {i+1}: {c.get("text", "")[:250]}' for i, c in enumerate(batch))
+        
+        prompt = f"""You are analyzing an SEC 10-K financial filing. For each chunk, provide a brief context (1-2 sentences) that helps retrieve this chunk when searching.
 
-    # Compute and extract the result
-    result_df = pw.debug.table_to_pandas(responses)
-    if len(result_df) > 0:
-        return result_df.iloc[0]['result']
-    return "No summary generated"
+Focus on: company name, financial metrics, time periods, section references (Item 1, 7, 8), key topics.
+
+Document (first 1500 chars):
+{full_context[:1500]}
+
+Chunks:
+{chunks_text}
+
+Format (one line per chunk):
+Chunk 1: <context>
+Chunk 2: <context>
+..."""
+        
+        try:
+            response = client.chat.completions.create(
+                model="google/gemini-2.0-flash-lite-001",  # Fast & cheap via OpenRouter
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+                max_tokens=1500
+            )
+            
+            content = response.choices[0].message.content
+            
+            # Parse contexts
+            contexts = []
+            for line in content.strip().split('\n'):
+                if line.startswith('Chunk '):
+                    parts = line.split(':', 1)
+                    if len(parts) > 1:
+                        contexts.append(parts[1].strip())
+            
+            # Pad if needed
+            while len(contexts) < len(batch):
+                contexts.append("")
+            
+            # Build enriched texts
+            for chunk, context in zip(batch, contexts[:len(batch)]):
+                text = chunk.get("text", "")
+                if context:
+                    enriched_texts.append(f"Context: {context}\n\nContent: {text}")
+                else:
+                    enriched_texts.append(text)
+                    
+        except Exception as e:
+            print(f"\n  ⚠️ Batch {batch_num} error: {e}")
+            # Fallback: use raw text
+            for chunk in batch:
+                enriched_texts.append(chunk.get("text", ""))
+    
+    print(f"\r  [{'█' * 20}] {total_batches}/{total_batches} ✓")
+    return enriched_texts
+
 
 def prechunked_json_parser(data: bytes) -> list[tuple[str, dict]]:
     """
@@ -151,21 +204,25 @@ def prechunked_json_parser(data: bytes) -> list[tuple[str, dict]]:
     all_texts = [obj.get("text", "") for obj in all_json_objects]
     full_text = " ".join(all_texts)
     
-    # Build chunks with summaries
-    for chunk in all_json_objects:
-        text = chunk.get("text", "")
+    # Check if contextual enrichment is enabled (default: False for baseline testing)
+    enable_contextual = os.getenv("CONTEXTUAL_ENRICHMENT", "false").lower() == "true"
+    
+    # Enrich chunks in batch if enabled (fast batch processing with progress bar)
+    if enable_contextual and all_json_objects:
+        enriched_texts = enrich_chunks_batch(all_json_objects, full_text)
+    else:
+        enriched_texts = [obj.get("text", "") for obj in all_json_objects]
+    
+    # Build final chunks with metadata
+    for i, chunk in enumerate(all_json_objects):
+        text = enriched_texts[i] if i < len(enriched_texts) else chunk.get("text", "")
         timestamp = chunk.get("timestamp", datetime.now().isoformat())
-        # Generate contextual summary using helper function
-        summary = helper(text, full_text)
-        
-        # Prepend summary to text for better embedding search
-        enriched_text = f"Summary: {summary}\n\nContent: {text}"
         
         metadata = {
             "symbol": chunk.get("symbol", "AAPL"),
             "timestamp": timestamp,
         }
-        chunks.append((enriched_text, metadata))
+        chunks.append((text, metadata))
     
     return chunks
 
@@ -208,6 +265,32 @@ def start_pathway_docstore():
         parser=prechunked_json_parser,
         splitter=None,
     )
+    
+    # Adaptive RAG Configuration - Geometric strategy for better recall
+    # Starts with 2 docs, doubles until answer found (2 → 4 → 8 → 16)
+    ADAPTIVE_RAG_ENABLED = os.getenv("ADAPTIVE_RAG", "false").lower() == "true"
+    
+    if ADAPTIVE_RAG_ENABLED:
+        # Use LiteLLMChat for Pathway's native adaptive RAG
+        adaptive_llm = LiteLLMChat(
+            model="gpt-4o-mini",
+            api_key=os.getenv("OPENAI_API_KEY"),
+            api_base="https://openrouter.ai/api/v1",
+            temperature=0,
+        )
+        
+        adaptive_rag = AdaptiveRAGQuestionAnswerer(
+            llm=adaptive_llm,
+            indexer=store,
+            n_starting_documents=2,  # Start with 2 docs
+            factor=2,                # Double each iteration
+            max_iterations=4,        # Max 16 docs (2*2*2*2)
+            no_answer_string="Information not found in documents.",
+        )
+        
+        # Build and run Adaptive RAG server on port 8767
+        adaptive_rag.build_server(host="127.0.0.1", port=8767)
+        print("🔄 Adaptive RAG enabled on port 8767")
 
     server = DocumentStoreServer(
         host="127.0.0.1",
@@ -259,39 +342,164 @@ llm = ChatOpenAI(
     base_url="https://openrouter.ai/api/v1"
 )
 
+# ==================== Retrieval Layer (with optional Reranking) ====================
+
+# Check for Cohere availability
+try:
+    import cohere
+    COHERE_AVAILABLE = True
+except ImportError:
+    COHERE_AVAILABLE = False
+    print("⚠️ Cohere not installed. Reranking disabled. Run: pip install cohere")
+
+# Config: Enable/disable reranking via env var
+RERANK_ENABLED = os.getenv("RERANK_ENABLED", "true").lower() == "true"
+
+
+def rerank_documents(query: str, documents: list, top_n: int = 5) -> list:
+    """
+    Rerank documents using Cohere Rerank API (like competitor's CohereRerank).
+    This is the core reranking function used across the pipeline.
+    
+    Args:
+        query: The search query
+        documents: List of document dicts with 'text' field
+        top_n: Number of top documents to return after reranking
+    
+    Returns:
+        Reranked list of documents sorted by relevance
+    """
+    cohere_key = os.getenv("COHERE_API_KEY")
+    
+    if not COHERE_AVAILABLE or not cohere_key or not RERANK_ENABLED:
+        return documents[:top_n]  # Fallback: return as-is
+    
+    if not documents:
+        return []
+    
+    try:
+        co = cohere.ClientV2(api_key=cohere_key)
+        
+        # Extract texts for reranking
+        doc_texts = [d.get("text", "") for d in documents]
+        
+        response = co.rerank(
+            model="rerank-v3.5",  # Latest Cohere rerank model
+            query=query,
+            documents=doc_texts,
+            top_n=min(top_n, len(documents))
+        )
+        
+        # Reorder documents based on rerank results
+        reranked = []
+        for result in response.results:
+            doc = documents[result.index].copy()
+            doc["rerank_score"] = result.relevance_score
+            reranked.append(doc)
+        
+        return reranked
+    except Exception as e:
+        print(f"⚠️ Rerank failed: {e}")
+        return documents[:top_n]
+
+
+# Config: Enable Adaptive RAG (geometric strategy)
+ADAPTIVE_RAG_ENABLED = os.getenv("ADAPTIVE_RAG", "false").lower() == "true"
+
+
+def retrieve_with_adaptive_rag(query: str, use_rerank: bool = True) -> dict:
+    """
+    Use Pathway's Adaptive RAG - geometric strategy that progressively
+    retrieves more documents until an answer is found.
+    
+    Returns full answer with context docs (optionally reranked).
+    """
+    try:
+        url = "http://127.0.0.1:8767/v2/answer"
+        payload = {
+            "prompt": query,
+            "return_context_docs": True
+        }
+        r = requests.post(url, json=payload, timeout=120)
+        r.raise_for_status()
+        result = r.json()
+        
+        # Apply reranking to context docs if enabled
+        if use_rerank and RERANK_ENABLED and result.get("context_docs"):
+            docs = result["context_docs"]
+            reranked = rerank_documents(query, docs, top_n=len(docs))
+            result["context_docs"] = reranked
+            result["reranked"] = True
+        
+        return result
+    except Exception as e:
+        print(f"⚠️ Adaptive RAG error: {e}")
+        return {"response": str(e), "context_docs": []}
+
+
+def retrieve_from_pathway(query: str, k: int = 5, use_rerank: bool = True) -> list:
+    """
+    Central retrieval function - retrieves from Pathway and optionally reranks.
+    Used by both agent tools and API endpoints.
+    
+    Strategy: Over-retrieve (k*2) then rerank to top k (like competitor's approach)
+    
+    Args:
+        query: Search query
+        k: Final number of documents to return
+        use_rerank: Whether to apply Cohere reranking
+    
+    Returns:
+        List of document dicts with text and metadata
+    """
+    try:
+        url = "http://127.0.0.1:8765/v1/retrieve"
+        # Over-retrieve if reranking (retrieve 2x, rerank to top k)
+        retrieve_k = k * 2 if (use_rerank and RERANK_ENABLED) else k
+        
+        r = requests.post(url, json={"query": query, "k": retrieve_k}, timeout=200)  # Increased timeout
+        r.raise_for_status()
+        results = r.json()
+        
+        if not results:
+            return []
+        
+        # Apply reranking if enabled
+        if use_rerank and RERANK_ENABLED:
+            results = rerank_documents(query, results, top_n=k)
+        
+        return results
+    except Exception as e:
+        print(f"⚠️ Retrieval error: {e}")
+        return []
+
+
 # ==================== MCP Tools ====================
 
 @tool
 def retrieve_documents(query: str, k: int = 5) -> str:
     """
-    Retrieve relevant financial documents from the Pathway knowledge base via MCP.
-    Use this tool to get context about financial reports, earnings, company data.
+    Retrieve relevant financial documents from the Pathway knowledge base.
+    Uses over-retrieval + Cohere reranking for better precision.
     
     Args:
         query: The search query to find relevant documents
         k: Number of documents to retrieve (default 5)
     """
-    try:
-        # Call Pathway MCP Server
-        url = "http://127.0.0.1:8765/v1/retrieve"
-        payload = {"query": query, "k": k}
-        r = requests.post(url, json=payload, timeout=10)
-        r.raise_for_status()
-        results = r.json()
-        
-        if not results:
-            return "No documents found for the query."
-        
-        # Format results for LLM
-        formatted = []
-        for i, result in enumerate(results, 1):
-            text = result.get("text", "")[:500]
-            metadata = result.get("metadata", {})
-            formatted.append(f"[Doc {i}] {text}\nMetadata: {json.dumps(metadata)}")
-        
-        return "\n\n".join(formatted)
-    except Exception as e:
-        return f"Error retrieving documents: {str(e)}"
+    results = retrieve_from_pathway(query, k=k, use_rerank=True)
+    
+    if not results:
+        return "No documents found for the query."
+    
+    # Format results for LLM
+    formatted = []
+    for i, result in enumerate(results, 1):
+        text = result.get("text", "")[:500]
+        metadata = result.get("metadata", {})
+        score_info = f" (relevance: {result.get('rerank_score', 'N/A'):.3f})" if 'rerank_score' in result else ""
+        formatted.append(f"[Doc {i}{score_info}] {text}\nMetadata: {json.dumps(metadata)}")
+    
+    return "\n\n".join(formatted)
 
 @tool
 def web_search(query: str) -> str:
@@ -604,20 +812,48 @@ def debug_stats():
 
 
 @router.get("/debug/retrieve")
-def debug_retrieve(q: str = "Apple", k: int = 5):
-    """Debug endpoint to test retrieval directly."""
-    try:
-        url = "http://127.0.0.1:8765/v1/retrieve"
-        r = requests.post(url, json={"query": q, "k": k}, timeout=10)
-        r.raise_for_status()
-        results = r.json()
+def debug_retrieve(q: str = "Apple", k: int = 5, rerank: bool = True):
+    """
+    Debug endpoint to test retrieval directly.
+    Uses centralized retrieve_from_pathway with optional reranking.
+    
+    Args:
+        q: Query string
+        k: Number of results
+        rerank: Enable/disable reranking (default True)
+    """
+    results = retrieve_from_pathway(q, k=k, use_rerank=rerank)
+    return {
+        "query": q,
+        "count": len(results),
+        "rerank_enabled": rerank and RERANK_ENABLED,
+        "results": results
+    }
+
+
+@router.get("/debug/adaptive")
+def debug_adaptive_rag(q: str = "What was Apple's revenue in 2022?", rerank: bool = True):
+    """
+    Debug endpoint to test Adaptive RAG (geometric strategy).
+    Requires ADAPTIVE_RAG=true environment variable.
+    
+    Adaptive RAG progressively retrieves more docs until answer found:
+    2 docs → 4 docs → 8 docs → 16 docs
+    """
+    if not ADAPTIVE_RAG_ENABLED:
         return {
-            "query": q,
-            "count": len(results),
-            "results": results
+            "error": "Adaptive RAG not enabled",
+            "hint": "Set ADAPTIVE_RAG=true and restart"
         }
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    
+    result = retrieve_with_adaptive_rag(q, use_rerank=rerank)
+    return {
+        "query": q,
+        "response": result.get("response", ""),
+        "reranked": result.get("reranked", False),
+        "context_docs_count": len(result.get("context_docs", [])),
+        "context_docs": result.get("context_docs", [])
+    }
 
 
 # ==================== Ingestion API ====================
