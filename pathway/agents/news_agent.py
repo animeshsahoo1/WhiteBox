@@ -193,8 +193,25 @@ def get_news_knowledge_base(kb_dir: str = "/app/knowledge_base") -> NewsKnowledg
     return _news_kb
 
 
+# Embedding cache - LRU cache to avoid redundant API calls
+_news_embedding_cache = {}
+_NEWS_EMBEDDING_CACHE_MAX_SIZE = 500
+
+
 def get_embedding(text: str) -> list:
-    """Generate embedding using OpenRouter."""
+    """Generate embedding using OpenRouter with caching.
+    
+    Uses LRU cache to avoid redundant API calls for identical text.
+    """
+    import hashlib
+    
+    # Create cache key from text hash
+    cache_key = hashlib.md5(text[:500].encode()).hexdigest()
+    
+    # Check cache first
+    if cache_key in _news_embedding_cache:
+        return _news_embedding_cache[cache_key]
+    
     try:
         response = litellm.embedding(
             model="openai/text-embedding-3-small",
@@ -202,8 +219,18 @@ def get_embedding(text: str) -> list:
             api_key=os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY"),
             api_base="https://openrouter.ai/api/v1"
         )
-        return response.data[0]['embedding']
-    except Exception:
+        embedding = response.data[0]['embedding']
+        
+        # Add to cache (evict oldest if full)
+        if len(_news_embedding_cache) >= _NEWS_EMBEDDING_CACHE_MAX_SIZE:
+            oldest_key = next(iter(_news_embedding_cache))
+            del _news_embedding_cache[oldest_key]
+        
+        _news_embedding_cache[cache_key] = embedding
+        return embedding
+        
+    except Exception as e:
+        print(f"⚠️ News embedding API error: {e}")
         return [0.0] * EMBEDDING_DIMENSIONS
 
 

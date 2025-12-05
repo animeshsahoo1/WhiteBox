@@ -4,22 +4,34 @@ networks:
 
 services:
   zookeeper:
-    healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "2181"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
     image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
     networks:
       - stock-network
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+      # Reduce memory footprint
+      KAFKA_HEAP_OPTS: "-Xmx256m -Xms256m"
     ports:
       - "2181:2181"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    # Resource limits to prevent runaway usage
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    restart: unless-stopped
 
   kafka:
     image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
     networks:
       - stock-network
     depends_on:
@@ -34,3 +46,31 @@ services:
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      # === OPTIMIZATION: Log retention settings ===
+      # Reduce disk usage - 1 day retention for dev, increase for prod
+      KAFKA_LOG_RETENTION_HOURS: 24
+      KAFKA_LOG_RETENTION_BYTES: 1073741824  # 1GB max per partition
+      KAFKA_LOG_SEGMENT_BYTES: 104857600     # 100MB segments
+      KAFKA_LOG_CLEANUP_POLICY: delete
+      # === OPTIMIZATION: Memory settings ===
+      KAFKA_HEAP_OPTS: "-Xmx512m -Xms512m"
+      # === OPTIMIZATION: Reduce network overhead ===
+      KAFKA_COMPRESSION_TYPE: lz4
+      KAFKA_MESSAGE_MAX_BYTES: 1048576       # 1MB max message
+      # === OPTIMIZATION: Faster consumer rebalancing ===
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    # Health check for Kafka broker
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    restart: unless-stopped

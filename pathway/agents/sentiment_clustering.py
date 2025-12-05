@@ -41,6 +41,11 @@ load_dotenv()
 # Initialize VADER sentiment analyzer
 vader_analyzer = SentimentIntensityAnalyzer()
 
+# Embedding cache - LRU cache to avoid redundant API calls for similar text
+# Key: hash of text, Value: embedding vector
+_embedding_cache = {}
+_EMBEDDING_CACHE_MAX_SIZE = 1000
+
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
@@ -102,7 +107,20 @@ def trigger_sentiment_alert(symbol: str, overall_sentiment: float):
 
 
 def get_embedding(text: str) -> list:
-    """Generate embedding for text using OpenRouter"""
+    """Generate embedding for text using OpenRouter with caching.
+    
+    Uses LRU cache to avoid redundant API calls for identical/similar text.
+    Cache key is hash of first 500 chars (semantic similarity threshold).
+    """
+    import hashlib
+    
+    # Create cache key from text hash
+    cache_key = hashlib.md5(text[:500].encode()).hexdigest()
+    
+    # Check cache first
+    if cache_key in _embedding_cache:
+        return _embedding_cache[cache_key]
+    
     try:
         response = litellm.embedding(
             model="openai/text-embedding-3-small",
@@ -110,8 +128,19 @@ def get_embedding(text: str) -> list:
             api_key=os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY"),
             api_base="https://openrouter.ai/api/v1"
         )
-        return response.data[0]['embedding']
+        embedding = response.data[0]['embedding']
+        
+        # Add to cache (evict oldest if full)
+        if len(_embedding_cache) >= _EMBEDDING_CACHE_MAX_SIZE:
+            # Remove oldest entry (first key)
+            oldest_key = next(iter(_embedding_cache))
+            del _embedding_cache[oldest_key]
+        
+        _embedding_cache[cache_key] = embedding
+        return embedding
+        
     except Exception as e:
+        print(f"\u26a0\ufe0f Embedding API error: {e}")
         return [0.0] * EMBEDDING_DIMENSIONS
 
 

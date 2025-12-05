@@ -16,8 +16,14 @@ import pathway as pw
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
+from langchain.globals import set_llm_cache
+from langchain.cache import InMemoryCache
 from openai import RateLimitError
 from dotenv import load_dotenv
+
+# Enable LLM caching to reduce redundant API calls
+# This caches identical prompts, saving money on repeated analysis
+set_llm_cache(InMemoryCache())
 
 # Import Redis and PostgreSQL save functions
 try:
@@ -42,6 +48,52 @@ except ImportError:
         from .utils.tool_creation import TechnicalTools
 
 load_dotenv()
+
+
+# =====================================================================
+# MODULE-LEVEL LLM INITIALIZATION (avoids recreating on every UDF call)
+# =====================================================================
+
+def _get_llm_clients():
+    """Initialize LLM clients once at module level.
+    
+    Returns tuple of (tool_llm, graph_llm) configured for OpenRouter or OpenAI.
+    Cached at module level to avoid recreation on every UDF call.
+    """
+    openrouter_key = os.getenv("OPENROUTER_API_KEY")
+    openai_key = os.getenv("OPENAI_API_KEY")
+    
+    if openrouter_key:
+        tool_llm = ChatOpenAI(
+            model="gpt-4o-mini",
+            temperature=0.1,
+            api_key=openrouter_key,
+            base_url="https://openrouter.ai/api/v1"
+        )
+        graph_llm = ChatOpenAI(
+            model="gpt-4o-mini",
+            temperature=0.1,
+            api_key=openrouter_key,
+            base_url="https://openrouter.ai/api/v1"
+        )
+        return tool_llm, graph_llm
+    elif openai_key:
+        tool_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.1, api_key=openai_key)
+        graph_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.1, api_key=openai_key)
+        return tool_llm, graph_llm
+    else:
+        return None, None
+
+# Initialize LLMs at module load time (lazy - only when first used)
+_llm_cache = {}
+
+def get_cached_llms():
+    """Get cached LLM instances, initializing once if needed."""
+    if 'tool_llm' not in _llm_cache:
+        tool_llm, graph_llm = _get_llm_clients()
+        _llm_cache['tool_llm'] = tool_llm
+        _llm_cache['graph_llm'] = graph_llm
+    return _llm_cache['tool_llm'], _llm_cache['graph_llm']
 
 
 # =====================================================================
@@ -94,18 +146,25 @@ class AgentState(TypedDict):
 # RETRY UTILITY
 # =====================================================================
 
-def invoke_with_retry(call_fn, *args, retries=3, wait_sec=8):
-    """Retry LLM calls with exponential backoff."""
+def invoke_with_retry(call_fn, *args, retries=3, initial_wait_sec=2):
+    """Retry LLM calls with exponential backoff.
+    
+    Uses exponential backoff: 2s, 4s, 8s (doubles each retry).
+    This is more efficient than fixed wait times.
+    """
+    wait_sec = initial_wait_sec
     for attempt in range(retries):
         try:
             return call_fn(*args)
         except RateLimitError:
             print(f"⚠️ Rate limit hit, retrying in {wait_sec}s (attempt {attempt + 1}/{retries})...")
             time.sleep(wait_sec)
+            wait_sec *= 2  # Exponential backoff
         except Exception as e:
             print(f"⚠️ Error: {e}, retrying in {wait_sec}s (attempt {attempt + 1}/{retries})...")
             if attempt < retries - 1:
                 time.sleep(wait_sec)
+                wait_sec *= 2  # Exponential backoff
     raise RuntimeError("Max retries exceeded")
 
 
@@ -1012,34 +1071,11 @@ The following chart images have been saved separately:
                 "messages": []
             }
             
-            # Initialize LLMs
-            # Check for OpenRouter or OpenAI API key
-            openrouter_key = os.getenv("OPENROUTER_API_KEY")
-            openai_key = os.getenv("OPENAI_API_KEY")
+            # Get cached LLM clients (initialized once at module level)
+            tool_llm, graph_llm = get_cached_llms()
             
-            if openrouter_key:
-                # Use OpenRouter
-                print("🔑 Using OpenRouter API")
-                tool_llm = ChatOpenAI(
-                    model="gpt-4o-mini",
-                    temperature=0.1,
-                    api_key=openrouter_key,
-                    base_url="https://openrouter.ai/api/v1"
-                )
-                graph_llm = ChatOpenAI(
-                    model="gpt-4o-mini",
-                    temperature=0.1,
-                    api_key=openrouter_key,
-                    base_url="https://openrouter.ai/api/v1"
-                )
-            elif openai_key:
-                # Use OpenAI directly
-                print("🔑 Using OpenAI API")
-                tool_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.1, api_key=openai_key)
-                graph_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.1, api_key=openai_key)
-            else:
+            if tool_llm is None or graph_llm is None:
                 raise ValueError("No API key found. Set either OPENROUTER_API_KEY or OPENAI_API_KEY environment variable.")
-            
             
             # Create and run graph
             print(f"🤖 Analyzing {symbol}...")
