@@ -1,3 +1,6 @@
+# interval: 1h
+# lookback: 6mo
+
 def strategy(indicators):
     """
     Bollinger Bands Breakout Strategy
@@ -12,6 +15,8 @@ def strategy(indicators):
     - Stop Loss: Lower Bollinger Band (dynamic)
     - Take Profit: 2x band width above entry
     - Position Size: 30% (conservative for breakouts)
+    
+    Best for: Hourly charts, volatile markets
     """
     import numpy as np
     

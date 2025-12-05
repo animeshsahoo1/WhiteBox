@@ -4,6 +4,12 @@ Pathway Streaming Backtesting Pipeline
 Consumes candles from Kafka via CandleConsumer, runs backtesting for all strategies,
 and pushes real-time metrics to Redis cache.
 
+Architecture:
+- Each strategy specifies its preferred interval and lookback period
+- Natural join on interval: strategy only sees candles matching its interval
+- Groupby (strategy, symbol): separate metrics per strategy per symbol
+- Lookback filtering: only process candles within strategy's lookback window
+
 Usage:
     python main_backtesting.py
 
@@ -14,6 +20,7 @@ Environment Variables:
 
 import os
 import sys
+import re
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -51,7 +58,7 @@ except ImportError:
 
 
 # ============================================================================
-# PATHWAY UDFs
+# PATHWAY UDFs FOR STRATEGY METADATA EXTRACTION
 # ============================================================================
 
 @pw.udf
@@ -63,6 +70,38 @@ def extract_strategy_name(metadata: pw.Json) -> str:
         return Path(filename).stem
     except Exception:
         return "unknown"
+
+
+@pw.udf
+def extract_strategy_interval(strategy_code: str) -> str:
+    """
+    Extract interval from strategy file header.
+    Format: # interval: 1h
+    Default: 1h
+    """
+    try:
+        match = re.search(r'^#\s*interval:\s*(\S+)', strategy_code, re.MULTILINE | re.IGNORECASE)
+        if match:
+            return match.group(1).lower()
+    except Exception:
+        pass
+    return "1h"  # Default interval
+
+
+@pw.udf
+def extract_strategy_lookback(strategy_code: str) -> str:
+    """
+    Extract lookback period from strategy file header.
+    Format: # lookback: 6mo
+    Default: 1y
+    """
+    try:
+        match = re.search(r'^#\s*lookback:\s*(\S+)', strategy_code, re.MULTILINE | re.IGNORECASE)
+        if match:
+            return match.group(1).lower()
+    except Exception:
+        pass
+    return "1y"  # Default lookback
 
 
 # ============================================================================
@@ -77,11 +116,12 @@ def create_backtesting_pipeline(
     Create the streaming backtesting pipeline.
     
     Architecture:
-    1. CandleConsumer reads candles from Kafka (like other consumers)
-    2. Strategies loaded from folder (streaming - new files picked up)
-    3. Cross-join: each candle × each strategy
-    4. Group by (strategy, symbol), reduce with trading_reducer (O(1) per candle)
-    5. Extract metrics per strategy per symbol and push to Redis cache
+    1. CandleConsumer reads candles from Kafka (multi-symbol, multi-interval)
+    2. Strategies loaded from folder with interval/lookback metadata
+    3. Natural join on interval: each strategy only sees matching candles
+    4. Group by (strategy, symbol), reduce with trading_reducer
+    5. Lookback filtering inside reducer
+    6. Extract metrics per strategy per symbol and push to Redis cache
     """
     
     # ===== INPUT: Candles from Kafka via CandleConsumer =====
@@ -98,13 +138,20 @@ def create_backtesting_pipeline(
         with_metadata=True
     )
     
+    # Extract strategy metadata (name, interval, lookback)
     strategies = strategy_files.select(
         strategy_name=extract_strategy_name(pw.this._metadata),
-        strategy_code=pw.this.data
+        strategy_code=pw.this.data,
+        interval=extract_strategy_interval(pw.this.data),
+        lookback=extract_strategy_lookback(pw.this.data)
     )
     
-    # ===== CROSS JOIN =====
-    candles_with_strategies = candles.join(strategies).select(
+    # ===== NATURAL JOIN ON INTERVAL =====
+    # Each strategy only receives candles matching its preferred interval
+    candles_with_strategies = candles.join(
+        strategies,
+        pw.left.interval == pw.right.interval
+    ).select(
         symbol=candles.symbol,
         interval=candles.interval,
         timestamp=candles.timestamp,
@@ -114,16 +161,20 @@ def create_backtesting_pipeline(
         close=candles.close,
         volume=candles.volume,
         strategy_name=strategies.strategy_name,
-        strategy_code=strategies.strategy_code
+        strategy_code=strategies.strategy_code,
+        lookback=strategies.lookback
     )
     
-    # ===== GROUP BY (strategy, symbol, interval) & REDUCE (O(1) incremental) =====
+    # ===== GROUP BY (strategy, symbol) & REDUCE =====
+    # Interval is implicit (already filtered by join)
+    # Lookback passed to reducer for time-based filtering
     results = candles_with_strategies.groupby(
-        pw.this.strategy_name, pw.this.symbol, pw.this.interval
+        pw.this.strategy_name, pw.this.symbol
     ).reduce(
         strategy_name=pw.this.strategy_name,
         symbol=pw.this.symbol,
-        interval=pw.this.interval,
+        interval=pw.reducers.latest(pw.this.interval),
+        lookback=pw.reducers.latest(pw.this.lookback),
         state=trading_reducer(
             pw.this.timestamp,
             pw.this.open,
@@ -131,7 +182,8 @@ def create_backtesting_pipeline(
             pw.this.low,
             pw.this.close,
             pw.this.volume,
-            pw.this.strategy_code
+            pw.this.strategy_code,
+            pw.this.lookback
         )
     )
     
@@ -140,6 +192,7 @@ def create_backtesting_pipeline(
         strategy=pw.this.strategy_name,
         symbol=pw.this.symbol,
         interval=pw.this.interval,
+        lookback=pw.this.lookback,
         total_pnl=extract_total_pnl(pw.this.state),
         total_trades=extract_total_trades(pw.this.state),
         win_rate=extract_win_rate(pw.this.state),
@@ -167,7 +220,7 @@ def create_backtesting_pipeline(
             max_drawdown: float, volatility: float, sharpe_ratio: float,
             profit_factor: float, return_pct: float, expectancy: float,
             avg_win: float, avg_loss: float, last_signal: str, 
-            position: str, candles_processed: int
+            position: str, candles_processed: int, lookback: str
         ) -> str:
             """Format all metrics as JSON."""
             return json.dumps({
@@ -184,7 +237,8 @@ def create_backtesting_pipeline(
                 "avg_loss": round(avg_loss, 2),
                 "last_signal": last_signal,
                 "position": position,
-                "candles_processed": candles_processed
+                "candles_processed": candles_processed,
+                "lookback": lookback
             })
         
         backtesting_metrics = metrics.select(
@@ -196,13 +250,13 @@ def create_backtesting_pipeline(
                 pw.this.max_drawdown, pw.this.volatility, pw.this.sharpe_ratio,
                 pw.this.profit_factor, pw.this.return_pct, pw.this.expectancy,
                 pw.this.avg_win, pw.this.avg_loss, pw.this.last_signal,
-                pw.this.position, pw.this.candles_processed
+                pw.this.position, pw.this.candles_processed, pw.this.lookback
             ),
             last_updated=pw.this.candles_processed
-        ).groupby(pw.this.strategy, pw.this.symbol, pw.this.interval).reduce(
+        ).groupby(pw.this.strategy, pw.this.symbol).reduce(
             strategy=pw.this.strategy,
             symbol=pw.this.symbol,
-            interval=pw.this.interval,
+            interval=pw.reducers.latest(pw.this.interval),
             metrics=pw.reducers.latest(pw.this.metrics),
             last_updated=pw.reducers.latest(pw.this.last_updated)
         )
@@ -227,32 +281,31 @@ def main():
     strategies_folder = os.getenv("STRATEGIES_DIR", "./strategies/")
     
     print("=" * 70)
-    print("🚀 PATHWAY STREAMING BACKTESTER")
+    print("🚀 PATHWAY STREAMING BACKTESTER (v2.0)")
     print("=" * 70)
     print(f"  Topic: {topic}")
     print(f"  Strategies: {strategies_folder}")
     print(f"  Redis: {'Available' if REDIS_AVAILABLE else 'Not available'}")
     print("=" * 70)
     
-    # Create pipeline using CandleConsumer (like other pipelines)
+    # Create pipeline
     create_backtesting_pipeline(
         topic=topic,
         strategies_folder=strategies_folder
     )
     
-    print("\n✅ Backtesting Pipeline initialized (Multi-Symbol, Multi-Interval)")
-    print("   - CandleConsumer reads from Kafka (extracts symbol + interval)")
-    print("   - Groups by (strategy, symbol, interval) for per-config metrics")
-    print("   - Runs all strategies with O(1) incremental processing")
+    print("\n✅ Backtesting Pipeline initialized")
+    print("   - Strategies specify interval + lookback in file header")
+    print("   - Natural join on interval (no cartesian explosion)")
+    print("   - Group by (strategy, symbol) for per-stock metrics")
+    print("   - Lookback filtering for historical window")
     print("   - Metrics cached in Redis (key: backtesting:{strategy}:{symbol}:{interval})")
-    print("   - Keeps metrics for all configs ever tested!")
     print("\n🚀 Starting stream processing...")
     
     persistence_path = os.path.join(os.path.dirname(__file__), "pathway_state")
     os.makedirs(persistence_path, exist_ok=True)
     print(f"💾 Persistence enabled at: {persistence_path}")
 
-    print("\n✅ Fundamental pipeline with redis-backed architecture initialized. Starting stream processing...")
     pw.run(
         persistence_config=pw.persistence.Config.simple_config(
             pw.persistence.Backend.filesystem(persistence_path),

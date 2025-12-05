@@ -12,6 +12,14 @@ import redis
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
+# Import event publisher for WebSocket broadcasting
+try:
+    from event_publisher import publish_event, publish_main_reports
+    WEBSOCKET_ENABLED = True
+except ImportError:
+    WEBSOCKET_ENABLED = False
+    print("⚠️ event_publisher not available - WebSocket publishing disabled")
+
 REDIS_DEFAULT_HOST = "localhost"
 REDIS_DEFAULT_PORT = 6379
 REDIS_DEFAULT_DB = 0
@@ -509,6 +517,39 @@ class RedisBacktestingObserver(pw.io.python.ConnectorObserver):
         
         if self.ttl_seconds:
             self.redis.expire(full_key, self.ttl_seconds)
+        
+        # Publish to WebSocket for real-time frontend updates
+        if WEBSOCKET_ENABLED:
+            try:
+                # Parse metrics for WebSocket payload
+                metrics_data = json.loads(metrics_json) if isinstance(metrics_json, str) else metrics_json
+                
+                # Publish to strategy-specific room (for users watching a strategy)
+                publish_event(
+                    room_id=f"backtesting:{strategy}",
+                    event_type="metrics_update",
+                    payload={
+                        "strategy": strategy,
+                        "symbol": symbol,
+                        "interval": interval,
+                        "metrics": metrics_data,
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                )
+                
+                # Also publish to global backtesting channel
+                publish_main_reports(
+                    report_type="backtesting_metrics",
+                    symbol=symbol,
+                    data={
+                        "strategy": strategy,
+                        "symbol": symbol,
+                        "interval": interval,
+                        "metrics": metrics_data
+                    }
+                )
+            except Exception as e:
+                print(f"⚠️ Failed to publish backtesting metrics to WebSocket: {e}")
     
     def on_time_end(self, time: int) -> None:
         pass

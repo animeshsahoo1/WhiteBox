@@ -30,7 +30,7 @@ try:
     from .sentiment_api import router as sentiment_router
     from .news_api import router as news_router
     from .drift_api import router as drift_router
-    from .backtesting_api import router as backtesting_router
+    from .backtesting_api import router as backtesting_router, initialize_embeddings
     from .workflow_api import router as workflow_router
     from .strategist_api import router as strategist_router
 except ImportError:
@@ -41,15 +41,25 @@ except ImportError:
     from api.sentiment_api import router as sentiment_router
     from api.news_api import router as news_router
     from api.drift_api import router as drift_router
-    from api.backtesting_api import router as backtesting_router
+    from api.backtesting_api import router as backtesting_router, initialize_embeddings
     from api.workflow_api import router as workflow_router
     from api.strategist_api import router as strategist_router
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup and shutdown events."""
+    # Startup
+    await initialize_embeddings()
+    yield
+    # Shutdown (nothing to do)
 
 app = FastAPI(
     title="Pathway Unified API",
     version="8.0.0",
     description="Unified API for Reports, RAG, Backtesting, Bull-Bear Debate, and Strategist Agent",
+    lifespan=lifespan,
 )
 
 # Ensure required directories exist at startup
