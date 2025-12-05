@@ -383,7 +383,8 @@ def process_sentiment_reports(
                     "report_type": "sentiment_report",
                     "overall_sentiment": round(overall_sentiment, 3),
                     "sentiment_direction": sentiment_direction,
-                    "cluster_count": len(processed_clusters)
+                    "cluster_count": len(processed_clusters),
+                    "report_content": new_report
                 })
                 publish_agent_status(room_id, "Sentiment Report Agent", "COMPLETED")
             except Exception as e:

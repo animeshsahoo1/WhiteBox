@@ -441,7 +441,8 @@ def _setup_report_saving(analyzed_table: pw.Table, reports_dir: Path):
                 "trend": market_data['technical_indicators']['trend_indicators']['trend_direction'],
                 "strength": market_data['technical_indicators']['trend_indicators']['trend_strength'],
                 "price": market_data['technical_indicators']['price_metrics']['current_price'],
-                "change_percent": market_data['technical_indicators']['momentum_indicators']['latest_change_percent']
+                "change_percent": market_data['technical_indicators']['momentum_indicators']['latest_change_percent'],
+                "report_content": report_content
             })
             
             # Publish COMPLETED status
