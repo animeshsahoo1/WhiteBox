@@ -162,8 +162,12 @@ async def chat(request: ChatRequest):
                 "message": request.message
             })
         
-        # Get response from agent
-        response = await strategist.chat(request.message, user_id=request.user_id)
+        # Get response from agent - pass room_id for event publishing
+        response = await strategist.chat(
+            request.message, 
+            user_id=request.user_id,
+            room_id=request.room_id
+        )
         
         # Publish response event
         if request.room_id:
@@ -211,9 +215,13 @@ async def chat_stream(request: ChatRequest):
                     "message": request.message
                 })
             
-            # Stream response chunks
+            # Stream response chunks - pass room_id for event publishing
             full_response = ""
-            async for chunk in strategist.stream_chat(request.message, user_id=request.user_id):
+            async for chunk in strategist.stream_chat(
+                request.message, 
+                user_id=request.user_id,
+                room_id=request.room_id
+            ):
                 full_response += chunk
                 yield f"data: {json.dumps({'event': 'chunk', 'content': chunk})}\n\n"
                 

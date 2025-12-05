@@ -185,125 +185,87 @@ def publish_main_reports(report_type: str, symbol: str, data: Any):
 # DEBATE-SPECIFIC PUBLISH FUNCTIONS
 # ============================================================================
 
-def publish_debate_point(
-    room_id: str,
-    party: str,
-    round_num: int,
-    content: str,
-    confidence: float,
-    evidence: List[str] = None
-):
+def publish_debate_point(room_id: str, data: Dict[str, Any]):
     """
     Publish a debate point from Bull or Bear.
 
     Args:
         room_id: Room/channel ID
-        party: "bull" or "bear"
-        round_num: Current round number
-        content: The argument content
-        confidence: Confidence score (0-1)
-        evidence: List of supporting evidence
+        data: Dict containing party, round, content, confidence, supporting_evidence
     """
-    publish_event(
-        room_id,
-        event_type="debate_point",
-        payload={
-            "party": party,
-            "round": round_num,
-            "content": content,
-            "confidence": confidence,
-            "supporting_evidence": evidence or [],
-            "timestamp": datetime.utcnow().isoformat(),
-        },
-    )
+    payload = {
+        "party": data.get("party", "unknown"),
+        "round": data.get("round", 0),
+        "content": data.get("content", ""),
+        "confidence": data.get("confidence", 0.0),
+        "supporting_evidence": data.get("supporting_evidence", []),
+        "status": data.get("status", "SPEAKING"),
+        "point_id": data.get("point_id", ""),
+        "counter_to": data.get("counter_to"),
+        "symbol": data.get("symbol", ""),
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    publish_event(room_id, event_type="debate_point", payload=payload)
 
 
-def publish_debate_progress(
-    room_id: str,
-    current_round: int,
-    max_rounds: int,
-    bull_points: int,
-    bear_points: int,
-    status: str
-):
+def publish_debate_progress(room_id: str, data: Dict[str, Any]):
     """
     Publish debate progress update.
 
     Args:
         room_id: Room/channel ID
-        current_round: Current round number
-        max_rounds: Maximum rounds
-        bull_points: Number of bull points made
-        bear_points: Number of bear points made
-        status: "in_progress", "completed", "error"
+        data: Dict containing current_round, max_rounds, bull_points, bear_points, status
     """
-    publish_event(
-        room_id,
-        event_type="debate_progress",
-        payload={
-            "current_round": current_round,
-            "max_rounds": max_rounds,
-            "bull_points": bull_points,
-            "bear_points": bear_points,
-            "status": status,
-        },
-    )
+    payload = {
+        "current_round": data.get("current_round", 0),
+        "max_rounds": data.get("max_rounds", 3),
+        "bull_points": data.get("bull_points", 0),
+        "bear_points": data.get("bear_points", 0),
+        "status": data.get("status", "in_progress"),
+        "symbol": data.get("symbol", ""),
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    publish_event(room_id, event_type="debate_progress", payload=payload)
 
 
-def publish_recommendation(
-    room_id: str,
-    symbol: str,
-    recommendation: str,
-    confidence: float,
-    facilitator_report: str
-):
+def publish_recommendation(room_id: str, data: Dict[str, Any]):
     """
     Publish final recommendation from facilitator.
 
     Args:
         room_id: Room/channel ID
-        symbol: Stock symbol
-        recommendation: "BUY", "SELL", "HOLD"
-        confidence: Confidence score (0-1)
-        facilitator_report: Full facilitator report text
+        data: Dict containing symbol, recommendation, confidence, facilitator_report
     """
-    publish_event(
-        room_id,
-        event_type="recommendation",
-        payload={
-            "symbol": symbol,
-            "recommendation": recommendation,
-            "confidence": confidence,
-            "facilitator_report": facilitator_report,
-            "timestamp": datetime.utcnow().isoformat(),
-        },
-    )
+    payload = {
+        "symbol": data.get("symbol", ""),
+        "recommendation": data.get("recommendation", "HOLD"),
+        "confidence": data.get("confidence", 0.0),
+        "facilitator_report": data.get("facilitator_report", ""),
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    publish_event(room_id, event_type="recommendation", payload=payload)
 
 
-def publish_graph_state(
-    room_id: str,
-    nodes: List[Dict[str, Any]],
-    active_node: str,
-    edges: List[Dict[str, str]]
-):
+def publish_graph_state(room_id: str, data: Dict[str, Any]):
     """
     Publish LangGraph state for visualization.
 
     Args:
         room_id: Room/channel ID
-        nodes: List of node objects with id, label, status
-        active_node: ID of currently active node
-        edges: List of edge objects with from, to
+        data: Dict containing current_node, current_speaker, round, etc.
     """
-    publish_event(
-        room_id,
-        event_type="graph_state",
-        payload={
-            "nodes": nodes,
-            "active_node": active_node,
-            "edges": edges,
-        },
-    )
+    payload = {
+        "symbol": data.get("symbol", ""),
+        "current_node": data.get("current_node", ""),
+        "current_speaker": data.get("current_speaker", ""),
+        "round": data.get("round", 0),
+        "total_points": data.get("total_points", 0),
+        "nodes": data.get("nodes", []),
+        "active_node": data.get("active_node", ""),
+        "edges": data.get("edges", []),
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    publish_event(room_id, event_type="graph_state", payload=payload)
 
 
 # ============================================================================
