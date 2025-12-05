@@ -105,6 +105,7 @@ class DebateRequest(BaseModel):
     max_rounds: Optional[int] = 5  # Default to 5 rounds (new implementation)
     background: Optional[bool] = True  # Run in background by default
     use_dummy: Optional[bool] = False  # Use dummy data for testing
+    room_id: Optional[str] = None  # Room ID for WebSocket events
 
 
 class DebateResponse(BaseModel):
@@ -145,6 +146,7 @@ async def run_debate(symbol: str, request: DebateRequest = DebateRequest()):
             symbol=symbol,
             max_rounds=max_rounds,
             background=request.background,
+            room_id=request.room_id,  # Let debate_runner set default if None
             use_dummy=request.use_dummy,
         )
         
