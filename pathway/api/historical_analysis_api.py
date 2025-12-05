@@ -19,6 +19,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, validator
 import uvicorn
 
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -121,7 +123,8 @@ def generate_historical_report(request: AnalysisRequest, report_id: str) -> Dict
         if not yfinance_available or not talib_available:
             raise RuntimeError("Required dependencies not available")
         
-        print(f"📊 Downloading {request.ticker} data...")
+        if DEBUG:
+            print(f"📊 Downloading {request.ticker} data...")
         
         # Download data
         df = download_ohlcv(ticker=request.ticker, period=request.period, interval=request.interval.value)
@@ -139,14 +142,13 @@ def generate_historical_report(request: AnalysisRequest, report_id: str) -> Dict
             if df.empty:
                 raise RuntimeError(f"No data in specified time range")
         
-        print(f"✅ Downloaded {len(df)} data points")
+        if DEBUG:
+            print(f"✅ Downloaded {len(df)} data points")
         
         # Run Pathway pipeline (saves to reports/market/{ticker}/)
-        print(f"🚀 Running Pathway + market_agent2 pipeline...")
+        if DEBUG:
+            print(f"🚀 Running Pathway pipeline for {request.ticker}...")
         indicators = request.indicators if request.indicators else None
-        if indicators:
-            print(f"📊 User-requested indicators: {', '.join(indicators)}")
-            print(f"💡 Note: Pipeline computes all indicators for comprehensive analysis")
         
         # market_agent2 will save to reports/market/{ticker}/
         pathway_result = run_historical_analysis_with_pathway(
@@ -164,10 +166,12 @@ def generate_historical_report(request: AnalysisRequest, report_id: str) -> Dict
             # Use the captured result (already has comprehensive report)
             result = captured_results[0]
             comprehensive = result.get("comprehensive_report", "No report generated")
-            print(f"✅ Using captured result ({len(comprehensive)} chars)")
+            if DEBUG:
+                print(f"✅ Using captured result ({len(comprehensive)} chars)")
         else:
             # Fallback to loading from files in reports/market/{ticker}/
-            print(f"⚠️ No captured results, falling back to file loading")
+            if DEBUG:
+                print(f"⚠️ No captured results, falling back to file loading")
             report_files = pathway_result["report_files"]
             report_content = load_report_content(report_files)
             comprehensive = report_content.get("comprehensive_report", "No report generated")
@@ -176,9 +180,8 @@ def generate_historical_report(request: AnalysisRequest, report_id: str) -> Dict
         report_files = pathway_result["report_files"]
         images_b64 = load_images_as_base64(report_files)
         
-        print(f"📊 Report: {len(comprehensive)} chars")
-        print(f"📊 Images: {len(images_b64)} files")
-        print(f"📂 Images location: reports/market/{request.ticker}/images/")
+        if DEBUG:
+            print(f"📊 {request.ticker}: Report={len(comprehensive)} chars, Images={len(images_b64)}")
         
         return {
             "summary": comprehensive,
@@ -186,9 +189,10 @@ def generate_historical_report(request: AnalysisRequest, report_id: str) -> Dict
         }
         
     except Exception as e:
-        print(f"❌ Error: {e}")
-        import traceback
-        traceback.print_exc()
+        if DEBUG:
+            print(f"❌ Error: {e}")
+            import traceback
+            traceback.print_exc()
         raise
 
 

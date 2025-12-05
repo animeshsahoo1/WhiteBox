@@ -1,9 +1,14 @@
 """
 LangGraph Nodes for Bull-Bear Debate
 Each node represents a step in the debate workflow
+
+Optimizations:
+- Module-level time import (not in retry loop)
+- Cached MemoryManager instances per session
 """
 import logging
 import re
+import time  # Module-level import for retry backoff
 from typing import Dict, Any, Optional
 from datetime import datetime
 import uuid
@@ -41,6 +46,51 @@ except ImportError:
         publish_graph_state = None
 
 logger = logging.getLogger(__name__)
+
+# ============================================================
+# MODULE-LEVEL MEMORY MANAGER CACHING
+# ============================================================
+# Cache MemoryManager instances by (session_id, symbol) to avoid recreating
+_cached_memory_managers: Dict[tuple, MemoryManager] = {}
+
+
+def get_cached_memory_manager(session_id: str, symbol: str) -> MemoryManager:
+    """
+    Get or create a cached MemoryManager for a session.
+    
+    Avoids recreating memory connections for repeated calls within same debate.
+    """
+    cache_key = (session_id, symbol)
+    
+    if cache_key not in _cached_memory_managers:
+        config = get_config().memory
+        user_id = f"{session_id}_{symbol}"
+        _cached_memory_managers[cache_key] = MemoryManager(config=config, user_id=user_id)
+        logger.info(f"Created new MemoryManager for {cache_key}")
+    
+    return _cached_memory_managers[cache_key]
+
+
+def clear_memory_manager_cache(session_id: str = None, symbol: str = None):
+    """
+    Clear cached MemoryManager instances.
+    
+    Args:
+        session_id: If provided with symbol, clear specific cache entry
+        symbol: If provided with session_id, clear specific cache entry
+        If both None, clears all cached memory managers
+    """
+    global _cached_memory_managers
+    
+    if session_id and symbol:
+        cache_key = (session_id, symbol)
+        if cache_key in _cached_memory_managers:
+            del _cached_memory_managers[cache_key]
+            logger.info(f"Cleared MemoryManager cache for {cache_key}")
+    else:
+        count = len(_cached_memory_managers)
+        _cached_memory_managers = {}
+        logger.info(f"Cleared all {count} cached MemoryManagers")
 
 
 class DebateNodes:
@@ -83,16 +133,17 @@ class DebateNodes:
             logger.warning(f"Failed to publish {event_type} event: {e}")
     
     def _get_memory_manager(self, session_id: str, symbol: str = "") -> MemoryManager:
-        """Get or create memory manager for symbol (persists across sessions)"""
+        """Get or create memory manager for symbol (persists across sessions)
+        
+        Uses module-level cache for efficiency across multiple debates.
+        """
         if self.memory_manager is None:
             # Use symbol for persistent memory across API calls
-            # session_id is only used if symbol not provided
-            memory_id = f"bullbear_{symbol}" if symbol else f"debate_{session_id}"
-            print(f"  🧠 [DebateNodes] Creating memory manager: {memory_id}")
-            self.memory_manager = MemoryManager(
-                config=self.config.memory,
-                user_id=memory_id
-            )
+            memory_id = symbol if symbol else session_id
+            print(f"  🧠 [DebateNodes] Getting cached memory manager for: {memory_id}")
+            # Use module-level cached memory manager
+            self.memory_manager = get_cached_memory_manager(session_id, memory_id)
+        return self.memory_manager
         return self.memory_manager
     
     def _generate_rag_query_for_party(self, state: DebateState, party: str) -> DebateState:
@@ -128,7 +179,9 @@ class DebateNodes:
         memory = self._get_memory_manager(state["session_id"], state["symbol"])
         if opponent_point:
             print(f"  🧠 Fetching memory to help counter {opponent_party.capitalize()}'s point...")
-            memory_query = f"{party}ish counter to: {opponent_point[:200]}"
+            # Truncate query using config limit
+            memory_limit = self.config.debate.memory_query_limit
+            memory_query = f"{party}ish counter to: {opponent_point[:memory_limit]}"
             memories = memory.get_debate_context(
                 query=memory_query,
                 party=party,
@@ -140,10 +193,11 @@ class DebateNodes:
                 for i, mem in enumerate(memories[:2], 1):
                     print(f"      {i}. {mem[:60]}...")
         
-        # Build context summary
+        # Build context summary with truncation from config
+        rag_limit = self.config.debate.rag_context_limit
         context = f"""
-News highlights: {state.get('news_report', '')}
-Market conditions: {state.get('market_report', '')}
+News highlights: {state.get('news_report', '')[:rag_limit]}
+Market conditions: {state.get('market_report', '')[:rag_limit]}
 """
         
         # Set stance description based on party
@@ -226,12 +280,13 @@ Market conditions: {state.get('market_report', '')}
             for p in debate_points[-6:]  # Last 6 points
         ])
         
-        # Build context
+        # Build context with truncation from config to save tokens
+        report_limit = self.config.debate.report_summary_limit
         context = f"""
-News Report: {state['news_report']}
-Sentiment Report: {state['sentiment_report']}
-Market Report: {state['market_report']}
-Fundamental Report: {state['fundamental_report']}
+News Report: {state['news_report'][:report_limit]}
+Sentiment Report: {state['sentiment_report'][:report_limit]}
+Market Report: {state['market_report'][:report_limit]}
+Fundamental Report: {state['fundamental_report'][:report_limit]}
 """
         
         # Deltas summary
@@ -282,8 +337,7 @@ Fundamental Report: {state['fundamental_report']}
                 if attempt < max_retries - 1:
                     logger.warning(f"LLM attempt {attempt + 1} failed: {e}. Retrying in {wait_time}s...")
                     print(f"  ⚠️ LLM attempt {attempt + 1} failed. Retrying in {wait_time}s...")
-                    import time
-                    time.sleep(wait_time)
+                    time.sleep(wait_time)  # Uses module-level import
                 else:
                     logger.error(f"LLM error in {party}_present_point after {max_retries} attempts: {e}")
                     print(f"  ❌ LLM error after {max_retries} attempts: {e}")

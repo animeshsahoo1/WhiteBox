@@ -1,12 +1,13 @@
-"""
-Sentiment API Router
+"""Sentiment API Router
 Handles sentiment clusters with overall scores from Redis.
+Includes in-memory caching for high-frequency requests.
 """
 import sys
 import json
+import time
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Dict, Tuple, Any
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -14,6 +15,10 @@ from pydantic import BaseModel
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from redis_cache import get_redis_client
+
+# In-memory cache for cluster data (TTL: 5 seconds)
+_cluster_cache: Dict[str, Tuple[float, Any]] = {}
+CACHE_TTL = 5.0  # seconds
 
 
 class SentimentClusterItem(BaseModel):
@@ -38,6 +43,11 @@ router = APIRouter(prefix="/sentiment")
 # =============================================================================
 # CLUSTER VISUALIZATION ENDPOINTS (from sentiment_cluster_api)
 # =============================================================================
+# Cache for all-clusters endpoint (heavier query)
+_all_clusters_cache: Tuple[float, Any] = (0.0, None)
+ALL_CLUSTERS_TTL = 3.0  # seconds
+
+
 @router.get("/clusters")
 def get_all_clusters():
     """
@@ -54,6 +64,14 @@ def get_all_clusters():
         - total_clusters: Total number of active clusters
         - by_symbol: Clusters grouped by stock symbol with aggregated metrics
     """
+    global _all_clusters_cache
+    now = time.time()
+    
+    # Check cache first
+    cached_time, cached_data = _all_clusters_cache
+    if cached_data is not None and now - cached_time < ALL_CLUSTERS_TTL:
+        return cached_data
+    
     client = get_redis_client()
     
     # Get all clusters from the aggregated hash
@@ -109,7 +127,7 @@ def get_all_clusters():
                 c["avg_sentiment"] * c["count"] for c in data["clusters"]
             ) / data["posts"]
     
-    return {
+    result = {
         "clusters": clusters,
         "market_sentiment_score": market_sentiment_score,
         "total_posts": total_posts,
@@ -117,24 +135,49 @@ def get_all_clusters():
         "by_symbol": by_symbol,
         "timestamp": datetime.utcnow().isoformat()
     }
+    
+    # Update cache
+    _all_clusters_cache = (now, result)
+    
+    return result
 
 
 # =============================================================================
 # SENTIMENT SCORE ENDPOINTS
 # =============================================================================
 def _get_sentiment_data(symbol: str) -> dict:
-    """Get sentiment cluster data from Redis."""
-    client = get_redis_client()
+    """Get sentiment cluster data from Redis with in-memory caching."""
+    cache_key = f"sentiment:{symbol}"
+    now = time.time()
     
-    # Try sentiment_clusters key
+    # Check cache first
+    if cache_key in _cluster_cache:
+        cached_time, cached_data = _cluster_cache[cache_key]
+        if now - cached_time < CACHE_TTL:
+            return cached_data
+    
+    # Fetch from Redis
+    client = get_redis_client()
     data = client.get(f"sentiment_clusters:{symbol}")
+    
+    result = {}
     if data:
         parsed = json.loads(data)
         if 'clusters_json' in parsed:
-            return json.loads(parsed['clusters_json'])
-        return parsed
+            result = json.loads(parsed['clusters_json'])
+        else:
+            result = parsed
     
-    return {}
+    # Update cache
+    _cluster_cache[cache_key] = (now, result)
+    
+    # Prune old cache entries (keep last 100)
+    if len(_cluster_cache) > 100:
+        oldest_keys = sorted(_cluster_cache.keys(), key=lambda k: _cluster_cache[k][0])[:50]
+        for k in oldest_keys:
+            del _cluster_cache[k]
+    
+    return result
 
 
 @router.get("/clusters/{symbol}", response_model=SentimentClustersResponse)

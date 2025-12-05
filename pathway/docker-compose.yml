@@ -1,9 +1,23 @@
-version: "3.9"
+# Pathway Consumers & API Services
+# Uses stock-network (created by kafka or root compose)
 
 networks:
   stock-network:
+    name: stock-network
     external: true
-    name: kafka_stock-network
+
+# Common build configuration for pathway services
+x-pathway-build: &pathway-build
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: final
+
+x-common-env: &common-env
+  PYTHONUNBUFFERED: 1
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_DB: 0
 
 services:
   # Redis Cache with RediSearch (required for mem0 vector store)
@@ -31,7 +45,7 @@ services:
 
   # FastAPI Reports Service
   unified-api:
-    build: .
+    <<: *pathway-build
     container_name: pathway-unified-api
     command: uvicorn api.fastapi_server:app --host 0.0.0.0 --port 8000 --workers 2
     networks:
@@ -39,10 +53,7 @@ services:
     env_file:
       - ../.env
     environment:
-      PYTHONUNBUFFERED: 1
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_DB: 0
+      <<: *common-env
       KNOWLEDGE_BASE_PATH: /app/knowledge_base
       # MCP Server for Strategist
       MCP_SERVER_HOST: mcp-server
@@ -87,7 +98,7 @@ services:
 
   # Pathway Consumers
   fundamental-consumer:
-    build: .
+    <<: *pathway-build
     container_name: pathway-fundamental-consumer
     command: python main_fundamental.py
     networks:
@@ -95,11 +106,8 @@ services:
     env_file:
       - ../.env
     environment:
+      <<: *common-env
       KAFKA_BROKER: kafka:29092
-      PYTHONUNBUFFERED: 1
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_DB: 0
     volumes:
       - ./reports/fundamental:/app/reports/fundamental
       - ./pathway_state:/app/pathway_state
@@ -107,9 +115,15 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
 
   market-consumer:
-    build: .
+    <<: *pathway-build
     container_name: pathway-market-consumer
     command: python main_market.py
     networks:
@@ -117,11 +131,8 @@ services:
     env_file:
       - ../.env
     environment:
+      <<: *common-env
       KAFKA_BROKER: kafka:29092
-      PYTHONUNBUFFERED: 1
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_DB: 0
     volumes:
       - ./reports/market:/app/reports/market
       - ./pathway_state:/app/pathway_state
@@ -129,9 +140,15 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
 
   news-consumer:
-    build: .
+    <<: *pathway-build
     container_name: pathway-news-consumer
     command: python main_news.py
     networks:
@@ -139,11 +156,8 @@ services:
     env_file:
       - ../.env
     environment:
+      <<: *common-env
       KAFKA_BROKER: kafka:29092
-      PYTHONUNBUFFERED: 1
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_DB: 0
       # News alert config
       NEWS_ALERT_ENABLED: ${NEWS_ALERT_ENABLED:-true}
       NEWS_ALERT_COOLDOWN: ${NEWS_ALERT_COOLDOWN:-600}
@@ -157,10 +171,16 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
 
   # Sentiment Phase 1: Fast Clustering & Scoring (no LLM)
   sentiment-clustering:
-    build: .
+    <<: *pathway-build
     container_name: pathway-sentiment-clustering
     command: python main_sentiment_phase1.py
     networks:
@@ -168,12 +188,8 @@ services:
     env_file:
       - ../.env
     environment:
+      <<: *common-env
       KAFKA_BROKER: kafka:29092
-      PYTHONUNBUFFERED: 1
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_DB: 0
-      # API keys for embeddings
       SENTIMENT_CLUSTERS_DIR: /app/reports/sentiment/clusters
       BULLBEAR_API_URL: http://unified-api:8000
     volumes:
@@ -183,10 +199,16 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 384M
 
   # Sentiment Phase 2: LLM Report Generation (reads from Phase 1 cluster files)
   sentiment-reports:
-    build: .
+    <<: *pathway-build
     container_name: pathway-sentiment-reports
     command: python main_sentiment_phase2.py
     networks:
@@ -194,10 +216,7 @@ services:
     env_file:
       - ../.env
     environment:
-      PYTHONUNBUFFERED: 1
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_DB: 0
+      <<: *common-env
     volumes:
       - ./reports/sentiment:/app/reports/sentiment
       - ./pathway_state:/app/pathway_state
@@ -207,10 +226,16 @@ services:
         condition: service_healthy
       sentiment-clustering:
         condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
 
   # DEMO: Market Data from CSV (no Kafka)
   market-demo:
-    build: .
+    <<: *pathway-build
     container_name: pathway-market-demo
     command: python main_market_demo_service.py
     networks:
@@ -218,18 +243,18 @@ services:
     env_file:
       - ../.env
     environment:
-      PYTHONUNBUFFERED: 1
+      <<: *common-env
       DEMO_DATA_DIR: /app/demo_data
     volumes:
       - ./reports/market_demo:/app/reports/market_demo
-      - ../streaming/producers/demo_data:/app/demo_data:ro # Mount CSV data as read-only
-    restart: "no" # Don't auto-restart when CSV replay finishes
+      - ../streaming/producers/demo_data:/app/demo_data:ro
+    restart: "no"
     profiles:
-      - demo # Only start when explicitly requested with --profile demo
+      - demo
 
   # Backtesting Pipeline - O(1) incremental strategy backtesting
   backtesting-pipeline:
-    build: .
+    <<: *pathway-build
     container_name: pathway-backtesting
     command: python main_backtesting.py
     networks:
@@ -237,14 +262,11 @@ services:
     env_file:
       - ../.env
     environment:
+      <<: *common-env
       KAFKA_BROKER: kafka:29092
       CANDLE_KAFKA_TOPIC: candles
       STRATEGIES_DIR: /app/strategies
       CONSUMER_GROUP: pathway-backtester
-      PYTHONUNBUFFERED: 1
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_DB: 0
     volumes:
       - ./strategies:/app/strategies
       - ./backtesting_lib:/app/backtesting_lib
@@ -252,10 +274,16 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
 
   # Drift Detection Pipeline - Concept drift monitoring with River
   drift-detection:
-    build: .
+    <<: *pathway-build
     container_name: pathway-drift-detection
     command: python main_drift.py
     networks:
@@ -263,12 +291,9 @@ services:
     env_file:
       - ../.env
     environment:
+      <<: *common-env
       KAFKA_BROKER: kafka:29092
       MARKET_TOPIC: market-data
-      PYTHONUNBUFFERED: 1
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_DB: 0
       # Drift alert config
       DRIFT_ALERT_ENABLED: ${DRIFT_ALERT_ENABLED:-true}
       DRIFT_ALERT_COOLDOWN: ${DRIFT_ALERT_COOLDOWN:-300}
@@ -281,6 +306,12 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
         
   # ============================================
   # ORCHESTRATOR SERVICES
@@ -288,7 +319,7 @@ services:
 
   # MCP Server - Exposes trading tools via Model Context Protocol
   mcp-server:
-    build: .
+    <<: *pathway-build
     container_name: pathway-mcp-server
     command: python orchestrator/server.py
     networks:
@@ -296,10 +327,9 @@ services:
     env_file:
       - ../.env
     environment:
-      PYTHONUNBUFFERED: 1
+      <<: *common-env
       MCP_SERVER_HOST: 0.0.0.0
       MCP_SERVER_PORT: 9004
-      # API connections (internal Docker network)
       REPORTS_API_URL: http://unified-api:8000
       BACKTESTING_API_URL: http://unified-api:8000/backtesting
     ports:
@@ -316,10 +346,16 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
 
-  # Orchestrator  - LangGraph + Mem0 ReAct agent
+  # Orchestrator - LangGraph + Mem0 ReAct agent
   orchestrator:
-    build: .
+    <<: *pathway-build
     container_name: pathway-orchestrator
     command: python orchestrator/langgraph_agent.py
     networks:
@@ -327,25 +363,29 @@ services:
     env_file:
       - ../.env
     environment:
-      PYTHONUNBUFFERED: 1
-      # MCP server connection
+      <<: *common-env
       MCP_SERVER_HOST: mcp-server
       MCP_SERVER_PORT: 9004
-      # Mem0 Redis persistence
       MEM0_REDIS_HOST: redis
       MEM0_REDIS_PORT: 6379
     volumes:
       - ./orchestrator:/app/orchestrator
     restart: unless-stopped
-    stdin_open: true  # Keep stdin open for interactive mode
-    tty: true         # Allocate pseudo-TTY
+    stdin_open: true
+    tty: true
     depends_on:
       mcp-server:
         condition: service_healthy
       redis:
         condition: service_healthy
     profiles:
-      - agent  # Only start when explicitly requested with --profile agent
+      - agent
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
 
 volumes:
   redis-data:

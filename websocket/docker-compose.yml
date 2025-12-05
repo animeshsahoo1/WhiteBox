@@ -3,9 +3,18 @@ networks:
     external: true
     name: kafka_stock-network
 
+# ============================================
+# YAML Anchors for DRY Configuration
+# ============================================
+x-websocket-build: &websocket-build
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: dev
+
 services:
   fastapi-app:
-    build: .
+    <<: *websocket-build
     container_name: websocket-fastapi
     networks:
       - stock-network
@@ -19,5 +28,11 @@ services:
     volumes:
       - .:/code
     working_dir: /code
-    command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+    command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload --ws-ping-interval 30 --ws-ping-timeout 30
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M

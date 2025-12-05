@@ -1,7 +1,7 @@
-"""
-Report Fetch API Router
+"""Report Fetch API Router
 Handles fetching and retrieving cached AI reports from Redis.
 """
+import os
 import sys
 from pathlib import Path
 from datetime import datetime
@@ -9,6 +9,8 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -37,13 +39,13 @@ async def get_all_reports(symbol: str) -> ReportsResponse:
     client = get_redis_client()
     normalized_symbol = symbol.upper()
 
-    print(f"\n{'=' * 60}")
-    print(f"📥 Request for all reports: {normalized_symbol}")
-    print(f"{'=' * 60}")
+    if DEBUG:
+        print(f"📥 Request for all reports: {normalized_symbol}")
 
     reports = get_reports_for_symbol(normalized_symbol, client)
     if not reports:
-        print(f"❌ No reports found for {normalized_symbol}\n")
+        if DEBUG:
+            print(f"❌ No reports found for {normalized_symbol}")
         raise HTTPException(
             status_code=404,
             detail=f"No cached reports found for symbol {normalized_symbol}",
@@ -55,13 +57,8 @@ async def get_all_reports(symbol: str) -> ReportsResponse:
     sentiment_report = reports.get("sentiment", {}).get("content")
     facilitator_report = reports.get("facilitator", {}).get("content")
 
-    print(f"\n📊 Cached results for {normalized_symbol}:")
-    print(f"  Fundamental: {'✅' if fundamental_report else '❌'}")
-    print(f"  Market: {'✅' if market_report else '❌'}")
-    print(f"  News: {'✅' if news_report else '❌'}")
-    print(f"  Sentiment: {'✅' if sentiment_report else '❌'}")
-    print(f"  Facilitator: {'✅' if facilitator_report else '❌'}")
-    print(f"✅ Returning cached response for {normalized_symbol}\n")
+    if DEBUG:
+        print(f"📊 {normalized_symbol}: F={'✅' if fundamental_report else '❌'} M={'✅' if market_report else '❌'} N={'✅' if news_report else '❌'} S={'✅' if sentiment_report else '❌'} Fac={'✅' if facilitator_report else '❌'}")
 
     return ReportsResponse(
         symbol=normalized_symbol,

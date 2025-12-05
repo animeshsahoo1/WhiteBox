@@ -1,0 +1,38 @@
+# ============================================================
+# ROOT DOCKER COMPOSE: Builds and manages all services
+# 
+# Usage:
+#   docker compose -f docker-compose.yml up -d           # Start all
+#   docker compose -f docker-compose.yml build           # Rebuild all
+#   docker compose -f docker-compose.yml build --no-cache # Fresh rebuild
+#
+# Benefits:
+#   - Single network for all services
+#   - Shared base image layers (cached)
+#   - Centralized resource management
+# ============================================================
+
+networks:
+  stock-network:
+    driver: bridge
+    name: stock-network
+
+# ============================================================
+# INCLUDE: Import all service compose files
+# ============================================================
+include:
+  # Kafka infrastructure (must start first)
+  - path: kafka/docker-compose.yml
+    project_directory: kafka
+    
+  # Data producers
+  - path: streaming/docker-compose.yaml
+    project_directory: streaming
+    
+  # Pathway consumers & API
+  - path: pathway/docker-compose.yml
+    project_directory: pathway
+    
+  # WebSocket server
+  - path: websocket/docker-compose.yml
+    project_directory: websocket

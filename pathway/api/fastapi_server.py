@@ -76,7 +76,9 @@ REQUIRED_DIRS = [
 ]
 for dir_path in REQUIRED_DIRS:
     os.makedirs(dir_path, exist_ok=True)
-print(f"📁 Ensured {len(REQUIRED_DIRS)} required directories exist")
+# Startup logging only in debug mode
+if os.getenv("DEBUG", "true").lower() == "true":
+    print(f"📁 Ensured {len(REQUIRED_DIRS)} required directories exist")
 
 app.add_middleware(
     CORSMiddleware,

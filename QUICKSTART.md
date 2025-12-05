@@ -464,6 +464,76 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/backtesting/strate
 
 ---
 
+## 🐳 Advanced: Docker Multi-Stage Builds
+
+The project uses multi-stage Dockerfiles for optimal image sizes and layer caching.
+
+### Image Architecture
+
+```
+┌────────────────────────────────────────────────────────────┐
+│                    BASE IMAGES                              │
+├────────────────────────────────────────────────────────────┤
+│  pathwaycom/pathway:latest    python:3.11-slim             │
+│  (Pathway services)           (Streaming/WebSocket)         │
+└─────────────┬─────────────────────────┬────────────────────┘
+              │                         │
+              ▼                         ▼
+┌─────────────────────┐     ┌─────────────────────┐
+│   pathway:dev       │     │   streaming:dev     │
+│   (development)     │     │   (development)     │
+└─────────────────────┘     └─────────────────────┘
+              │                         │
+              ▼                         ▼
+┌─────────────────────┐     ┌─────────────────────┐
+│   pathway:prod      │     │   streaming:prod    │
+│   (production)      │     │   (production)      │
+└─────────────────────┘     └─────────────────────┘
+```
+
+### Build Targets
+
+- **base**: Common dependencies only
+- **dev**: Includes development tools, hot-reload
+- **prod**: Optimized, minimal image for production
+
+### Manual Build Commands
+
+```bash
+# Build all images (development)
+./scripts/docker-build.sh
+
+# Build all images (production)
+./scripts/docker-build.sh --prod
+
+# Fresh rebuild (no cache)
+./scripts/docker-build.sh --no-cache
+```
+
+### YAML Anchors
+
+Docker Compose files use YAML anchors to reduce duplication:
+
+```yaml
+# Define once
+x-streaming-base: &streaming-base
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: dev
+  restart: unless-stopped
+  networks:
+    - stock-network
+
+# Reuse everywhere
+services:
+  market-producer:
+    <<: *streaming-base
+    command: ["python", "producers/market_data_producer.py"]
+```
+
+---
+
 ## ✅ Success Checklist
 
 - [ ] Docker Desktop installed and running
@@ -486,3 +556,4 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/backtesting/strate
 - [ ] Can create strategy via LLM (`POST /api/backtesting/strategy`)
 
 **If all items checked, you're ready to build your frontend! 🎉**
+

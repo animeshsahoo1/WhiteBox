@@ -46,6 +46,15 @@ REPORT_GENERATION_INTERVAL = int(os.getenv("REPORT_GENERATION_INTERVAL", "100"))
 # Track last report generation time per symbol
 _last_report_time: dict[str, float] = {}
 
+# Cache LLM-generated cluster summaries by (symbol, cluster_id) -> (summary, post_count)
+# Regenerates when cluster post count changes (any new content added)
+_cluster_summary_cache: dict[tuple[str, str], tuple[str, int]] = {}
+
+
+def _prune_summary_cache():
+    """Prune is no longer needed since we update on content change, not TTL."""
+    pass  # Kept for compatibility
+
 
 class SentimentReportGenerator:
     """Generates LLM-based sentiment reports from cluster data."""
@@ -132,20 +141,28 @@ class SentimentReportGenerator:
         
         type_info = ", ".join([f"{count} {stype}" for stype, count in type_counts.items()]) if type_counts else "company posts"
         
-        prompt = f"""Summarize this discussion cluster about {company} ({symbol}) in 1-2 sentences.
+        prompt = f"""Write a SHORT headline (max 10-12 words) for this discussion cluster about {company} ({symbol}).
 
 Posts ({len(posts)} total, sentiment: {sentiment_label}):
-Post sources: {type_info} (company = direct mentions, sector = peer/competitor mentions, global = macro/market-wide)
 {post_texts}
 
-Write a concise summary of the main theme/topic being discussed, noting if sector peers or macro factors are influencing sentiment."""
+Rules:
+- Write ONLY the headline, nothing else
+- Max 10-12 words, like a news headline
+- Capture the main theme/topic
+- Be specific about what's being discussed
+- Examples: "Investors bullish on Q3 earnings beat" or "Concerns over supply chain delays"
+
+Headline:"""
 
         try:
             messages = [{"role": "user", "content": prompt}]
             response = self.call_llm_sync(messages)
-            return response if response else cluster_data.get('summary', '')
+            # Strip any extra whitespace and limit length
+            headline = response.strip() if response else cluster_data.get('summary', '')
+            return headline[:150]  # Hard limit to prevent runaway responses
         except Exception as e:
-            return cluster_data.get('summary', f"Discussion cluster about {company}")
+            return cluster_data.get('summary', f"Discussion about {company}")
 
     def _generate_full_report(self, symbol: str, clusters: list, overall_sentiment: float, current_report: str = "") -> str:
         """Generate full sentiment report from clusters."""
@@ -329,6 +346,9 @@ def process_sentiment_reports(
         _last_report_time[symbol] = current_time
         print(f"🔄 [{symbol}] Generating report (interval: {REPORT_GENERATION_INTERVAL}s)")
         
+        # Prune expired summaries from cache
+        _prune_summary_cache()
+        
         # First, generate summaries for clusters that need them
         processed_clusters = []
         for cluster in clusters:
@@ -340,15 +360,28 @@ def process_sentiment_reports(
                 except:
                     continue
             
-            # Generate summary if it's just the initial text
-            summary = cluster_dict.get('summary', '')
-            if len(summary) > 100 or not summary:  # Likely needs regeneration
-                new_summary = report_generator._generate_cluster_summary(
-                    symbol, 
-                    cluster_dict.get('cluster_id', 0), 
-                    cluster_dict
-                )
-                cluster_dict['summary'] = new_summary
+            # Check if we have a cached LLM summary for this cluster
+            cluster_id = str(cluster_dict.get('cluster_id', 0))
+            cache_key = (symbol, cluster_id)
+            current_count = int(cluster_dict.get('count', 0))
+            
+            if cache_key in _cluster_summary_cache:
+                cached_summary, cached_count = _cluster_summary_cache[cache_key]
+                
+                # Use cached only if post count hasn't changed
+                if current_count == cached_count:
+                    cluster_dict['summary'] = cached_summary
+                    processed_clusters.append(cluster_dict)
+                    continue
+            
+            # Generate new LLM summary (new cluster or count changed)
+            new_summary = report_generator._generate_cluster_summary(
+                symbol, 
+                cluster_dict.get('cluster_id', 0), 
+                cluster_dict
+            )
+            _cluster_summary_cache[cache_key] = (new_summary, current_count)
+            cluster_dict['summary'] = new_summary
             
             processed_clusters.append(cluster_dict)
         
