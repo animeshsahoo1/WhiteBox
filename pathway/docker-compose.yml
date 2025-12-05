@@ -196,6 +196,8 @@ services:
       - ../.env
     environment:
       <<: *common-env
+      # Generate reports more frequently (default was 100s, set to 10s for faster updates)
+      REPORT_GENERATION_INTERVAL: ${REPORT_GENERATION_INTERVAL:-10}
     volumes:
       - ./reports/sentiment:/app/reports/sentiment
       - ./pathway_state:/app/pathway_state
