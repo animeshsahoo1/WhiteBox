@@ -170,10 +170,6 @@ def trading_reducer(
                 print(f"⚠️ Skipping candle with invalid OHLCV values: {row[:6]}")
                 continue
             
-            if high < max(open_price, close) or low > min(open_price, close):
-                print(f"⚠️ Skipping candle with inconsistent high/low: {row[:6]}")
-                continue
-            
             if volume < 0 or not np.isfinite(volume):
                 volume = 0.0  # Allow zero volume, just fix negative
                 
