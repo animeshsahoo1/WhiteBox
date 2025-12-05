@@ -52,11 +52,29 @@ def float_or_nan(x):
         except Exception:
             return np.nan
 
-def fig_to_base64(fig, fname=None, dpi=180):
+def fig_to_base64(fig, fname=None, dpi=100, use_jpeg=False, jpeg_quality=85):
+    """Convert matplotlib figure to base64 string.
+    
+    Args:
+        fig: Matplotlib figure
+        fname: Optional filename to save
+        dpi: Resolution (100 is sufficient for web/chat, saves ~60% vs 180)
+        use_jpeg: Use JPEG instead of PNG (smaller but no transparency)
+        jpeg_quality: JPEG quality 0-100 (85 is good balance)
+    
+    Memory optimization: Reduced DPI from 180 to 100.
+    Further optimization: Use use_jpeg=True for indicator charts (no transparency needed).
+    """
+    img_format = "jpeg" if use_jpeg else "png"
+    
     if fname:
-        fig.savefig(fname, dpi=dpi, bbox_inches="tight", pad_inches=0.06)
+        save_fname = fname.replace('.png', '.jpg') if use_jpeg else fname
+        fig.savefig(save_fname, dpi=dpi, bbox_inches="tight", pad_inches=0.06,
+                   format=img_format, **({"quality": jpeg_quality} if use_jpeg else {}))
+    
     buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight", pad_inches=0.06)
+    fig.savefig(buf, format=img_format, dpi=dpi, bbox_inches="tight", pad_inches=0.06,
+               **({"quality": jpeg_quality} if use_jpeg else {}))
     buf.seek(0)
     b64 = base64.b64encode(buf.read()).decode("utf-8")
     plt.close(fig)

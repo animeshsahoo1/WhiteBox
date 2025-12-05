@@ -78,7 +78,7 @@ def main():
     print(f"\n✅ Phase 1 initialized. Starting fast clustering pipeline...")
     print("=" * 70)
     
-    # Enable persistence
+    # Optimized persistence for fast sentiment clustering
     persistence_path = os.path.join(os.path.dirname(__file__), "sentiment_phase1_state")
     os.makedirs(persistence_path, exist_ok=True)
     print(f"💾 Persistence enabled at: {persistence_path}")
@@ -86,8 +86,9 @@ def main():
     pw.run(
         persistence_config=pw.persistence.Config.simple_config(
             pw.persistence.Backend.filesystem(persistence_path),
-            snapshot_interval_ms=30000  # Snapshot every 30 seconds
-        )
+            snapshot_interval_ms=15000  # Snapshot every 15 seconds (fast clustering)
+        ),
+        monitoring_level=pw.MonitoringLevel.NONE  # Disable monitoring overhead
     )
 
 
