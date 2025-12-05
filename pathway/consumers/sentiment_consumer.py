@@ -62,9 +62,10 @@ class SentimentConsumer(BaseConsumer):
             match_type=pw.this.posts["match_type"].as_str(),
             post_timestamp=pw.this.posts["timestamp"].as_str(),
             # NEW: Sentiment type classification (company/sector/global)
-            sentiment_type=pw.this.posts.get("sentiment_type", "company").as_str(),
+            # Use pw.coalesce to provide default when field is missing
+            sentiment_type=pw.coalesce(pw.this.posts.get("sentiment_type", None).as_str(), "company"),
             # NEW: Related entity (peer symbol for sector, 'GLOBAL' for global, stock symbol for company)
-            related_to=pw.this.posts.get("related_to", pw.this.symbol).as_str(),
+            related_to=pw.coalesce(pw.this.posts.get("related_to", None).as_str(), pw.this.symbol),
             sent_at=pw.this.sent_at
         )
         
