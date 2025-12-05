@@ -146,7 +146,7 @@ async def run_debate(symbol: str, request: DebateRequest = DebateRequest()):
             symbol=symbol,
             max_rounds=max_rounds,
             background=request.background,
-            room_id=request.room_id or f"symbol:{symbol}",
+            room_id=request.room_id,  # Let debate_runner set default if None
             use_dummy=request.use_dummy,
         )
         

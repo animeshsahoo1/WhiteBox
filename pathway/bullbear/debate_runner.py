@@ -201,8 +201,11 @@ def run_debate_and_generate_report(
     global _current_debate, _debate_lock
     
     symbol = symbol.upper()
+    # Use consistent room_id format: symbol:{SYMBOL}
     if room_id is None:
-        room_id = symbol
+        room_id = f"symbol:{symbol}"
+    
+    print(f"📡 [Debate] Room ID for events: {room_id}")
     
     # Check if debate is already running
     with _debate_lock:
@@ -248,13 +251,15 @@ def _run_debate_sync(
     global _current_debate
     
     symbol = symbol.upper()
+    # Use consistent room_id format: symbol:{SYMBOL}
     if room_id is None:
-        room_id = symbol
+        room_id = f"symbol:{symbol}"
     started_at = datetime.utcnow().isoformat()
     
     print(f"\n{'='*60}")
     print(f"🎭 Starting Bull-Bear Debate for {symbol}")
     print(f"   Max Rounds: {max_rounds}")
+    print(f"   Room ID: {room_id}")
     print(f"   Using: New LangGraph Implementation")
     print(f"{'='*60}\n")
     
