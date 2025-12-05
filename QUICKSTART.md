@@ -120,7 +120,8 @@ notepad .env  # Or use your preferred editor
 **Edit `kafka/.env`:**
 ```bash
 # Usually no changes needed - defaults work fine
-KAFKA_BROKER=localhost:9092
+# Use localhost:9093 when connecting from host machine to Dockerized Kafka
+KAFKA_BROKER=localhost:9093
 ```
 
 ### 2.2 - Streaming Service Configuration
@@ -152,7 +153,8 @@ TWITTER_API_KEY=your_twitter_api_key_here
 
 # Configuration (customize these)
 STOCKS=AAPL,GOOGL,MSFT,TSLA,NVDA
-KAFKA_BROKER=localhost:9092
+# Use localhost:9093 when connecting from host machine to Dockerized Kafka
+KAFKA_BROKER=localhost:9093
 
 # Fetch intervals (in seconds)
 MARKET_DATA_INTERVAL=60

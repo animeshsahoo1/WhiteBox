@@ -1,5 +1,9 @@
 # When running standalone: start kafka first (creates stock-network)
 # When running via root compose: network is shared
+
+include:
+  - ../kafka/docker-compose.yml
+
 networks:
   stock-network:
     name: stock-network
@@ -15,6 +19,9 @@ x-streaming-base: &streaming-base
   restart: unless-stopped
   networks:
     - stock-network
+  depends_on:
+    kafka:
+      condition: service_healthy
   deploy:
     resources:
       limits:
@@ -90,6 +97,7 @@ services:
   twitter-webhook:
     <<: *streaming-base
     command: ["python", "webhook_receiver.py"]
+    depends_on: {}
     environment:
       WEBHOOK_RECEIVER_PORT: 5001
     ports:
@@ -107,4 +115,3 @@ services:
       - twitter-webhook
     networks:
       - stock-network
-    restart: unless-stopped

@@ -20,7 +20,7 @@ except ImportError:
     WEBSOCKET_ENABLED = False
     print("⚠️ event_publisher not available - WebSocket publishing disabled")
 
-REDIS_DEFAULT_HOST = "localhost"
+REDIS_DEFAULT_HOST = "redis"
 REDIS_DEFAULT_PORT = 6379
 REDIS_DEFAULT_DB = 0
 REPORT_SYMBOL_SET_KEY = "reports:symbols"

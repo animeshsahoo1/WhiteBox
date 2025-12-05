@@ -32,8 +32,8 @@ class BaseConsumer(ABC):
             "auto.commit.interval.ms": "30000",  # Commit every 30s
             # Performance optimizations
             "fetch.min.bytes": "1024",  # Minimum 1KB per fetch
-            "fetch.max.wait.ms": "100",  # Max wait 100ms for fetch
-            "fetch.max.bytes": "52428800",  # 50MB max per fetch
+            "fetch.wait.max.ms": "100",  # Max wait 100ms for fetch (correct rdkafka name)
+            "fetch.message.max.bytes": "52428800",  # 50MB max per fetch
             "max.partition.fetch.bytes": "1048576",  # 1MB per partition
             "queued.min.messages": "100000",  # Buffer 100K messages
             "queued.max.messages.kbytes": "65536",  # 64MB message buffer

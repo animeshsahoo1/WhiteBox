@@ -1,5 +1,10 @@
-# When running standalone: start kafka first (creates stock-network)
-# When running via root compose: network is shared
+# WebSocket Server
+# When running standalone: start pathway first (provides redis)
+# When running via root compose: redis is shared via pathway
+
+include:
+  - ../pathway/docker-compose.yml
+
 networks:
   stock-network:
     name: stock-network
@@ -24,13 +29,16 @@ services:
     env_file:
       - ../.env
     environment:
-      - REDIS_HOST=pathway-redis
+      - REDIS_HOST=redis
       - REDIS_PORT=6379
     volumes:
       - .:/code
     working_dir: /code
     command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload --ws-ping-interval 30 --ws-ping-timeout 30
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
     deploy:
       resources:
         limits:

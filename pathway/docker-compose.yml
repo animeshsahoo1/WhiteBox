@@ -2,6 +2,9 @@
 # When running standalone: start kafka first (creates stock-network)
 # When running via root compose: network is shared
 
+include:
+  - ../kafka/docker-compose.yml
+
 networks:
   stock-network:
     name: stock-network
@@ -12,6 +15,27 @@ x-pathway-build: &pathway-build
     context: .
     dockerfile: Dockerfile
     target: final
+
+# Base configuration for services that depend on both Kafka and Redis
+x-kafka-redis-consumer: &kafka-redis-consumer
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: final
+  networks:
+    - stock-network
+  restart: unless-stopped
+  depends_on:
+    redis:
+      condition: service_healthy
+    kafka:
+      condition: service_healthy
+  deploy:
+    resources:
+      limits:
+        memory: 512M
+      reservations:
+        memory: 256M
 
 x-common-env: &common-env
   PYTHONUNBUFFERED: 1
@@ -47,7 +71,7 @@ services:
   unified-api:
     <<: *pathway-build
     container_name: pathway-unified-api
-    command: uvicorn api.fastapi_server:app --host 0.0.0.0 --port 8000 --workers 2
+    command: uvicorn api.fastapi_server:app --host 0.0.0.0 --port 8000 --workers 1
     networks:
       - stock-network
     env_file:
@@ -55,10 +79,8 @@ services:
     environment:
       <<: *common-env
       KNOWLEDGE_BASE_PATH: /app/knowledge_base
-      # MCP Server for Strategist
       MCP_SERVER_HOST: mcp-server
       MCP_SERVER_PORT: 9004
-      # Mem0 Redis
       MEM0_REDIS_HOST: redis
       MEM0_REDIS_PORT: 6379
     ports:
@@ -73,12 +95,12 @@ services:
       - ./reports/bullbear:/app/reports/bullbear
       - ./api:/app/api
       - ./metrics:/app/metrics
-      - ./bullbear/debate:/app/bullbear/debate  # Debate points persistence
+      - ./bullbear/debate:/app/bullbear/debate
       - ./historical_reports:/app/historical_reports
       - ../knowledge_base:/app/knowledge_base
-      - ./strategies:/app/strategies  # For strategy creation/management
-      - ./orchestrator:/app/orchestrator  # Strategist agent module
-      - ./pathway_state:/app/pathway_state  # Shared persistence storage
+      - ./strategies:/app/strategies
+      - ./orchestrator:/app/orchestrator
+      - ./pathway_state:/app/pathway_state
     restart: unless-stopped
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
@@ -92,17 +114,15 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 1G
         reservations:
-          memory: 256M
+          memory: 512M
 
   # Pathway Consumers
   fundamental-consumer:
-    <<: *pathway-build
+    <<: *kafka-redis-consumer
     container_name: pathway-fundamental-consumer
     command: python main_fundamental.py
-    networks:
-      - stock-network
     env_file:
       - ../.env
     environment:
@@ -111,23 +131,11 @@ services:
     volumes:
       - ./reports/fundamental:/app/reports/fundamental
       - ./pathway_state:/app/pathway_state
-    restart: unless-stopped
-    depends_on:
-      redis:
-        condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 256M
 
   market-consumer:
-    <<: *pathway-build
+    <<: *kafka-redis-consumer
     container_name: pathway-market-consumer
     command: python main_market.py
-    networks:
-      - stock-network
     env_file:
       - ../.env
     environment:
@@ -136,29 +144,16 @@ services:
     volumes:
       - ./reports/market:/app/reports/market
       - ./pathway_state:/app/pathway_state
-    restart: unless-stopped
-    depends_on:
-      redis:
-        condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 256M
 
   news-consumer:
-    <<: *pathway-build
+    <<: *kafka-redis-consumer
     container_name: pathway-news-consumer
     command: python main_news.py
-    networks:
-      - stock-network
     env_file:
       - ../.env
     environment:
       <<: *common-env
       KAFKA_BROKER: kafka:29092
-      # News alert config
       NEWS_ALERT_ENABLED: ${NEWS_ALERT_ENABLED:-true}
       NEWS_ALERT_COOLDOWN: ${NEWS_ALERT_COOLDOWN:-600}
       NEWS_ALERT_MIN_CLUSTERS: ${NEWS_ALERT_MIN_CLUSTERS:-3}
@@ -167,24 +162,12 @@ services:
       - ./reports/news:/app/reports/news
       - ../knowledge_base:/app/knowledge_base
       - ./pathway_state:/app/pathway_state
-    restart: unless-stopped
-    depends_on:
-      redis:
-        condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 256M
 
   # Sentiment Phase 1: Fast Clustering & Scoring (no LLM)
   sentiment-clustering:
-    <<: *pathway-build
+    <<: *kafka-redis-consumer
     container_name: pathway-sentiment-clustering
     command: python main_sentiment_phase1.py
-    networks:
-      - stock-network
     env_file:
       - ../.env
     environment:
@@ -195,10 +178,6 @@ services:
     volumes:
       - ./reports/sentiment:/app/reports/sentiment
       - ./pathway_state:/app/pathway_state
-    restart: unless-stopped
-    depends_on:
-      redis:
-        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -249,16 +228,17 @@ services:
       - ./reports/market_demo:/app/reports/market_demo
       - ../streaming/producers/demo_data:/app/demo_data:ro
     restart: "no"
+    depends_on:
+      redis:
+        condition: service_healthy
     profiles:
       - demo
 
   # Backtesting Pipeline - O(1) incremental strategy backtesting
   backtesting-pipeline:
-    <<: *pathway-build
+    <<: *kafka-redis-consumer
     container_name: pathway-backtesting
     command: python main_backtesting.py
-    networks:
-      - stock-network
     env_file:
       - ../.env
     environment:
@@ -270,31 +250,18 @@ services:
     volumes:
       - ./strategies:/app/strategies
       - ./backtesting_lib:/app/backtesting_lib
-    restart: unless-stopped
-    depends_on:
-      redis:
-        condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 256M
 
   # Drift Detection Pipeline - Concept drift monitoring with River
   drift-detection:
-    <<: *pathway-build
+    <<: *kafka-redis-consumer
     container_name: pathway-drift-detection
     command: python main_drift.py
-    networks:
-      - stock-network
     env_file:
       - ../.env
     environment:
       <<: *common-env
       KAFKA_BROKER: kafka:29092
       MARKET_TOPIC: market-data
-      # Drift alert config
       DRIFT_ALERT_ENABLED: ${DRIFT_ALERT_ENABLED:-true}
       DRIFT_ALERT_COOLDOWN: ${DRIFT_ALERT_COOLDOWN:-300}
       BULLBEAR_API_URL: http://unified-api:8000
@@ -302,17 +269,7 @@ services:
       - ./agents:/app/agents
       - ./consumers:/app/consumers
       - ./pathway_state:/app/pathway_state
-    restart: unless-stopped
-    depends_on:
-      redis:
-        condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 256M
-        
+
   # ============================================
   # ORCHESTRATOR SERVICES
   # ============================================
@@ -341,7 +298,9 @@ services:
       unified-api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9004/mcp"]
+      # MCP server returns 406 for GET /mcp (requires proper MCP headers)
+      # Use nc to check if port is listening instead
+      test: ["CMD", "sh", "-c", "curl -s -o /dev/null -w '%{http_code}' http://localhost:9004/ | grep -q '404'"]
       interval: 30s
       timeout: 10s
       retries: 3
