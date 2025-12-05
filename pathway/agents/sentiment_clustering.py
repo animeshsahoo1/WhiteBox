@@ -30,10 +30,10 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 # Event publishing imports
 try:
     from redis_cache import get_redis_client
-    from event_publisher import publish_agent_status, publish_alert
+    from event_publisher import publish_agent_status, publish_alert , publish_report
 except ImportError:
     from .redis_cache import get_redis_client
-    from .event_publisher import publish_agent_status, publish_alert
+    from .event_publisher import publish_agent_status, publish_alert , publish_report
 
 
 load_dotenv()
@@ -524,6 +524,14 @@ def process_sentiment_clustering(
         
         # Publish COMPLETED status for clustering phase
         try:
+            publish_report(room_id, "Sentiment Agent", {
+                "symbol": symbol,
+                "report_type": "sentiment",
+                "overall_sentiment": round(overall_sentiment, 3),
+                "cluster_count": len(clusters_list),
+                "total_posts": total_posts,
+                "clusters": clusters_list  # Include cluster data for frontend
+            })
             publish_agent_status(room_id, "Sentiment Clustering Agent", "COMPLETED")
         except Exception as e:
             print(f"⚠️ [{symbol}] Failed to publish Sentiment Clustering Agent status: {e}")

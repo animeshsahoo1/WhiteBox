@@ -97,16 +97,16 @@ REPORT_SECTIONS = [
         "tools": ["rag"],
         "description": "High-level snapshot of the company’s business, financial condition, and key fundamental insights."
     },
-    {
-        "name": "Business Overview",
-        "tools": ["rag"],
-        "description": "Core operations, segments, revenue sources, business model mechanics, industry structure."
-    },
-    {
-        "name": "Financial Statements Analysis",
-        "tools": ["rag"],
-        "description": "Income statement, balance sheet, and cash-flow trends; margin behavior; capital structure; liquidity."
-    },
+    # {
+    #     "name": "Business Overview",
+    #     "tools": ["rag"],
+    #     "description": "Core operations, segments, revenue sources, business model mechanics, industry structure."
+    # },
+    # {
+    #     "name": "Financial Statements Analysis",
+    #     "tools": ["rag"],
+    #     "description": "Income statement, balance sheet, and cash-flow trends; margin behavior; capital structure; liquidity."
+    # },
     # {
     #     "name": "Operational Performance",
     #     "tools": ["rag"],

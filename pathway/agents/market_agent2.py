@@ -858,7 +858,8 @@ The following chart images have been saved separately:
                         "decision": agent_results.get('final_trade_decision', 'HOLD'),
                         "confidence": agent_results.get('confidence_score', 0.5),
                         "window_start": str(window_start),
-                        "window_end": str(window_end)
+                        "window_end": str(window_end),
+                        "report_content": comprehensive_content
                     })
                     publish_agent_status(room_id, "Market Agent", "COMPLETED")
             except Exception as e:
