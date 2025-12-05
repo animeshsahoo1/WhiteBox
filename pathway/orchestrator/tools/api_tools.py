@@ -206,7 +206,7 @@ def register_api_tools(mcp):
             f"debate/{symbol.upper()}",
             method="POST",
             json_data={"max_rounds": max_rounds, "background": True},
-            timeout=60.0
+            timeout=120.0
         )
         return {"symbol": symbol.upper(), "action": "debate_started", "data": result}
 

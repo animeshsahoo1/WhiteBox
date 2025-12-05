@@ -15,7 +15,7 @@ Usage:
 
 import asyncio
 import os
-from typing import Annotated, Literal, TypedDict, List
+from typing import Annotated, Literal, TypedDict, List, Optional
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -28,6 +28,11 @@ from langgraph.prebuilt import ToolNode
 
 # Load environment variables
 load_dotenv()
+
+# Import event publishing
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from event_publisher import publish_agent_status, publish_graph_state
 
 # Configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -149,6 +154,7 @@ class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     user_id: str
     memory_context: str
+    room_id: Optional[str]  # For event publishing
 
 
 # ============================================================================
@@ -264,11 +270,12 @@ def log_tool_call(tool_name: str, tool_input: dict, tool_output: str = None, is_
 
 
 class VerboseToolNode(ToolNode):
-    """ToolNode wrapper that logs tool calls."""
+    """ToolNode wrapper that logs tool calls and publishes events."""
     
     async def ainvoke(self, state, config=None):
         """Log tools before and after invocation."""
         messages = state.get("messages", [])
+        room_id = state.get("room_id")
         
         # Find tool calls in the last message
         if messages:
@@ -276,6 +283,16 @@ class VerboseToolNode(ToolNode):
             if hasattr(last_msg, 'tool_calls') and last_msg.tool_calls:
                 for tc in last_msg.tool_calls:
                     log_tool_call(tc['name'], tc.get('args', {}), is_start=True)
+                    
+                    # Publish tool call event
+                    if room_id:
+                        publish_graph_state(room_id, {
+                            "node": "tools",
+                            "status": "RUNNING",
+                            "tool_name": tc['name'],
+                            "tool_input": str(tc.get('args', {}))[:200],
+                            "timestamp": datetime.now().isoformat()
+                        })
         
         # Call the actual tool
         result = await super().ainvoke(state, config)
@@ -285,6 +302,16 @@ class VerboseToolNode(ToolNode):
         for msg in result_messages:
             if hasattr(msg, 'name') and hasattr(msg, 'content'):
                 log_tool_call(msg.name, {}, msg.content, is_start=False)
+                
+                # Publish tool completion event
+                if room_id:
+                    publish_graph_state(room_id, {
+                        "node": "tools",
+                        "status": "COMPLETED",
+                        "tool_name": msg.name,
+                        "output_preview": str(msg.content)[:300] if msg.content else "",
+                        "timestamp": datetime.now().isoformat()
+                    })
         
         return result
 
@@ -314,7 +341,13 @@ async def create_strategist_agent():
         """Main agent node that processes messages and decides actions."""
         
         user_id = state.get("user_id", "default_user")
+        room_id = state.get("room_id")
         messages = state["messages"]
+        
+        # Publish agent thinking status
+        if room_id:
+            publish_agent_status(room_id, "orchestrator", "THINKING", 
+                                 detail="Analyzing request and retrieving context")
         
         # Get the last user message for memory context
         last_user_msg = ""
@@ -332,8 +365,28 @@ async def create_strategist_agent():
             date=datetime.now().strftime("%Y-%m-%d")
         ))
         
+        # Publish LLM call status
+        if room_id:
+            publish_graph_state(room_id, {
+                "node": "agent",
+                "status": "RUNNING",
+                "action": "llm_call",
+                "timestamp": datetime.now().isoformat()
+            })
+        
         # Call LLM with tools
         response = await llm_with_tools.ainvoke([system] + messages)
+        
+        # Publish agent response status
+        if room_id:
+            has_tool_calls = hasattr(response, 'tool_calls') and response.tool_calls
+            publish_graph_state(room_id, {
+                "node": "agent",
+                "status": "COMPLETED",
+                "has_tool_calls": has_tool_calls,
+                "tool_count": len(response.tool_calls) if has_tool_calls else 0,
+                "timestamp": datetime.now().isoformat()
+            })
         
         return {"messages": [response], "memory_context": memory_context}
     
@@ -352,7 +405,28 @@ async def create_strategist_agent():
     async def save_memory_node(state: AgentState) -> dict:
         """Save conversation to memory before ending."""
         user_id = state.get("user_id", "default_user")
+        room_id = state.get("room_id")
+        
+        # Publish saving memory status
+        if room_id:
+            publish_graph_state(room_id, {
+                "node": "save_memory",
+                "status": "RUNNING",
+                "timestamp": datetime.now().isoformat()
+            })
+        
         save_to_memory(user_id, state["messages"])
+        
+        # Publish completion status
+        if room_id:
+            publish_agent_status(room_id, "orchestrator", "COMPLETED",
+                                 detail="Request processed successfully")
+            publish_graph_state(room_id, {
+                "node": "save_memory",
+                "status": "COMPLETED",
+                "timestamp": datetime.now().isoformat()
+            })
+        
         return {}
     
     # Build graph
@@ -405,19 +479,25 @@ class Strategist:
             self._initialized = True
             print("✅ Strategist ready!\n")
     
-    async def chat(self, message: str, user_id: str = "default_user") -> str:
+    async def chat(self, message: str, user_id: str = "default_user", room_id: str = None) -> str:
         """
         Send a message to the agent and get a response.
         
         Args:
             message: User's message
             user_id: Unique user identifier for memory
+            room_id: Optional room ID for event publishing
         
         Returns:
             Agent's response
         """
         if not self._initialized:
             await self.initialize()
+        
+        # Publish start status
+        if room_id:
+            publish_agent_status(room_id, "orchestrator", "RUNNING",
+                                 detail=f"Processing: {message[:100]}...")
         
         config = {
             "configurable": {
@@ -428,25 +508,34 @@ class Strategist:
         input_state = {
             "messages": [HumanMessage(content=message)],
             "user_id": user_id,
-            "memory_context": ""
+            "memory_context": "",
+            "room_id": room_id
         }
         
-        # Run the graph with recursion limit to prevent infinite loops
-        # Each agent->tools->agent cycle = 2 steps, limit 10 tool calls = 20 steps
-        result = await self.graph.ainvoke(
-            input_state, 
-            config=config,
-            recursion_limit=25  # Hard limit on steps
-        )
-        
-        # Get the last AI message (non-tool-call)
-        for msg in reversed(result["messages"]):
-            if isinstance(msg, AIMessage) and not msg.tool_calls:
-                return msg.content
-        
-        return "I couldn't generate a response. Please try again."
+        try:
+            # Run the graph with recursion limit to prevent infinite loops
+            # Each agent->tools->agent cycle = 2 steps, limit 10 tool calls = 20 steps
+            result = await self.graph.ainvoke(
+                input_state, 
+                config=config,
+                recursion_limit=25  # Hard limit on steps
+            )
+            
+            # Get the last AI message (non-tool-call)
+            for msg in reversed(result["messages"]):
+                if isinstance(msg, AIMessage) and not msg.tool_calls:
+                    return msg.content
+            
+            return "I couldn't generate a response. Please try again."
+            
+        except Exception as e:
+            # Publish error status
+            if room_id:
+                publish_agent_status(room_id, "orchestrator", "FAILED",
+                                     detail=str(e))
+            raise
     
-    async def stream_chat(self, message: str, user_id: str = "default_user"):
+    async def stream_chat(self, message: str, user_id: str = "default_user", room_id: str = None):
         """
         Stream a response from the agent.
         
@@ -455,6 +544,11 @@ class Strategist:
         if not self._initialized:
             await self.initialize()
         
+        # Publish start status
+        if room_id:
+            publish_agent_status(room_id, "orchestrator", "RUNNING",
+                                 detail=f"Streaming: {message[:100]}...")
+        
         config = {
             "configurable": {
                 "thread_id": f"{user_id}_{self.thread_id}"
@@ -464,19 +558,31 @@ class Strategist:
         input_state = {
             "messages": [HumanMessage(content=message)],
             "user_id": user_id,
-            "memory_context": ""
+            "memory_context": "",
+            "room_id": room_id
         }
         
-        async for event in self.graph.astream_events(
-            input_state, 
-            config=config, 
-            version="v2"
-        ):
-            kind = event["event"]
-            if kind == "on_chat_model_stream":
-                content = event["data"]["chunk"].content
-                if content:
-                    yield content
+        try:
+            async for event in self.graph.astream_events(
+                input_state, 
+                config=config, 
+                version="v2"
+            ):
+                kind = event["event"]
+                if kind == "on_chat_model_stream":
+                    content = event["data"]["chunk"].content
+                    if content:
+                        yield content
+            
+            # Publish completion
+            if room_id:
+                publish_agent_status(room_id, "orchestrator", "COMPLETED",
+                                     detail="Streaming complete")
+        except Exception as e:
+            if room_id:
+                publish_agent_status(room_id, "orchestrator", "FAILED",
+                                     detail=str(e))
+            raise
     
     def new_conversation(self):
         """Start a new conversation thread."""

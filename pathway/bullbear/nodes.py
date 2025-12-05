@@ -30,11 +30,16 @@ from .config import get_config
 # Event publishing imports
 try:
     from event_publisher import publish_debate_point, publish_debate_progress, publish_recommendation, publish_graph_state
-except ImportError:
+    print("✅ [BullBear] Event publisher imported successfully (direct)")
+except ImportError as e1:
     try:
         from ..event_publisher import publish_debate_point, publish_debate_progress, publish_recommendation, publish_graph_state
-    except ImportError:
+        print("✅ [BullBear] Event publisher imported successfully (relative)")
+    except ImportError as e2:
         # Fallback if event_publisher not available
+        print(f"⚠️ [BullBear] Event publisher NOT available - events will NOT be published")
+        print(f"   Import error 1: {e1}")
+        print(f"   Import error 2: {e2}")
         publish_debate_point = None
         publish_debate_progress = None
         publish_recommendation = None
@@ -70,17 +75,25 @@ class DebateNodes:
     def _publish_event(self, state: DebateState, event_type: str, data: Dict[str, Any]) -> None:
         """Safely publish an event to the room_id channel."""
         room_id = state.get("room_id", f"symbol:{state.get('symbol', 'UNKNOWN')}")
+        print(f"🔔 [BullBear] Publishing {event_type} to room: {room_id}")
         try:
             if event_type == "debate_point" and publish_debate_point:
                 publish_debate_point(room_id, data)
+                print(f"   ✅ debate_point published")
             elif event_type == "debate_progress" and publish_debate_progress:
                 publish_debate_progress(room_id, data)
+                print(f"   ✅ debate_progress published")
             elif event_type == "recommendation" and publish_recommendation:
                 publish_recommendation(room_id, data)
+                print(f"   ✅ recommendation published")
             elif event_type == "graph_state" and publish_graph_state:
                 publish_graph_state(room_id, data)
+                print(f"   ✅ graph_state published")
+            else:
+                print(f"   ⚠️ No handler for {event_type} or function is None")
         except Exception as e:
             logger.warning(f"Failed to publish {event_type} event: {e}")
+            print(f"   ❌ Failed to publish {event_type}: {e}")
     
     def _get_memory_manager(self, session_id: str, symbol: str = "") -> MemoryManager:
         """Get or create memory manager for symbol (persists across sessions)"""
