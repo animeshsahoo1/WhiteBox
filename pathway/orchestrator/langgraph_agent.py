@@ -41,15 +41,22 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL_AGENT", "openai/gpt-4o-mini")
 MCP_HOST = os.getenv("MCP_SERVER_HOST", "mcp-server")  # Docker service name
 MCP_PORT = int(os.getenv("MCP_SERVER_PORT", 9004))
 
-# Redis config for Mem0
-MEM0_REDIS_HOST = os.getenv("MEM0_REDIS_HOST", "redis")
-MEM0_REDIS_PORT = int(os.getenv("MEM0_REDIS_PORT", 6379))
-
 # Fix host for local development
 if MCP_HOST == "0.0.0.0":
     MCP_HOST = "localhost"
 
 MCP_URL = f"http://{MCP_HOST}:{MCP_PORT}/mcp"
+
+# Redis config for Mem0 - prioritize REDIS_URL (Upstash), fallback to host:port
+def get_mem0_redis_url():
+    """Get Redis URL for Mem0, prioritizing REDIS_URL from .env (Upstash)"""
+    redis_url = os.getenv("REDIS_URL")
+    if redis_url:
+        return redis_url
+    # Fallback to dedicated Mem0 host:port
+    host = os.getenv("MEM0_REDIS_HOST", "redis")
+    port = int(os.getenv("MEM0_REDIS_PORT", 6379))
+    return f"redis://{host}:{port}"
 
 
 # ============================================================================
@@ -85,17 +92,18 @@ def get_mem0():
                     "openai_base_url": OPENAI_API_BASE
                 }
             },
-            # Redis persistence (uses existing pathway-redis container)
+            # Redis persistence (uses REDIS_URL from .env if available, otherwise falls back to local)
             "vector_store": {
                 "provider": "redis",
                 "config": {
-                    "redis_url": f"redis://{MEM0_REDIS_HOST}:{MEM0_REDIS_PORT}"
+                    "redis_url": get_mem0_redis_url()
                 }
             }
         }
         
         _memory = Memory.from_config(config)
-        print(f"✅ Mem0 memory initialized (Redis: {MEM0_REDIS_HOST}:{MEM0_REDIS_PORT})")
+        redis_url_display = os.getenv("REDIS_URL", f"redis://{os.getenv('MEM0_REDIS_HOST', 'redis')}:{os.getenv('MEM0_REDIS_PORT', 6379)}")
+        print(f"✅ Mem0 memory initialized (Redis: {redis_url_display[:50]}...)")
         return _memory
         
     except ImportError as e:

@@ -21,11 +21,19 @@ _cluster_cache: Dict[str, Tuple[float, Any]] = {}
 CACHE_TTL = 5.0  # seconds
 
 
+class SentimentPostItem(BaseModel):
+    post_id: str
+    text: str
+    timestamp: str
+    sentiment: float
+
+
 class SentimentClusterItem(BaseModel):
     cluster_id: int
     summary: str
     avg_sentiment: float
     count: int
+    posts: List[SentimentPostItem]
 
 
 class SentimentClustersResponse(BaseModel):
@@ -189,9 +197,15 @@ async def get_sentiment_clusters(symbol: str):
     clusters = [
         SentimentClusterItem(
             cluster_id=c.get('cluster_id', 0),
-            summary=c.get('summary', '')[:200],
+            summary=c.get('summary', ''),
             avg_sentiment=c.get('avg_sentiment', 0.0),
-            count=c.get('count', 0)
+            count=c.get('count', 0),
+            posts=[SentimentPostItem(
+                post_id=p.get('post_id', ''),
+                text=p.get('text', ''),
+                timestamp=p.get('timestamp', ''),
+                sentiment=p.get('sentiment', 0.0)
+            ) for p in c.get('posts', [])]
         )
         for c in data.get('clusters', [])
     ]
