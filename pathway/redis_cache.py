@@ -119,21 +119,40 @@ def save_report_to_redis(symbol: str, report_type: str, content: str) -> bool:
     try:
         client = get_redis_client()
         symbol_key = _build_symbol_key(symbol.upper())
+        timestamp = datetime.utcnow().isoformat()
         
-        print(f"🔍 [REDIS] Saving {report_type} for {symbol} to key: {symbol_key}, content length: {len(content)}")
+        # DEBUG: Log connection details
+        conn_info = client.connection_pool.connection_kwargs
+        redis_host = conn_info.get('host', 'N/A')
+        redis_port = conn_info.get('port', 'N/A')
+        redis_db = conn_info.get('db', 0)
+        print(f"🔍 [REDIS DEBUG] Saving to: {redis_host}:{redis_port} DB={redis_db}")
+        print(f"🔍 [REDIS DEBUG] Key: {symbol_key}, Field: {report_type}")
         
-        entry = {
+        # Minimal entry with just necessary fields
+        entry = json.dumps({
             "symbol": symbol.upper(),
             "report_type": report_type,
             "content": content,
-            "last_updated": datetime.utcnow().isoformat(),
-            "received_at": datetime.utcnow().isoformat(),
-        }
+            "last_updated": timestamp,
+        })
         
-        result = client.hset(symbol_key, report_type, json.dumps(entry))
+        # Save and verify with read-back
+        client.hset(symbol_key, report_type, entry)
         client.sadd(REPORT_SYMBOL_SET_KEY, symbol.upper())
         
-        print(f"✅ [REDIS] Cached {report_type} report for {symbol} (hset result: {result})")
+        # Read back to verify it was actually saved
+        saved_data = client.hget(symbol_key, report_type)
+        if not saved_data:
+            raise Exception(f"Verification failed - {report_type} not found after write to {symbol_key}")
+        
+        # Verify content matches
+        if len(saved_data) != len(entry):
+            raise Exception(f"Data mismatch - wrote {len(entry)} bytes but read back {len(saved_data)} bytes")
+        
+        # Double check with HEXISTS
+        exists = client.hexists(symbol_key, report_type)
+        print(f"✅ [REDIS] Cached {report_type} for {symbol} (verified {len(saved_data)} bytes, hexists={exists})")
         return True
         
     except Exception as e:
@@ -159,13 +178,16 @@ def get_redis_client() -> redis.Redis:
         url = os.getenv("REDIS_URL")
         if url:
             print("🔌 Creating Redis connection pool from REDIS_URL...")
+            # Handle SSL for Upstash
+            import ssl
             _redis_pool = redis.ConnectionPool.from_url(
                 url,
                 decode_responses=True,
-                max_connections=20,  # Limit concurrent connections
-                socket_timeout=5.0,
-                socket_connect_timeout=5.0,
-                retry_on_timeout=True
+                max_connections=20,
+                socket_timeout=10.0,  # Increased timeout for Upstash
+                socket_connect_timeout=10.0,
+                retry_on_timeout=True,
+                ssl_cert_reqs=ssl.CERT_NONE if url.startswith("rediss://") else None
             )
         else:
             host = os.getenv("REDIS_HOST", REDIS_DEFAULT_HOST)
@@ -178,8 +200,8 @@ def get_redis_client() -> redis.Redis:
                 db=db,
                 decode_responses=True,
                 max_connections=20,
-                socket_timeout=5.0,
-                socket_connect_timeout=5.0,
+                socket_timeout=10.0,
+                socket_connect_timeout=10.0,
                 retry_on_timeout=True
             )
     

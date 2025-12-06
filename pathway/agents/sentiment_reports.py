@@ -425,12 +425,7 @@ def process_sentiment_reports(
             
             # Save to Redis for API caching (this is what report_fetch_api reads!)
             try:
-                print(f"🔍 [{symbol}] Attempting to save sentiment report to Redis (length: {len(new_report)} chars)")
-                result = save_report_to_redis(symbol, "sentiment", new_report)
-                if not result:
-                    print(f"⚠️ [{symbol}] save_report_to_redis returned False!")
-                else:
-                    print(f"✅ [{symbol}] save_report_to_redis returned True")
+                save_report_to_redis(symbol, "sentiment", new_report)
             except Exception as e:
                 print(f"⚠️ [{symbol}] Failed to cache sentiment report to Redis: {e}")
             
