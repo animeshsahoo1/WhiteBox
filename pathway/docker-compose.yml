@@ -305,35 +305,5 @@ services:
       retries: 3
       start_period: 10s
 
-  # Orchestrator  - LangGraph + Mem0 ReAct agent
-  orchestrator:
-    build: .
-    container_name: pathway-orchestrator
-    command: python orchestrator/langgraph_agent.py
-    networks:
-      - stock-network
-    env_file:
-      - ../.env
-    environment:
-      PYTHONUNBUFFERED: 1
-      # MCP server connection
-      MCP_SERVER_HOST: mcp-server
-      MCP_SERVER_PORT: 9004
-      # Mem0 Redis persistence
-      MEM0_REDIS_HOST: redis
-      MEM0_REDIS_PORT: 6379
-    volumes:
-      - ./orchestrator:/app/orchestrator
-    restart: unless-stopped
-    stdin_open: true  # Keep stdin open for interactive mode
-    tty: true         # Allocate pseudo-TTY
-    depends_on:
-      mcp-server:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    profiles:
-      - agent  # Only start when explicitly requested with --profile agent
-
 volumes:
   redis-data:
