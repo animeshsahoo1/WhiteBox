@@ -328,7 +328,7 @@ def process_sentiment_clustering(
             else:
                 new_id = str(state['next_cluster_id'])
                 clusters[new_id] = {
-                    'summary': text[:150],  # Initial summary from first post
+                    'summary': text,  # Full summary from first post
                     'posts': [post],
                     'centroid': embedding,
                     'created_at': now_iso,
@@ -524,8 +524,26 @@ def process_sentiment_clustering(
         
         # Publish COMPLETED status for clustering phase
         try:
-            # Use the exact same result object that was stored in Redis
-            publish_report(room_id, "Sentiment Agent", result)
+            # Create clean output matching API schema (with posts)
+            api_clusters = [
+                {
+                    'cluster_id': c['cluster_id'],
+                    'summary': c['summary'],
+                    'avg_sentiment': c['avg_sentiment'],
+                    'count': c['count'],
+                    'posts': c['posts']
+                }
+                for c in clusters_list
+            ]
+            api_result = {
+                'symbol': symbol,
+                'overall_sentiment': overall_sentiment,
+                'cluster_count': len(clusters_list),
+                'total_posts': total_posts,
+                'clusters': api_clusters,
+                'timestamp': result['timestamp']
+            }
+            publish_report(room_id, "Sentiment Agent", api_result)
             publish_agent_status(room_id, "Sentiment Clustering Agent", "COMPLETED")
         except Exception as e:
             print(f"⚠️ [{symbol}] Failed to publish Sentiment Clustering Agent status: {e}")
