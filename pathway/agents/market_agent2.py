@@ -216,35 +216,15 @@ LIVE READINGS (last 5 periods):
 
 [Indicator plots attached below]
 
-ANALYSIS FRAMEWORK:
+Provide a detailed momentum analysis covering:
 
-1. MOMENTUM REGIME
-   • Current state: OVERBOUGHT (RSI>70, %K>80) | OVERSOLD (RSI<30, %K<20) | NEUTRAL
-   • Exhaustion signals: RSI divergence, MACD histogram contraction, %K/%D crossover
-   • Momentum velocity: ROC acceleration/deceleration, Williams %R thrust
+1. **Momentum Regime**: Classify current state (OVERBOUGHT/OVERSOLD/NEUTRAL) based on RSI, Stochastic readings. Identify any exhaustion signals or divergences.
 
-2. INDICATOR CONFLUENCE
-   • Alignment score: How many indicators agree on direction? (0-5 scale)
-   • Divergence alert: Price vs RSI/MACD divergence = potential reversal
-   • Lead indicators: Which is signaling first? (Stochastic leads, MACD confirms)
+2. **Indicator Confluence**: Assess how many indicators agree on direction (alignment score 0-5). Note any leading indicators signaling first.
 
-3. TRADE SIGNAL
-   • Entry trigger: Specific condition (e.g., "RSI bouncing off 30 + MACD crossover")
-   • Invalidation: What reading kills the setup?
-   • Confidence: HIGH (4-5 align) | MEDIUM (2-3 align) | LOW (conflicting)
+3. **Trade Setup**: Describe specific entry conditions, invalidation levels, and confidence (HIGH/MEDIUM/LOW).
 
-Output format: JSON ONLY. No markdown formatting.
-Structure:
-{{
-  "rsi": [values],
-  "stochastic": {{ "k": [values], "d": [values] }},
-  "macd": {{ "line": [values], "signal": [values], "histogram": [values] }},
-  "roc": [values],
-  "williamsR": [values],
-  "momentumRegime": "NEUTRAL|OVERBOUGHT|OVERSOLD",
-  "alignmentScore": 0-5,
-  "raw": "Summary text here..."
-}}"""
+Be specific with numbers and thresholds. Keep analysis concise but actionable."""
             }
         ]
         
@@ -330,19 +310,15 @@ Neutral: Rectangle, Symmetrical Triangle, Expanding Triangle
                 "type": "text",
                 "text": f"""Analyze this candlestick chart for {stock_name} ({time_frame}).
 {pattern_definitions}
-PROVIDE JSON OUTPUT ONLY. No markdown formatting.
-Structure:
-{{
-  "patternName": "Name of pattern",
-  "completionStatus": "Completed/Forming",
-  "resistanceLevel": "price",
-  "supportLevel": "price",
-  "priceTarget": "price",
-  "invalidation": "price",
-  "reliability": "High/Medium/Low"
-}}
 
-Focus on the most actionable pattern visible."""
+Identify the most prominent pattern and provide:
+- Pattern name and completion status (Completed/Forming/Early)
+- Key resistance and support levels with prices
+- Measured price target based on pattern
+- Invalidation level where pattern fails
+- Pattern reliability (High/Medium/Low) based on formation quality
+
+Be specific with price levels and briefly explain the pattern structure."""
             },
             {
                 "type": "image_url",
@@ -402,38 +378,17 @@ def create_trend_agent(llm):
 
 [Trend chart with support/resistance attached]
 
-TREND FRAMEWORK:
+Analyze the trend structure and provide:
 
-1. MARKET STRUCTURE
-   • Primary trend: UPTREND (higher highs + higher lows) | DOWNTREND (lower highs + lower lows) | RANGE-BOUND
-   • Trend strength: STRONG (steep angle, no violations) | MODERATE (some noise) | WEAK (flat, choppy)
-   • Recent structure: Has the last swing violated the trend? (Higher low held? Lower high defended?)
+1. **Market Structure**: Identify primary trend (UPTREND/DOWNTREND/RANGE), assess strength (Strong/Moderate/Weak), and note if recent price action respects or violates the trend.
 
-2. CRITICAL LEVELS
-   • Immediate resistance: [Price] — What's stopping upside NOW?
-   • Immediate support: [Price] — What's protecting downside NOW?
-   • Major levels: Swing highs/lows from this timeframe that matter
-   • Level quality: Tested multiple times? Clean rejection? Volume spike at level?
+2. **Critical Levels**: State immediate resistance and support with specific prices. Mention quality of these levels (tested multiple times, clean rejections).
 
-3. TRENDLINE STATUS
-   • Primary trendline: INTACT (price respecting) | TESTING (currently at line) | BROKEN (decisive close through)
-   • Slope dynamics: Steepening (momentum increasing) | Flattening (momentum fading) | Curving (potential exhaustion)
-4. BREAKOUT RISK: Distance to nearest breakout/breakdown zone
-5. BIAS: Bullish/Bearish/Neutral for next 1-3 periods with confidence %
+3. **Trendline Status**: Describe if primary trendline is intact, being tested, or broken. Note slope dynamics (steepening/flattening).
 
-PROVIDE JSON OUTPUT ONLY. No markdown formatting.
-Structure:
-{{
-  "primaryTrend": "UPTREND/DOWNTREND/RANGE",
-  "trendStrength": "Strong/Moderate/Weak",
-  "immediateResistance": "price",
-  "immediateSupport": "price",
-  "trendlineStatus": "Intact/Testing/Broken",
-  "slopeDynamics": "Positive/Negative/Flat",
-  "breakoutDistance": "percentage",
-  "bias": "Bullish/Bearish/Neutral",
-  "confidence": "High/Medium/Low"
-}}"""
+4. **Outlook**: Give directional bias (Bullish/Bearish/Neutral) with confidence level and distance to nearest breakout zone.
+
+Be precise with price levels and percentages. Keep analysis focused and actionable."""
             },
             {
                 "type": "image_url",
@@ -746,49 +701,6 @@ def _precompute_and_analyze(windowed_table: pw.Table, indicators: list = None) -
             with open(json_path, 'w') as f:
                 json.dump(data, f, indent=2)
             
-            # Helper to parse JSON from LLM output
-            def parse_llm_json(text):
-                if not text: return {}
-                try:
-                    # Remove markdown code blocks
-                    clean_text = re.sub(r'```json\s*', '', text)
-                    clean_text = re.sub(r'```\s*', '', clean_text)
-                    return json.loads(clean_text.strip())
-                except:
-                    return {"raw": text}
-
-            pattern_data = parse_llm_json(agent_results.get('pattern_report', '{}'))
-            trend_data = parse_llm_json(agent_results.get('trend_report', '{}'))
-            indicator_data = parse_llm_json(agent_results.get('indicator_report', '{}'))
-            
-            # Construct final JSON report matching user schema
-            final_report = {
-                "generated": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
-                "period": f"{window_start} to {window_end}",
-                "dataPoints": len(kline_dict.get('Datetime', [])),
-                
-                "tradingDecision": {
-                    "decision": agent_results.get('final_trade_decision', 'HOLD'),
-                    "confidence": agent_results.get('confidence_score', 0)
-                },
-                
-                "patternAnalysis": pattern_data,
-                "trendAnalysis": trend_data,
-                "technicalIndicators": indicator_data,
-                
-                "chartImages": {
-                    "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
-                    "baseUrl": str(images_dir.absolute()),
-                    "images": saved_plots + ([f"candlestick_{timestamp}.png"] if images_dict.get('pattern_image') else []) + ([f"trend_{timestamp}.png"] if images_dict.get('trend_image') else [])
-                }
-            }
-            
-            # Save JSON report
-            report_path = reports_subdir / f"market_report_{timestamp}.json"
-            with open(report_path, 'w') as f:
-                json.dump(final_report, f, indent=2)
-            print(f"✅ Saved JSON report: {report_path}")
-
             # Generate comprehensive markdown report WITHOUT embedded images
             comprehensive_report_path = reports_subdir / f"comprehensive_analysis_{timestamp}.md"
             comprehensive_content = f"""# 📊 Comprehensive Market Analysis: {symbol}
@@ -801,24 +713,17 @@ def _precompute_and_analyze(windowed_table: pw.Table, indicators: list = None) -
 
 ## 📈 Price Action & Patterns
 
-**Pattern Agent Analysis:**
-```json
+### Pattern Analysis
 {agent_results.get('pattern_report', 'No analysis available')}
-```
 
-**Trend Agent Analysis:**
-```json
+### Trend Analysis
 {agent_results.get('trend_report', 'No analysis available')}
-```
 
 ---
 
 ## 📊 Technical Indicators
 
-### Indicator Agent Analysis
-```json
 {agent_results.get('indicator_report', 'No analysis available')}
-```
 
 ---
 
@@ -865,8 +770,7 @@ The following chart images have been saved separately:
             # Save to Redis for API caching
             if save_report_to_redis:
                 try:
-                    # Save the JSON report structure instead of Markdown
-                    save_report_to_redis(symbol, "market", json.dumps(final_report))
+                    save_report_to_redis(symbol, "market", comprehensive_content)
                 except Exception as e:
                     print(f"⚠️ [{symbol}] Failed to cache market report to Redis: {e}")
             
@@ -938,7 +842,7 @@ The following chart images have been saved separately:
                         "confidence": agent_results.get('confidence_score', 0.5),
                         "window_start": str(window_start),
                         "window_end": str(window_end),
-                        "report_content": final_report
+                        "report_content": comprehensive_content
                     })
                     publish_agent_status(room_id, "Market Agent", "COMPLETED")
             except Exception as e:

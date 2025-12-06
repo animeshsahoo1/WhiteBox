@@ -68,19 +68,43 @@ class BacktestingMetricsStore:
         if cls._redis_client is None:
             try:
                 import redis
-                redis_host = os.getenv("REDIS_HOST", "redis")
-                redis_port = int(os.getenv("REDIS_PORT", 6379))
-                redis_db = int(os.getenv("REDIS_DB", 0))
-                cls._redis_client = redis.Redis(
-                    host=redis_host,
-                    port=redis_port,
-                    db=redis_db,
-                    decode_responses=True,
-                    socket_timeout=2,
-                    socket_connect_timeout=2
-                )
+                import ssl
+                redis_url = os.getenv("REDIS_URL")
+                
+                if redis_url:
+                    # Use Upstash Redis
+                    if redis_url.startswith("rediss://"):
+                        cls._redis_client = redis.Redis.from_url(
+                            redis_url,
+                            decode_responses=True,
+                            ssl_cert_reqs=ssl.CERT_NONE,
+                            socket_timeout=2,
+                            socket_connect_timeout=2
+                        )
+                    else:
+                        cls._redis_client = redis.Redis.from_url(
+                            redis_url,
+                            decode_responses=True,
+                            socket_timeout=2,
+                            socket_connect_timeout=2
+                        )
+                    print(f"✅ Backtesting API connected to Redis (Upstash)")
+                else:
+                    # Fallback to local Redis
+                    redis_host = os.getenv("REDIS_HOST", "redis")
+                    redis_port = int(os.getenv("REDIS_PORT", 6379))
+                    redis_db = int(os.getenv("REDIS_DB", 0))
+                    cls._redis_client = redis.Redis(
+                        host=redis_host,
+                        port=redis_port,
+                        db=redis_db,
+                        decode_responses=True,
+                        socket_timeout=2,
+                        socket_connect_timeout=2
+                    )
+                    print(f"✅ Backtesting API connected to Redis: {redis_host}:{redis_port}")
+                
                 cls._redis_client.ping()
-                print(f"✅ Backtesting API connected to Redis: {redis_host}:{redis_port}")
             except Exception as e:
                 print(f"⚠️ Redis unavailable ({e}), using in-memory fallback")
                 cls._use_fallback = True

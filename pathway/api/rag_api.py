@@ -33,6 +33,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
 import requests
+from langchain_mcp_adapters.client import MultiServerMCPClient
 
 import pathway as pw
 from pathway.stdlib.indexing.nearest_neighbors import BruteForceKnnFactory
@@ -249,9 +250,23 @@ def start_pathway_docstore():
         mode="streaming",
     ).select(data=pw.this.data, _metadata={})
 
+    openrouter_key = os.getenv("OPENROUTER_API_KEY")
+    
+    if openrouter_key:
+        print("⚠️ Using OpenRouter for embeddings (OPENAI_API_KEY not found)")
+        embedder_model = "openai/text-embedding-3-small"
+        embedder_api_key = openrouter_key
+        embedder_api_base = "https://openrouter.ai/api/v1"
+    else:
+        print("❌ No API key found for embeddings! Set OPENAI_API_KEY or OPENROUTER_API_KEY.")
+        embedder_model = "text-embedding-3-small"
+        embedder_api_key = ""
+        embedder_api_base = None
+
     embedder = LiteLLMEmbedder(
-        model="text-embedding-3-small",
-        api_key=os.getenv("OPENAI_API_KEY"),
+        model=embedder_model,
+        api_key=embedder_api_key,
+        api_base=embedder_api_base,
         capacity=5,
         retry_strategy=pw.udfs.ExponentialBackoffRetryStrategy(max_retries=3),
         cache_strategy=None,
@@ -272,9 +287,12 @@ def start_pathway_docstore():
     
     if ADAPTIVE_RAG_ENABLED:
         # Use LiteLLMChat for Pathway's native adaptive RAG
+        # Prefer OpenRouter key if base is OpenRouter
+        adaptive_api_key = os.getenv("OPENROUTER_API_KEY")
+        
         adaptive_llm = LiteLLMChat(
             model="gpt-4o-mini",
-            api_key=os.getenv("OPENAI_API_KEY"),
+            api_key=adaptive_api_key,
             api_base="https://openrouter.ai/api/v1",
             temperature=0,
         )
@@ -426,8 +444,7 @@ def retrieve_with_adaptive_rag(query: str, use_rerank: bool = True) -> dict:
         
         # Apply reranking to context docs if enabled
         if use_rerank and RERANK_ENABLED and result.get("context_docs"):
-            docs = result["context_docs"]
-            reranked = rerank_documents(query, docs, top_n=len(docs))
+            reranked = rerank_documents(query, result["context_docs"], top_n=len(result["context_docs"]))
             result["context_docs"] = reranked
             result["reranked"] = True
         
@@ -437,9 +454,45 @@ def retrieve_with_adaptive_rag(query: str, use_rerank: bool = True) -> dict:
         return {"response": str(e), "context_docs": []}
 
 
-def retrieve_from_pathway(query: str, k: int = 5, use_rerank: bool = True) -> list:
+# ==================== MCP Client Setup ====================
+
+_mcp_client = None
+
+async def get_mcp_client():
+    """Get or initialize the MCP client, waiting for server availability."""
+    global _mcp_client
+    if _mcp_client:
+        return _mcp_client
+        
+    print("🔌 Connecting to Pathway MCP server...")
+    
+    # Retry loop to wait for server startup
+    for i in range(10):
+        try:
+            client = MultiServerMCPClient({
+                "pathway": {
+                    "url": "http://127.0.0.1:8766/mcp/",
+                    "transport": "streamable_http",
+                }
+            })
+            # Test connection by fetching tools
+            await client.get_tools()
+            _mcp_client = client
+            print("✅ Connected to Pathway MCP server")
+            return _mcp_client
+        except Exception as e:
+            if i == 9:
+                print(f"❌ Failed to connect to MCP server: {e}")
+                raise
+            print(f"⏳ Waiting for MCP server (attempt {i+1}/10)...")
+            await asyncio.sleep(2)
+            
+    return _mcp_client
+
+
+async def retrieve_from_pathway(query: str, k: int = 5, use_rerank: bool = True) -> list:
     """
-    Central retrieval function - retrieves from Pathway and optionally reranks.
+    Central retrieval function - retrieves from Pathway via MCP and optionally reranks.
     Used by both agent tools and API endpoints.
     
     Strategy: Over-retrieve (k*2) then rerank to top k (like competitor's approach)
@@ -453,14 +506,50 @@ def retrieve_from_pathway(query: str, k: int = 5, use_rerank: bool = True) -> li
         List of document dicts with text and metadata
     """
     try:
-        url = "http://127.0.0.1:8765/v1/retrieve"
         # Over-retrieve if reranking (retrieve 2x, rerank to top k)
         retrieve_k = k * 2 if (use_rerank and RERANK_ENABLED) else k
         
-        r = requests.post(url, json={"query": query, "k": retrieve_k}, timeout=200)  # Increased timeout
-        r.raise_for_status()
-        results = r.json()
+        # Use MCP client to call the tool
+        client = await get_mcp_client()
         
+        # The tool name exposed by Pathway DocumentStore is typically 'retrieve'
+        # We need to find the correct tool name if it varies, but 'retrieve' is standard
+        # for DocumentStore.
+        
+        # Note: MultiServerMCPClient.call_tool might need specific arguments structure
+        # We'll use the client to find the tool and invoke it
+        tools = await client.get_tools()
+        
+        # Debug: Print available tools if retrieve is missing
+        retrieve_tool = next((t for t in tools if t.name == "retrieve"), None)
+        
+        if not retrieve_tool:
+            print(f"⚠️ 'retrieve' tool not found in MCP server. Available tools: {[t.name for t in tools]}")
+            # Fallback: Try to find any tool that looks like retrieval
+            retrieve_tool = next((t for t in tools if "retrieve" in t.name), None)
+            if retrieve_tool:
+                print(f"🔄 Using fallback tool: {retrieve_tool.name}")
+            else:
+                return []
+            
+        # Invoke the tool
+        # The tool returns a JSON string or list of docs depending on implementation
+        # Pathway DocumentStore 'retrieve' usually returns a list of dicts or string
+        # Let's assume it returns the standard list of results
+        
+        # Using invoke on the tool object
+        results_str = await retrieve_tool.ainvoke({"query": query, "k": retrieve_k})
+        
+        # Parse results if returned as string (common in MCP tools for LLMs)
+        if isinstance(results_str, str):
+            try:
+                results = json.loads(results_str)
+            except json.JSONDecodeError:
+                # If it's just text, wrap it
+                results = [{"text": results_str, "metadata": {}}]
+        else:
+            results = results_str
+            
         if not results:
             return []
         
@@ -477,7 +566,7 @@ def retrieve_from_pathway(query: str, k: int = 5, use_rerank: bool = True) -> li
 # ==================== MCP Tools ====================
 
 @tool
-def retrieve_documents(query: str, k: int = 5) -> str:
+async def retrieve_documents(query: str, k: int = 5) -> str:
     """
     Retrieve relevant financial documents from the Pathway knowledge base.
     Uses over-retrieval + Cohere reranking for better precision.
@@ -486,7 +575,7 @@ def retrieve_documents(query: str, k: int = 5) -> str:
         query: The search query to find relevant documents
         k: Number of documents to retrieve (default 5)
     """
-    results = retrieve_from_pathway(query, k=k, use_rerank=True)
+    results = await retrieve_from_pathway(query, k=k, use_rerank=True)
     
     if not results:
         return "No documents found for the query."
@@ -613,7 +702,7 @@ def agent_node(state: AgentState) -> AgentState:
         "iteration": state.get("iteration", 0)
     }
 
-def tool_node(state: AgentState) -> AgentState:
+async def tool_node(state: AgentState) -> AgentState:
     """Execute tools called by agent."""
     messages = state["messages"]
     last_message = messages[-1]
@@ -627,7 +716,8 @@ def tool_node(state: AgentState) -> AgentState:
         
         # Execute the appropriate tool
         if tool_name == "retrieve_documents":
-            result = retrieve_documents.invoke(tool_args)
+            # Use ainvoke for async tool
+            result = await retrieve_documents.ainvoke(tool_args)
             # Track retrieved content as context
             context_docs.append(Document(page_content=result, metadata={"source": "pathway_mcp"}))
         elif tool_name == "web_search":
@@ -812,7 +902,7 @@ def debug_stats():
 
 
 @router.get("/debug/retrieve")
-def debug_retrieve(q: str = "Apple", k: int = 5, rerank: bool = True):
+async def debug_retrieve(q: str = "Apple", k: int = 5, rerank: bool = True):
     """
     Debug endpoint to test retrieval directly.
     Uses centralized retrieve_from_pathway with optional reranking.
@@ -822,7 +912,7 @@ def debug_retrieve(q: str = "Apple", k: int = 5, rerank: bool = True):
         k: Number of results
         rerank: Enable/disable reranking (default True)
     """
-    results = retrieve_from_pathway(q, k=k, use_rerank=rerank)
+    results = await retrieve_from_pathway(q, k=k, use_rerank=rerank)
     return {
         "query": q,
         "count": len(results),
@@ -1095,11 +1185,11 @@ def parse_file_with_landingai(file_path: Path, symbol: str) -> List[dict]:
 async def ingest_file(
     file: UploadFile = File(...),
     symbol: str = Form(default="UNKNOWN"),
-    parser: str = Form(default="landingai")  # hidden option: "unstructured"
+    parser: str = Form(default="unstructured")  # options: "unstructured" (default) or "landingai"
 ):
     """
     Upload and parse a PDF or image file into the vector store.
-    Uses LandingAI ADE (primary) with Unstructured API fallback.
+    Uses Unstructured API (primary) with LandingAI ADE fallback.
     """
     # Validate file type
     allowed_extensions = {'.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.bmp'}
@@ -1126,26 +1216,26 @@ async def ingest_file(
     
     print(f"📁 Saved upload: {source_path}")
     
-    # Parse file - try primary parser, fallback to secondary
+    # Parse file - try primary parser (unstructured), fallback to landingai
     chunks = None
     used_parser = parser
     
-    if parser == "unstructured":
-        # Direct unstructured parsing
-        chunks = parse_file_with_unstructured(source_path, symbol)
+    if parser == "landingai":
+        # Direct landingai parsing
+        chunks = parse_file_with_landingai(source_path, symbol)
     else:
-        # Try LandingAI first, fallback to Unstructured
+        # Try Unstructured first (default), fallback to LandingAI
         try:
-            chunks = parse_file_with_landingai(source_path, symbol)
-            used_parser = "landingai"
+            chunks = parse_file_with_unstructured(source_path, symbol)
+            used_parser = "unstructured"
         except Exception as e:
-            print(f"⚠️ LandingAI failed: {e}, trying Unstructured fallback...")
+            print(f"⚠️ Unstructured failed: {e}, trying LandingAI fallback...")
             try:
-                chunks = parse_file_with_unstructured(source_path, symbol)
-                used_parser = "unstructured"
+                chunks = parse_file_with_landingai(source_path, symbol)
+                used_parser = "landingai"
             except Exception as e2:
                 source_path.unlink()
-                raise HTTPException(status_code=500, detail=f"All parsers failed. LandingAI: {e}, Unstructured: {e2}")
+                raise HTTPException(status_code=500, detail=f"All parsers failed. Unstructured: {e}, LandingAI: {e2}")
     
     if not chunks:
         source_path.unlink()

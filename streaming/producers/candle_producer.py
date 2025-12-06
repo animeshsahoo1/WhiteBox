@@ -22,11 +22,13 @@ import os
 import sys
 import json
 import time
+import ssl
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
 
 import pandas as pd
+import redis
 
 # Add parent for utils
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -66,37 +68,76 @@ INTERVAL_MAX_PERIOD = {
 # Valid intervals
 VALID_INTERVALS = list(INTERVAL_MAX_PERIOD.keys())
 
-# State file path - in mounted data directory for persistence
-STATE_FILE_PATH = Path(__file__).parent.parent / "data" / "candle_state.json"
+# Redis state key prefix
+REDIS_STATE_KEY = "candle_producer:state"
+
+# Redis connection (lazy loaded)
+_redis_client = None
+
+
+def get_redis_client() -> Optional[redis.Redis]:
+    """Get Redis client from REDIS_URL, prioritizing Upstash"""
+    global _redis_client
+    if _redis_client is not None:
+        return _redis_client
+    
+    try:
+        redis_url = os.getenv("REDIS_URL")
+        if redis_url:
+            if redis_url.startswith("rediss://"):
+                _redis_client = redis.Redis.from_url(
+                    redis_url,
+                    decode_responses=True,
+                    ssl_cert_reqs=ssl.CERT_NONE
+                )
+            else:
+                _redis_client = redis.Redis.from_url(redis_url, decode_responses=True)
+            _redis_client.ping()
+            print("✅ Connected to Upstash Redis for state management")
+        else:
+            print("⚠️ REDIS_URL not set - state persistence disabled")
+    except Exception as e:
+        print(f"⚠️ Redis connection failed: {e} - state persistence disabled")
+        _redis_client = None
+    
+    return _redis_client
 
 
 # ============================================================================
-# STATE MANAGEMENT
+# STATE MANAGEMENT (Redis-based)
 # ============================================================================
 
 def load_state() -> Dict[str, str]:
-    """Load last timestamps from state file. Key: 'symbol:interval' -> timestamp"""
-    if STATE_FILE_PATH.exists():
-        try:
-            with open(STATE_FILE_PATH, 'r') as f:
-                data = json.load(f)
-                return data.get('last_timestamps', {})
-        except Exception as e:
-            print(f"⚠️ Error loading state file: {e}")
+    """Load last timestamps from Redis. Key: 'symbol:interval' -> timestamp"""
+    redis_client = get_redis_client()
+    if not redis_client:
+        return {}
+    
+    try:
+        state_json = redis_client.get(REDIS_STATE_KEY)
+        if state_json:
+            data = json.loads(state_json)
+            return data.get('last_timestamps', {})
+    except Exception as e:
+        print(f"⚠️ Error loading state from Redis: {e}")
+    
     return {}
 
 
 def save_state(last_timestamps: Dict[str, str]) -> None:
-    """Save last timestamps to state file."""
+    """Save last timestamps to Redis."""
+    redis_client = get_redis_client()
+    if not redis_client:
+        return
+    
     try:
         data = {
             'last_timestamps': last_timestamps,
             'updated_at': datetime.now().isoformat()
         }
-        with open(STATE_FILE_PATH, 'w') as f:
-            json.dump(data, f, indent=2)
+        redis_client.set(REDIS_STATE_KEY, json.dumps(data))
     except Exception as e:
-        print(f"⚠️ Error saving state file: {e}")
+        print(f"⚠️ Error saving state to Redis: {e}")
 
 
 def get_state_key(symbol: str, interval: str) -> str:
