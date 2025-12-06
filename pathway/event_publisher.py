@@ -85,7 +85,7 @@ def publish_event(room_id: str, event_type: str, payload: Dict[str, Any]):
         print(f"⚠️ Failed to publish event to {channel}: {e}")
 
 
-def publish_agent_status(room_id: str, agent: str, status: str):
+def publish_agent_status(room_id: str, agent: str, status: str, **kwargs):
     """
     Helper function for simple status updates.
 
@@ -93,14 +93,18 @@ def publish_agent_status(room_id: str, agent: str, status: str):
         room_id: Room/channel ID
         agent: Agent name (e.g., "Bull Agent", "Analyst Agent")
         status: Status string (e.g., "RUNNING", "COMPLETED", "FAILED")
+        **kwargs: Additional fields to include in the payload
     """
+    payload = {
+        "agent": agent,
+        "status": status,
+    }
+    payload.update(kwargs)
+
     publish_event(
         room_id,
         event_type="agent_status",
-        payload={
-            "agent": agent,
-            "status": status,
-        },
+        payload=payload,
     )
 
 
@@ -254,17 +258,21 @@ def publish_graph_state(room_id: str, data: Dict[str, Any]):
         room_id: Room/channel ID
         data: Dict containing current_node, current_speaker, round, etc.
     """
+    # Default values for debate graph
     payload = {
-        "symbol": data.get("symbol", ""),
-        "current_node": data.get("current_node", ""),
-        "current_speaker": data.get("current_speaker", ""),
-        "round": data.get("round", 0),
-        "total_points": data.get("total_points", 0),
-        "nodes": data.get("nodes", []),
-        "active_node": data.get("active_node", ""),
-        "edges": data.get("edges", []),
+        "symbol": "",
+        "current_node": "",
+        "current_speaker": "",
+        "round": 0,
+        "total_points": 0,
+        "nodes": [],
+        "active_node": "",
+        "edges": [],
         "timestamp": datetime.utcnow().isoformat(),
     }
+    # Update with provided data (allows new fields like tool_names to pass through)
+    payload.update(data)
+    
     publish_event(room_id, event_type="graph_state", payload=payload)
 
 

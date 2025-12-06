@@ -32,7 +32,7 @@ try:
     from .drift_api import router as drift_router
     from .backtesting_api import router as backtesting_router, initialize_embeddings
     from .workflow_api import router as workflow_router
-    from .strategist_api import router as strategist_router
+    from .chat_api import router as chat_router
 except ImportError:
     from api.historical_analysis_api import router as historical_router
     from api.rag_api import router as rag_router
@@ -43,7 +43,7 @@ except ImportError:
     from api.drift_api import router as drift_router
     from api.backtesting_api import router as backtesting_router, initialize_embeddings
     from api.workflow_api import router as workflow_router
-    from api.strategist_api import router as strategist_router
+    from api.chat_api import router as chat_router
 
 from contextlib import asynccontextmanager
 
@@ -98,7 +98,7 @@ app.include_router(news_router, tags=["News"])
 app.include_router(drift_router, tags=["Drift Detection"])
 app.include_router(backtesting_router, tags=["Backtesting"])
 app.include_router(workflow_router, tags=["Workflow"])
-app.include_router(strategist_router)  # Tags defined in router
+app.include_router(chat_router)  # Tags defined in router
 
 
 # =============================================================================
@@ -140,14 +140,13 @@ async def root():
             "GET /drift/stats": "Get drift detection statistics",
             "POST /drift/analyze": "Analyze historical data for drift",
             "POST /drift/reset": "Reset drift detection state",
-            "# Strategist Agent (LangGraph + Mem0)": "---",
-            "GET /strategist/status": "Check if Strategist agent is ready",
-            "POST /strategist/chat": "Send message and get response",
-            "POST /strategist/chat/stream": "SSE streaming chat response",
-            "POST /strategist/new": "Start new conversation (preserves memories)",
-            "GET /strategist/memory/{user_id}": "Get user's stored memories",
-            "DELETE /strategist/memory/{user_id}": "Clear user memories",
-            "GET /strategist/threads/{user_id}": "Get current thread info",
+            "# Chat System (Multi-chat like ChatGPT)": "---",
+            "GET /chat/status": "Check if chat system is ready",
+            "POST /chat/new": "Create new chat session (returns room_id)",
+            "GET /chat/list": "List all chats with titles/timestamps",
+            "GET /chat/{room_id}": "Get full chat history",
+            "DELETE /chat/{room_id}": "Delete a chat",
+            "POST /chat/{room_id}": "Send message and get response",
             "Clusters": {
                 "/sentiment/clusters/{symbol}": "Sentiment clusters with overall score",
                 "/news/clusters/{symbol}": "News story clusters",

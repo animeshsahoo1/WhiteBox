@@ -152,23 +152,24 @@ async def load_mcp_tools():
 class AgentState(TypedDict):
     """State for the Strategist agent."""
     messages: Annotated[list, add_messages]
-    user_id: str
     memory_context: str
-    room_id: Optional[str]  # For event publishing
+    conversation_summary: str  # Summary of older messages
+    room_id: str  # Primary identifier for chat session
 
 
 # ============================================================================
 # MEMORY HELPERS
 # ============================================================================
 
-def get_memory_context(user_id: str, query: str) -> str:
-    """Retrieve relevant memories for the user."""
+def get_memory_context(query: str) -> str:
+    """Retrieve relevant memories (shared across all chats)."""
     mem = get_mem0()
     if not mem:
         return ""
     
     try:
-        results = mem.search(query, user_id=user_id, limit=5)
+        # Search without user_id - memories are global
+        results = mem.search(query, limit=5)
         
         if not results or not results.get("results"):
             return ""
@@ -178,14 +179,14 @@ def get_memory_context(user_id: str, query: str) -> str:
             return ""
         
         memory_text = "\n".join([f"- {m.get('memory', '')}" for m in memories])
-        return f"\n\nUser's relevant history and preferences:\n{memory_text}"
+        return f"\n\nRelevant learned insights:\n{memory_text}"
     except Exception as e:
         print(f"Memory retrieval error: {e}")
         return ""
 
 
-def save_to_memory(user_id: str, messages: list):
-    """Save conversation insights to memory."""
+def save_to_memory(messages: list):
+    """Save conversation insights to memory (global, no user_id)."""
     mem = get_mem0()
     if not mem:
         return
@@ -207,8 +208,8 @@ def save_to_memory(user_id: str, messages: list):
                     formatted.append({"role": "assistant", "content": content})
         
         if len(formatted) >= 2:
-            mem.add(formatted, user_id=user_id)
-            print(f"💾 Saved conversation to memory for user: {user_id}")
+            mem.add(formatted)  # Global memory, no user_id
+            print(f"💾 Saved conversation to global memory")
     except Exception as e:
         print(f"Memory save error: {e}")
 
@@ -340,9 +341,9 @@ async def create_strategist_agent():
     async def agent_node(state: AgentState) -> dict:
         """Main agent node that processes messages and decides actions."""
         
-        user_id = state.get("user_id", "default_user")
-        room_id = state.get("room_id")
+        room_id = state.get("room_id", "")
         messages = state["messages"]
+        conversation_summary = state.get("conversation_summary", "")
         
         # Publish agent thinking status
         if room_id:
@@ -356,12 +357,16 @@ async def create_strategist_agent():
                 last_user_msg = msg.content
                 break
         
-        # Retrieve memory context
-        memory_context = get_memory_context(user_id, last_user_msg)
+        # Retrieve memory context (global, no user_id)
+        memory_context = get_memory_context(last_user_msg)
         
-        # Build system prompt with memory
+        # Build system prompt with memory and conversation summary
+        summary_context = ""
+        if conversation_summary:
+            summary_context = f"\n\nPrevious conversation summary:\n{conversation_summary}"
+        
         system = SystemMessage(content=SYSTEM_PROMPT.format(
-            memory_context=memory_context,
+            memory_context=memory_context + summary_context,
             date=datetime.now().strftime("%Y-%m-%d")
         ))
         
@@ -380,11 +385,13 @@ async def create_strategist_agent():
         # Publish agent response status
         if room_id:
             has_tool_calls = hasattr(response, 'tool_calls') and response.tool_calls
+            tool_names = [tc.get('name') for tc in response.tool_calls] if has_tool_calls else []
             publish_graph_state(room_id, {
                 "node": "agent",
                 "status": "COMPLETED",
                 "has_tool_calls": has_tool_calls,
                 "tool_count": len(response.tool_calls) if has_tool_calls else 0,
+                "tool_names": tool_names,
                 "timestamp": datetime.now().isoformat()
             })
         
@@ -404,8 +411,7 @@ async def create_strategist_agent():
     # Save memory node
     async def save_memory_node(state: AgentState) -> dict:
         """Save conversation to memory before ending."""
-        user_id = state.get("user_id", "default_user")
-        room_id = state.get("room_id")
+        room_id = state.get("room_id", "")
         
         # Publish saving memory status
         if room_id:
@@ -415,7 +421,7 @@ async def create_strategist_agent():
                 "timestamp": datetime.now().isoformat()
             })
         
-        save_to_memory(user_id, state["messages"])
+        save_to_memory(state["messages"])
         
         # Publish completion status
         if room_id:
@@ -468,7 +474,6 @@ class Strategist:
     def __init__(self):
         self.graph = None
         self.mcp_client = None
-        self.thread_id = "default"
         self._initialized = False
     
     async def initialize(self):
@@ -479,14 +484,13 @@ class Strategist:
             self._initialized = True
             print("✅ Strategist ready!\n")
     
-    async def chat(self, message: str, user_id: str = "default_user", room_id: str = None) -> str:
+    async def chat(self, message: str, room_id: str = "") -> str:
         """
         Send a message to the agent and get a response.
         
         Args:
             message: User's message
-            user_id: Unique user identifier for memory
-            room_id: Optional room ID for event publishing
+            room_id: Chat room identifier (also used for thread_id)
         
         Returns:
             Agent's response
@@ -499,22 +503,37 @@ class Strategist:
             publish_agent_status(room_id, "orchestrator", "RUNNING",
                                  detail=f"Processing: {message[:100]}...")
         
+        # Get conversation context from chat store
+        conversation_summary = ""
+        history_messages = []
+        
+        if room_id:
+            try:
+                from orchestrator.chat_store import get_chat_store
+                store = get_chat_store()
+                conversation_summary, history_messages = store.get_context_for_agent(room_id)
+            except Exception as e:
+                print(f"⚠️ Could not load chat history: {e}")
+        
+        # Use room_id as thread_id for LangGraph checkpointing
         config = {
             "configurable": {
-                "thread_id": f"{user_id}_{self.thread_id}"
+                "thread_id": room_id if room_id else "default"
             }
         }
         
+        # Build messages: history + new message
+        all_messages = history_messages + [HumanMessage(content=message)]
+        
         input_state = {
-            "messages": [HumanMessage(content=message)],
-            "user_id": user_id,
+            "messages": all_messages,
             "memory_context": "",
+            "conversation_summary": conversation_summary,
             "room_id": room_id
         }
         
         try:
             # Run the graph with recursion limit to prevent infinite loops
-            # Each agent->tools->agent cycle = 2 steps, limit 10 tool calls = 20 steps
             result = await self.graph.ainvoke(
                 input_state, 
                 config=config,
@@ -535,78 +554,25 @@ class Strategist:
                                      detail=str(e))
             raise
     
-    async def stream_chat(self, message: str, user_id: str = "default_user", room_id: str = None):
-        """
-        Stream a response from the agent.
-        
-        Yields chunks of the response as they're generated.
-        """
-        if not self._initialized:
-            await self.initialize()
-        
-        # Publish start status
-        if room_id:
-            publish_agent_status(room_id, "orchestrator", "RUNNING",
-                                 detail=f"Streaming: {message[:100]}...")
-        
-        config = {
-            "configurable": {
-                "thread_id": f"{user_id}_{self.thread_id}"
-            }
-        }
-        
-        input_state = {
-            "messages": [HumanMessage(content=message)],
-            "user_id": user_id,
-            "memory_context": "",
-            "room_id": room_id
-        }
-        
-        try:
-            async for event in self.graph.astream_events(
-                input_state, 
-                config=config, 
-                version="v2"
-            ):
-                kind = event["event"]
-                if kind == "on_chat_model_stream":
-                    content = event["data"]["chunk"].content
-                    if content:
-                        yield content
-            
-            # Publish completion
-            if room_id:
-                publish_agent_status(room_id, "orchestrator", "COMPLETED",
-                                     detail="Streaming complete")
-        except Exception as e:
-            if room_id:
-                publish_agent_status(room_id, "orchestrator", "FAILED",
-                                     detail=str(e))
-            raise
-    
-    def new_conversation(self):
-        """Start a new conversation thread."""
-        self.thread_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
-    async def get_user_memories(self, user_id: str) -> List[dict]:
-        """Get all memories for a user."""
+    async def get_all_memories(self) -> List[dict]:
+        """Get all memories (global, no user_id)."""
         mem = get_mem0()
         if not mem:
             return []
         
         try:
-            result = mem.get_all(user_id=user_id)
+            result = mem.get_all()
             return result if isinstance(result, list) else []
         except Exception as e:
             print(f"Error getting memories: {e}")
             return []
     
-    async def clear_memories(self, user_id: str) -> bool:
-        """Clear all memories for a user."""
+    async def clear_all_memories(self) -> bool:
+        """Clear all memories (global)."""
         mem = get_mem0()
         if mem:
             try:
-                mem.delete_all(user_id=user_id)
+                mem.delete_all()
                 return True
             except Exception as e:
                 print(f"Error clearing memories: {e}")
@@ -624,9 +590,9 @@ async def interactive_chat():
     print("🤖 Strategist (LangGraph + Mem0 + MCP)")
     print("=" * 60)
     print("\nCommands:")
-    print("  /new     - Start new conversation")
-    print("  /memory  - Show your memories")
-    print("  /clear   - Clear your memories")
+    print("  /new     - Start new chat")
+    print("  /memory  - Show global memories")
+    print("  /clear   - Clear global memories")
     print("  /quit    - Exit")
     print("\n" + "=" * 60)
     
@@ -642,12 +608,11 @@ async def interactive_chat():
         print("  2. langchain-mcp-adapters is installed: pip install langchain-mcp-adapters")
         return
     
-    user_id = input("\nEnter your user ID (or press Enter for 'default'): ").strip()
-    if not user_id:
-        user_id = "default_user"
-    
-    print(f"\n👤 Logged in as: {user_id}")
-    print("💬 Start chatting! (Type your message and press Enter)\n")
+    # Create a chat room for this session
+    import uuid
+    room_id = str(uuid.uuid4())
+    print(f"\n💬 Chat room: {room_id[:8]}...")
+    print("Start chatting! (Type your message and press Enter)\n")
     
     while True:
         try:
@@ -662,13 +627,13 @@ async def interactive_chat():
                 break
             
             elif user_input.lower() == "/new":
-                agent.new_conversation()
-                print("\n🔄 Started new conversation\n")
+                room_id = str(uuid.uuid4())
+                print(f"\n🔄 Started new chat: {room_id[:8]}...\n")
                 continue
             
             elif user_input.lower() == "/memory":
-                print("\n📚 Your memories:")
-                memories = await agent.get_user_memories(user_id)
+                print("\n📚 Global memories:")
+                memories = await agent.get_all_memories()
                 if memories:
                     for i, mem in enumerate(memories, 1):
                         memory_text = mem.get('memory', 'N/A') if isinstance(mem, dict) else str(mem)
@@ -679,7 +644,7 @@ async def interactive_chat():
                 continue
             
             elif user_input.lower() == "/clear":
-                success = await agent.clear_memories(user_id)
+                success = await agent.clear_all_memories()
                 if success:
                     print("\n🗑️  Memories cleared\n")
                 else:
@@ -688,7 +653,7 @@ async def interactive_chat():
             
             # Get agent response
             print("\n🤔 Thinking...")
-            response = await agent.chat(user_input, user_id=user_id)
+            response = await agent.chat(user_input, room_id=room_id)
             print(f"\n🤖 Agent: {response}\n")
             
         except KeyboardInterrupt:
@@ -717,18 +682,22 @@ async def test_agent():
         print("  2. Install: pip install langchain-mcp-adapters langgraph langchain-openai")
         return
     
+    # Create test room
+    import uuid
+    room_id = str(uuid.uuid4())
+    
     # Test 1: List strategies
     print("\n" + "="*50)
     print("Test 1: Asking about strategies...")
     print("="*50)
-    response = await agent.chat("What trading strategies are available?", user_id="test_user")
+    response = await agent.chat("What trading strategies are available?", room_id=room_id)
     print(f"\nResponse:\n{response}\n")
     
-    # Test 2: Best strategy
+    # Test 2: Best strategy (same room - should have context)
     print("\n" + "="*50)
     print("Test 2: Finding best strategy...")
     print("="*50)
-    response = await agent.chat("What's the best strategy by Sharpe ratio?", user_id="test_user")
+    response = await agent.chat("What's the best strategy by Sharpe ratio?", room_id=room_id)
     print(f"\nResponse:\n{response}\n")
     
     print("\n✅ Tests complete!")
