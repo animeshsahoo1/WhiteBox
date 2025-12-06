@@ -141,6 +141,15 @@ def save_report_to_redis(symbol: str, report_type: str, content: str) -> bool:
         client.hset(symbol_key, report_type, entry)
         client.sadd(REPORT_SYMBOL_SET_KEY, symbol.upper())
         
+        # Set TTL if configured
+        ttl_env = os.getenv("REDIS_REPORT_TTL")
+        if ttl_env:
+            try:
+                ttl_val = int(ttl_env)
+                client.expire(symbol_key, ttl_val)
+            except ValueError:
+                pass
+
         # Read back to verify it was actually saved
         saved_data = client.hget(symbol_key, report_type)
         if not saved_data:
@@ -620,7 +629,7 @@ def get_report_observer(report_type: str) -> RedisReportObserver:
 
     else:
         ttl_env = os.getenv("REDIS_REPORT_TTL")
-        ttl_value = int(ttl_env) if ttl_env else None
+        ttl_value = int(ttl_env) if ttl_env else 3600  # Default 1 hour
         _observer_cache[report_type] = RedisReportObserver(report_type, ttl_value)
     return _observer_cache[report_type]
 
