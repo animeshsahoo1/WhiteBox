@@ -286,7 +286,7 @@ def publish_alert(
     reason: str,
     severity: str,
     redis_sync=None,  # Ignored - kept for backward compatibility
-    trigger_debate: bool = True
+    trigger_debate: bool = False
 ):
     """
     Legacy function - redirects to publish_alerts.
@@ -302,19 +302,6 @@ def publish_alert(
         "trigger_debate": trigger_debate,
     }
     publish_alerts(data, symbol)
-
-    # Trigger Bull-Bear debate if enabled
-    if trigger_debate:
-        bullbear_url = os.getenv("BULLBEAR_API_URL", "http://unified-api:8000")
-        try:
-            httpx.post(
-                f"{bullbear_url}/debate/{symbol}",
-                json={"max_rounds": 2, "background": True},
-                timeout=10.0
-            )
-            print(f"✅ [{symbol}] Bull-Bear debate triggered via alert ({alert_type})")
-        except Exception as e:
-            print(f"⚠️ [{symbol}] Failed to trigger Bull-Bear debate: {e}")
 
 
 if __name__ == "__main__":

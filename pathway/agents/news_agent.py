@@ -122,7 +122,7 @@ def trigger_news_alert(symbol: str, report: str, cluster_count: int):
                 alert_type="news",
                 reason=reason,
                 severity="high",
-                trigger_debate=True
+                trigger_debate=False
             )
             _news_alert_cooldowns[symbol] = now
         except Exception as e:

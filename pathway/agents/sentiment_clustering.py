@@ -98,7 +98,7 @@ def trigger_sentiment_alert(symbol: str, overall_sentiment: float):
                 alert_type="sentiment",
                 reason=reason,
                 severity=severity,
-                trigger_debate=True
+                trigger_debate=False
             )
             _sentiment_alert_cooldowns[symbol] = now
             print(f"✅ [{symbol}] Sentiment alert published at {now.isoformat()}")
@@ -524,14 +524,8 @@ def process_sentiment_clustering(
         
         # Publish COMPLETED status for clustering phase
         try:
-            publish_report(room_id, "Sentiment Agent", {
-                "symbol": symbol,
-                "report_type": "sentiment",
-                "overall_sentiment": round(overall_sentiment, 3),
-                "cluster_count": len(clusters_list),
-                "total_posts": total_posts,
-                "clusters": clusters_list  # Include cluster data for frontend
-            })
+            # Use the exact same result object that was stored in Redis
+            publish_report(room_id, "Sentiment Agent", result)
             publish_agent_status(room_id, "Sentiment Clustering Agent", "COMPLETED")
         except Exception as e:
             print(f"⚠️ [{symbol}] Failed to publish Sentiment Clustering Agent status: {e}")

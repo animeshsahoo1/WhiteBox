@@ -458,7 +458,7 @@ def trigger_drift_alert(symbol: str, drift_event: 'DriftEvent'):
             alert_type="drift",
             reason=reason,
             severity=severity_str,
-            trigger_debate=True
+            trigger_debate=False
         )
         _drift_alert_cooldowns[symbol] = now
         logger.info(f"✅ [{symbol}] Drift alert published at {now.isoformat()}")

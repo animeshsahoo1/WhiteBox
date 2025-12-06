@@ -233,7 +233,18 @@ ANALYSIS FRAMEWORK:
    • Invalidation: What reading kills the setup?
    • Confidence: HIGH (4-5 align) | MEDIUM (2-3 align) | LOW (conflicting)
 
-Output format: Direct, numbers-based, skip fluff."""
+Output format: JSON ONLY. No markdown formatting.
+Structure:
+{{
+  "rsi": [values],
+  "stochastic": {{ "k": [values], "d": [values] }},
+  "macd": {{ "line": [values], "signal": [values], "histogram": [values] }},
+  "roc": [values],
+  "williamsR": [values],
+  "momentumRegime": "NEUTRAL|OVERBOUGHT|OVERSOLD",
+  "alignmentScore": 0-5,
+  "raw": "Summary text here..."
+}}"""
             }
         ]
         
@@ -319,12 +330,17 @@ Neutral: Rectangle, Symmetrical Triangle, Expanding Triangle
                 "type": "text",
                 "text": f"""Analyze this candlestick chart for {stock_name} ({time_frame}).
 {pattern_definitions}
-PROVIDE:
-1. PATTERN IDENTIFIED: Name + completion status (%)
-2. STRUCTURE: Key levels forming the pattern
-3. RELIABILITY: Historical accuracy of this pattern (high/medium/low)
-4. PRICE TARGET: Expected move based on pattern measurement
-5. INVALIDATION: Level where pattern fails
+PROVIDE JSON OUTPUT ONLY. No markdown formatting.
+Structure:
+{{
+  "patternName": "Name of pattern",
+  "completionStatus": "Completed/Forming",
+  "resistanceLevel": "price",
+  "supportLevel": "price",
+  "priceTarget": "price",
+  "invalidation": "price",
+  "reliability": "High/Medium/Low"
+}}
 
 Focus on the most actionable pattern visible."""
             },
@@ -405,7 +421,19 @@ TREND FRAMEWORK:
 4. BREAKOUT RISK: Distance to nearest breakout/breakdown zone
 5. BIAS: Bullish/Bearish/Neutral for next 1-3 periods with confidence %
 
-Be precise with price levels."""
+PROVIDE JSON OUTPUT ONLY. No markdown formatting.
+Structure:
+{{
+  "primaryTrend": "UPTREND/DOWNTREND/RANGE",
+  "trendStrength": "Strong/Moderate/Weak",
+  "immediateResistance": "price",
+  "immediateSupport": "price",
+  "trendlineStatus": "Intact/Testing/Broken",
+  "slopeDynamics": "Positive/Negative/Flat",
+  "breakoutDistance": "percentage",
+  "bias": "Bullish/Bearish/Neutral",
+  "confidence": "High/Medium/Low"
+}}"""
             },
             {
                 "type": "image_url",
@@ -649,6 +677,7 @@ def _precompute_and_analyze(windowed_table: pw.Table, indicators: list = None) -
         Handles any data frequency: z second OHLCV data over y minute windows.
         """
         import base64
+        import re
         
         try:
             reports_dir = Path("./reports/market") / symbol
@@ -717,6 +746,49 @@ def _precompute_and_analyze(windowed_table: pw.Table, indicators: list = None) -
             with open(json_path, 'w') as f:
                 json.dump(data, f, indent=2)
             
+            # Helper to parse JSON from LLM output
+            def parse_llm_json(text):
+                if not text: return {}
+                try:
+                    # Remove markdown code blocks
+                    clean_text = re.sub(r'```json\s*', '', text)
+                    clean_text = re.sub(r'```\s*', '', clean_text)
+                    return json.loads(clean_text.strip())
+                except:
+                    return {"raw": text}
+
+            pattern_data = parse_llm_json(agent_results.get('pattern_report', '{}'))
+            trend_data = parse_llm_json(agent_results.get('trend_report', '{}'))
+            indicator_data = parse_llm_json(agent_results.get('indicator_report', '{}'))
+            
+            # Construct final JSON report matching user schema
+            final_report = {
+                "generated": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+                "period": f"{window_start} to {window_end}",
+                "dataPoints": len(kline_dict.get('Datetime', [])),
+                
+                "tradingDecision": {
+                    "decision": agent_results.get('final_trade_decision', 'HOLD'),
+                    "confidence": agent_results.get('confidence_score', 0)
+                },
+                
+                "patternAnalysis": pattern_data,
+                "trendAnalysis": trend_data,
+                "technicalIndicators": indicator_data,
+                
+                "chartImages": {
+                    "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+                    "baseUrl": str(images_dir.absolute()),
+                    "images": saved_plots + ([f"candlestick_{timestamp}.png"] if images_dict.get('pattern_image') else []) + ([f"trend_{timestamp}.png"] if images_dict.get('trend_image') else [])
+                }
+            }
+            
+            # Save JSON report
+            report_path = reports_subdir / f"market_report_{timestamp}.json"
+            with open(report_path, 'w') as f:
+                json.dump(final_report, f, indent=2)
+            print(f"✅ Saved JSON report: {report_path}")
+
             # Generate comprehensive markdown report WITHOUT embedded images
             comprehensive_report_path = reports_subdir / f"comprehensive_analysis_{timestamp}.md"
             comprehensive_content = f"""# 📊 Comprehensive Market Analysis: {symbol}
@@ -730,17 +802,23 @@ def _precompute_and_analyze(windowed_table: pw.Table, indicators: list = None) -
 ## 📈 Price Action & Patterns
 
 **Pattern Agent Analysis:**
+```json
 {agent_results.get('pattern_report', 'No analysis available')}
+```
 
 **Trend Agent Analysis:**
+```json
 {agent_results.get('trend_report', 'No analysis available')}
+```
 
 ---
 
 ## 📊 Technical Indicators
 
 ### Indicator Agent Analysis
+```json
 {agent_results.get('indicator_report', 'No analysis available')}
+```
 
 ---
 
@@ -787,7 +865,8 @@ The following chart images have been saved separately:
             # Save to Redis for API caching
             if save_report_to_redis:
                 try:
-                    save_report_to_redis(symbol, "market", comprehensive_content)
+                    # Save the JSON report structure instead of Markdown
+                    save_report_to_redis(symbol, "market", json.dumps(final_report))
                 except Exception as e:
                     print(f"⚠️ [{symbol}] Failed to cache market report to Redis: {e}")
             
@@ -859,7 +938,7 @@ The following chart images have been saved separately:
                         "confidence": agent_results.get('confidence_score', 0.5),
                         "window_start": str(window_start),
                         "window_end": str(window_end),
-                        "report_content": comprehensive_content
+                        "report_content": final_report
                     })
                     publish_agent_status(room_id, "Market Agent", "COMPLETED")
             except Exception as e:
