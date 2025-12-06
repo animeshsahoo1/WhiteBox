@@ -120,6 +120,8 @@ def save_report_to_redis(symbol: str, report_type: str, content: str) -> bool:
         client = get_redis_client()
         symbol_key = _build_symbol_key(symbol.upper())
         
+        print(f"🔍 [REDIS] Saving {report_type} for {symbol} to key: {symbol_key}, content length: {len(content)}")
+        
         entry = {
             "symbol": symbol.upper(),
             "report_type": report_type,
@@ -128,14 +130,16 @@ def save_report_to_redis(symbol: str, report_type: str, content: str) -> bool:
             "received_at": datetime.utcnow().isoformat(),
         }
         
-        client.hset(symbol_key, report_type, json.dumps(entry))
+        result = client.hset(symbol_key, report_type, json.dumps(entry))
         client.sadd(REPORT_SYMBOL_SET_KEY, symbol.upper())
         
-        print(f"✅ [REDIS] Cached {report_type} report for {symbol}")
+        print(f"✅ [REDIS] Cached {report_type} report for {symbol} (hset result: {result})")
         return True
         
     except Exception as e:
         print(f"❌ Failed to cache report to Redis: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 

@@ -41,7 +41,7 @@ CLUSTERS_INPUT_DIR = os.getenv("SENTIMENT_CLUSTERS_DIR", "/app/reports/sentiment
 
 # Report generation interval in seconds (default: 5 minutes)
 # Reports will only be generated at most once per interval per symbol
-REPORT_GENERATION_INTERVAL = int(os.getenv("REPORT_GENERATION_INTERVAL", "100"))
+REPORT_GENERATION_INTERVAL = int(os.getenv("REPORT_GENERATION_INTERVAL", "300"))
 
 # Track last report generation time per symbol
 _last_report_time: dict[str, float] = {}
@@ -425,7 +425,12 @@ def process_sentiment_reports(
             
             # Save to Redis for API caching (this is what report_fetch_api reads!)
             try:
-                save_report_to_redis(symbol, "sentiment", new_report)
+                print(f"🔍 [{symbol}] Attempting to save sentiment report to Redis (length: {len(new_report)} chars)")
+                result = save_report_to_redis(symbol, "sentiment", new_report)
+                if not result:
+                    print(f"⚠️ [{symbol}] save_report_to_redis returned False!")
+                else:
+                    print(f"✅ [{symbol}] save_report_to_redis returned True")
             except Exception as e:
                 print(f"⚠️ [{symbol}] Failed to cache sentiment report to Redis: {e}")
             

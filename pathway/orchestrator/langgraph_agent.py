@@ -385,11 +385,13 @@ async def create_strategist_agent():
         # Publish agent response status
         if room_id:
             has_tool_calls = hasattr(response, 'tool_calls') and response.tool_calls
+            tool_names = [tc.get('name') for tc in response.tool_calls] if has_tool_calls else []
             publish_graph_state(room_id, {
                 "node": "agent",
                 "status": "COMPLETED",
                 "has_tool_calls": has_tool_calls,
                 "tool_count": len(response.tool_calls) if has_tool_calls else 0,
+                "tool_names": tool_names,
                 "timestamp": datetime.now().isoformat()
             })
         

@@ -274,9 +274,11 @@ class ChatStore:
             # Save updated summary
             self.redis.set(f"{CHAT_SUMMARY_PREFIX}{room_id}", new_summary)
             
-            # Remove summarized messages from list
+            # Remove summarized messages from list (batched with pipeline)
+            pipe = self.redis.pipeline()
             for _ in range(SUMMARIZE_BATCH):
-                self.redis.lpop(f"{CHAT_MESSAGES_PREFIX}{room_id}")
+                pipe.lpop(f"{CHAT_MESSAGES_PREFIX}{room_id}")
+            pipe.execute()
             
             print(f"📝 Summarized {SUMMARIZE_BATCH} messages for chat {room_id[:8]}...")
             
