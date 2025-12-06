@@ -170,12 +170,13 @@ class MarketDataProducer(BaseProducer):
         self.historical_sent = True
     
     def _send_message(self, message: Dict[str, Any]):
-        """Send a message to Kafka."""
+        """Send a message to Kafka using singleton producer."""
         try:
-            if get_kafka_producer and send_to_kafka:
-                producer = get_kafka_producer()
-                if producer:
-                    send_to_kafka(producer, self.kafka_topic, message)
+            # === OPTIMIZATION: Use singleton producer from kafka_utils ===
+            from utils.kafka_utils import get_kafka_producer, send_to_kafka
+            producer = get_kafka_producer()
+            if producer:
+                send_to_kafka(producer, self.kafka_topic, message, silent=True)
         except Exception as e:
             print(f"  ⚠️ Kafka send error: {e}")
     

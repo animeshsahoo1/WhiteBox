@@ -193,8 +193,25 @@ def get_news_knowledge_base(kb_dir: str = "/app/knowledge_base") -> NewsKnowledg
     return _news_kb
 
 
+# Embedding cache - LRU cache to avoid redundant API calls
+_news_embedding_cache = {}
+_NEWS_EMBEDDING_CACHE_MAX_SIZE = 500
+
+
 def get_embedding(text: str) -> list:
-    """Generate embedding using OpenRouter."""
+    """Generate embedding using OpenRouter with caching.
+    
+    Uses LRU cache to avoid redundant API calls for identical text.
+    """
+    import hashlib
+    
+    # Create cache key from text hash
+    cache_key = hashlib.md5(text[:500].encode()).hexdigest()
+    
+    # Check cache first
+    if cache_key in _news_embedding_cache:
+        return _news_embedding_cache[cache_key]
+    
     try:
         response = litellm.embedding(
             model="openai/text-embedding-3-small",
@@ -202,8 +219,18 @@ def get_embedding(text: str) -> list:
             api_key=os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY"),
             api_base="https://openrouter.ai/api/v1"
         )
-        return response.data[0]['embedding']
-    except Exception:
+        embedding = response.data[0]['embedding']
+        
+        # Add to cache (evict oldest if full)
+        if len(_news_embedding_cache) >= _NEWS_EMBEDDING_CACHE_MAX_SIZE:
+            oldest_key = next(iter(_news_embedding_cache))
+            del _news_embedding_cache[oldest_key]
+        
+        _news_embedding_cache[cache_key] = embedding
+        return embedding
+        
+    except Exception as e:
+        print(f"⚠️ News embedding API error: {e}")
         return [0.0] * EMBEDDING_DIMENSIONS
 
 
@@ -264,13 +291,17 @@ class NewsClusterManager:
 Related headlines:
 {titles}
 
-Combine into ONE punchy headline (max 10 words) that captures the core story. Use active voice, be specific."""
+Combine into ONE punchy headline (max 10 words) that captures the core story. Use active voice, be specific.
+
+Write ONLY the headline, nothing else."""
         
         if self.has_valid_api_key:
             response = self.call_llm_sync([{"role": "user", "content": prompt}])
             if response:
-                return response.strip().strip('"\'')
-        return articles[0].get('title', f"Developing story about {company}")
+                # Strip quotes/whitespace and limit length
+                headline = response.strip().strip('"\'')
+                return headline[:100]  # Hard limit to prevent runaway responses
+        return articles[0].get('title', f"Developing story about {company}")[:100]
 
     def create_report_prompt(self, symbol: str, current_report: str, story_clusters: list) -> list[dict]:
         company = self.symbol_mapping.get(symbol, symbol)
@@ -377,12 +408,22 @@ def process_news_stream(
         if state is None:
             state = {
                 'clusters': {},
-                'article_hashes': [],
+                'dedup_cache': {},  # FIXED: hash -> timestamp (was unbounded list)
                 'next_cluster_id': 1
             }
         
-        # Convert article_hashes from list to set for O(1) lookup
-        article_hashes = set(state.get('article_hashes', []))
+        # MEMORY OPTIMIZATION: Use dict with timestamps for TTL-based pruning
+        dedup_cache = state.get('dedup_cache', {})
+        # Migration: convert old article_hashes list to dict if present
+        if 'article_hashes' in state and isinstance(state.get('article_hashes'), list):
+            old_hashes = state.get('article_hashes', [])
+            now_iso = datetime.now(timezone.utc).isoformat()
+            for h in old_hashes:
+                if h not in dedup_cache:
+                    dedup_cache[h] = now_iso
+            if 'article_hashes' in state:
+                del state['article_hashes']
+        
         clusters = state.get('clusters', {})
         now_iso = datetime.now(timezone.utc).isoformat()
 
@@ -403,10 +444,10 @@ def process_news_stream(
             article_link = url if url else None
             article_hash = hashlib.md5(f"{symbol}:{title}:{timestamp}".encode()).hexdigest()
             
-            # Skip duplicates
-            if article_hash in article_hashes:
+            # Skip duplicates - use dedup_cache with timestamp
+            if article_hash in dedup_cache:
                 continue
-            article_hashes.add(article_hash)
+            dedup_cache[article_hash] = now_iso  # Store timestamp for TTL pruning
             
             # Find best matching cluster using centroid similarity
             best_cluster_id = None
@@ -489,8 +530,16 @@ def process_news_stream(
         for cid in to_remove:
             del clusters[cid]
         
+        # MEMORY OPTIMIZATION: Prune old hashes from dedup_cache
+        # Remove hashes older than CLUSTER_EXPIRY_HOURS to prevent infinite memory growth
+        from datetime import timedelta
+        cleanup_threshold = (now - timedelta(hours=CLUSTER_EXPIRY_HOURS)).isoformat()
+        keys_to_remove = [k for k, v in dedup_cache.items() if v < cleanup_threshold]
+        for k in keys_to_remove:
+            del dedup_cache[k]
+        
         state['clusters'] = clusters
-        state['article_hashes'] = list(article_hashes)  # Convert back to list for JSON
+        state['dedup_cache'] = dedup_cache  # FIXED: was article_hashes
         return state
 
     clustered_table = enriched_table.groupby(pw.this.symbol).reduce(

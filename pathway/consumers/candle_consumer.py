@@ -9,6 +9,8 @@ class CandleConsumer(BaseConsumer):
     Consumes candles produced by candle_producer in streaming folder.
     Used by the backtesting pipeline.
     
+    IMPORTANT: Uses from_beginning=True because backtesting needs historical data.
+    
     Message format from producer:
     {
         "data": {
@@ -27,7 +29,12 @@ class CandleConsumer(BaseConsumer):
     """
     
     def __init__(self, topic_name: str = "candles"):
-        super().__init__(topic_name=topic_name, consumer_group_id="pathway-backtester")
+        # BACKTESTING: Use from_beginning=True to replay all historical candles
+        super().__init__(
+            topic_name=topic_name, 
+            consumer_group_id="pathway-backtester",
+            from_beginning=True  # Required for backtesting - need all historical data
+        )
     
     def get_output_schema(self):
         """Extract candle fields from the wrapped data structure."""

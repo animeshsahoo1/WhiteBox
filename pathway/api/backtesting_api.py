@@ -1015,16 +1015,17 @@ async def initialize_embeddings():
     if OPENROUTER_API_KEY:
         embeddings = load_embeddings()
         new_embeddings = 0
+        updated_descriptions = 0
         
         for filepath in strategies:
             name = filepath.stem
+            code = filepath.read_text()
+            # Extract description from docstring or comments (cleaned format)
+            description = _extract_description(name, code)
+            
             if name not in embeddings:
-                code = filepath.read_text()
-                # Extract description from docstring or comments
-                description = _extract_description(name, code)
-                
                 print(f"  📊 Generating embedding for: {name}")
-                print(f"     Description: {description[:60]}...")
+                print(f"     Description: {description[:80]}...")
                 
                 embedding = await get_embedding(f"{name}: {description}")
                 if embedding:
@@ -1033,10 +1034,17 @@ async def initialize_embeddings():
                     print(f"  ✅ Embedded: {name}")
                 else:
                     print(f"  ⚠️ Failed to embed: {name}")
+            else:
+                # Update description if it has changed (e.g., after format fix)
+                existing_desc = embeddings[name].get("description", "")
+                if existing_desc != description:
+                    embeddings[name]["description"] = description
+                    updated_descriptions += 1
+                    print(f"  🔄 Updated description for: {name}")
         
-        if new_embeddings > 0:
+        if new_embeddings > 0 or updated_descriptions > 0:
             save_embeddings(embeddings)
-            print(f"  💾 Saved {new_embeddings} new embeddings to Redis")
+            print(f"  💾 Saved {new_embeddings} new embeddings, {updated_descriptions} updated descriptions")
         
         print(f"  📚 Total embeddings: {len(embeddings)}")
     else:
@@ -1055,10 +1063,10 @@ def _extract_description(name: str, code: str) -> str:
             start = code.index('"""') + 3
             end = code.index('"""', start)
             docstring = code[start:end].strip()
-            # Get first paragraph of docstring
-            description = docstring.split('\n\n')[0].replace('\n', ' ').strip()
-            if len(description) > 200:
-                description = description[:200] + "..."
+            # Clean up each line (remove leading/trailing whitespace) but preserve structure
+            lines = [line.strip() for line in docstring.split('\n')]
+            # Remove empty lines at start/end, but keep internal structure
+            description = '\n'.join(lines)
         except:
             pass
     elif "'''" in code:
@@ -1066,9 +1074,9 @@ def _extract_description(name: str, code: str) -> str:
             start = code.index("'''") + 3
             end = code.index("'''", start)
             docstring = code[start:end].strip()
-            description = docstring.split('\n\n')[0].replace('\n', ' ').strip()
-            if len(description) > 200:
-                description = description[:200] + "..."
+            # Clean up each line but preserve structure
+            lines = [line.strip() for line in docstring.split('\n')]
+            description = '\n'.join(lines)
         except:
             pass
     else:

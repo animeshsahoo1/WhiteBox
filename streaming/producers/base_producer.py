@@ -283,6 +283,9 @@ class BaseProducer(ABC):
         # Print source status summary
         self._print_source_status()
         
+        # === OPTIMIZATION: Collect all data first, then batch send ===
+        all_data = []
+        
         for stock in self.stocks:
             try:
                 data = self.fetch_data_with_fallback(stock)
@@ -290,18 +293,28 @@ class BaseProducer(ABC):
                 if data:
                     # Handle both single items and lists
                     if isinstance(data, list):
-                        for item in data:
-                            send_to_kafka(self.producer, self.kafka_topic, item)
-                            time.sleep(0.1)  # Small delay between items
-                        print(f"  ✅ [{stock}] Sent {len(data)} items to Kafka")
+                        all_data.extend(data)
+                        print(f"  ✅ [{stock}] Fetched {len(data)} items")
                     else:
-                        send_to_kafka(self.producer, self.kafka_topic, data)
-                        print(f"  ✅ [{stock}] Sent to Kafka")
+                        all_data.append(data)
+                        print(f"  ✅ [{stock}] Fetched 1 item")
                 
-                time.sleep(0.5)  # Rate limiting between stocks
+                # === OPTIMIZATION: Reduced delay between stocks (0.5s -> 0.1s) ===
+                time.sleep(0.1)
                 
             except Exception as e:
                 print(f"  ❌ [{stock}] Processing error: {e}")
+        
+        # === OPTIMIZATION: Batch send all data at once ===
+        if all_data:
+            try:
+                from utils.kafka_utils import send_batch_to_kafka
+                sent = send_batch_to_kafka(self.producer, self.kafka_topic, all_data)
+                print(f"  📤 Batch sent {sent}/{len(all_data)} items to Kafka")
+            except ImportError:
+                # Fallback to individual sends
+                for item in all_data:
+                    send_to_kafka(self.producer, self.kafka_topic, item)
         
         # Print summary
         self._print_fetch_summary()

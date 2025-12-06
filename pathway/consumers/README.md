@@ -269,11 +269,11 @@ pw.run()
 ### Verify Consumer Group
 
 ```bash
-# Check consumer group status
+# Check consumer group status (use localhost:29092 inside kafka container)
 docker exec kafka kafka-consumer-groups \
     --describe \
     --group pathway-market-consumer \
-    --bootstrap-server localhost:9092
+    --bootstrap-server localhost:29092
 
 # Expected output:
 # TOPIC           PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG
@@ -287,7 +287,7 @@ docker exec kafka kafka-consumer-groups \
 docker exec kafka kafka-consumer-groups \
     --describe \
     --all-groups \
-    --bootstrap-server localhost:9092
+    --bootstrap-server localhost:29092
 ```
 
 ## 📝 Creating New Consumer

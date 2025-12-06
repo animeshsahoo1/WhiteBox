@@ -61,7 +61,7 @@ def main():
     pw.io.csv.write(updated_news_reports, output_path)
     print(f"📝 Writing reports stream to CSV: {output_path}")
 
-    # Enable Pathway persistence for news clustering state
+    # Optimized persistence for news clustering
     persistence_path = os.path.join(os.path.dirname(__file__), "pathway_state")
     os.makedirs(persistence_path, exist_ok=True)
     print(f"💾 Persistence enabled at: {persistence_path}")
@@ -77,8 +77,9 @@ def main():
     pw.run(
         persistence_config=pw.persistence.Config.simple_config(
             pw.persistence.Backend.filesystem(persistence_path),
-            snapshot_interval_ms=60000  # Snapshot every 60 seconds
-        )
+            snapshot_interval_ms=30000  # Snapshot every 30 seconds
+        ),
+        monitoring_level=pw.MonitoringLevel.NONE  # Disable monitoring overhead
     )
 
 if __name__ == "__main__":

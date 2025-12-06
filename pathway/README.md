@@ -334,58 +334,146 @@ revenue_growth, earnings_growth
 - Growth outlook
 - Investment thesis
 
-### 5. Backtesting Pipeline (O(1) Incremental)
+### 5. Backtesting Pipeline (O(1) Incremental, Multi-Symbol × Multi-Interval)
 
 **Consumer**: `candle_consumer.py`  
 **Library**: `backtesting_lib/`  
 **Entry Point**: `main_backtesting.py`
 
-**Process Flow**:
+**Architecture**:
 ```
-Kafka (candles) → CandleConsumer → Strategy Evaluation → 
-Trading Reducer (O(1)) → Metrics Calculation → Redis Cache
+                              ┌──────────────────┐
+                              │  Candle Producer │
+                              │  (yfinance API)  │
+                              └────────┬─────────┘
+                                       │ OHLCV × N symbols × M intervals
+                                       ▼
+                              ┌──────────────────┐
+                              │  Kafka (candles) │
+                              └────────┬─────────┘
+                                       │
+       ┌───────────────────────────────┼───────────────────────────────┐
+       │                    PATHWAY PIPELINE                           │
+       │                                                               │
+       │   ┌─────────────┐              ┌─────────────┐                │
+       │   │   Candles   │              │  Strategies │                │
+       │   │   Stream    │              │    Files    │                │
+       │   │             │              │             │                │
+       │   │ symbol      │              │ name        │                │
+       │   │ interval    │◄────JOIN────►│ interval    │                │
+       │   │ O,H,L,C,V   │  (interval)  │ lookback    │                │
+       │   └──────┬──────┘              │ code        │                │
+       │          │                     └─────────────┘                │
+       │          ▼                                                    │
+       │   ┌─────────────────────────────────────────┐                 │
+       │   │  GROUPBY (strategy, symbol) + REDUCE    │                 │
+       │   │                                         │                 │
+       │   │  Per candle (O(1)):                     │                 │
+       │   │  1. Filter by lookback window           │                 │
+       │   │  2. Compute indicators                  │                 │
+       │   │  3. Execute strategy → signal           │                 │
+       │   │  4. T+1 order execution                 │                 │
+       │   │  5. Update position & metrics           │                 │
+       │   └────────────────┬────────────────────────┘                 │
+       │                    │                                          │
+       └────────────────────┼──────────────────────────────────────────┘
+                            │
+                            ▼
+       ┌────────────────────────────────────────────────────────────────┐
+       │                                                                │
+       │   ┌──────────┐      pub/sub      ┌───────────────┐            │
+       │   │  Redis   │◄─────────────────►│   WebSocket   │            │
+       │   │  Cache   │                   │   /ws/backtest│            │
+       │   └────┬─────┘                   └───────────────┘            │
+       │        │                                                       │
+       │        ▼                                                       │
+       │   ┌──────────────────────────────────────────────┐            │
+       │   │  FastAPI /backtesting/*                      │            │
+       │   │  • GET /metrics - all strategy metrics       │            │
+       │   │  • GET /strategies - list with descriptions  │            │
+       │   │  • POST /strategies - LLM-generated create   │            │
+       │   │  • POST /strategies/search - semantic search │            │
+       │   └──────────────────────────────────────────────┘            │
+       │                                                                │
+       └────────────────────────────────────────────────────────────────┘
 ```
 
-**Key Innovation**: Unlike traditional backtesting that reprocesses all historical data on each update, our system uses **Pathway reducers** to maintain incremental state, achieving O(1) complexity per candle.
+**Execution Model**: Signal at bar N close → Execute at bar N+1 open (T+1, no look-ahead bias)
 
 **Features**:
-- **T+1 Execution**: Signal generated at bar N close, executed at bar N+1 open (no look-ahead bias)
+- **Multi-Symbol × Multi-Interval**: Run strategies across AAPL, GOOGL, etc. on 1m, 1h, 1d intervals simultaneously
+- **Interval Matching**: Strategies specify their target interval in header; pipeline joins candles with matching strategies
+- **Lookback Filtering**: Only backtest on data within the strategy's lookback period (7d, 1mo, 3mo, etc.)
+- **T+1 Execution**: Signal at bar N close, execution at bar N+1 open (no look-ahead bias)
 - **Position Management**: LONG/SHORT with SL/TP/Trailing stops
-- **Position Sizing**: Percentage of capital (compounding supported)
-- **Metrics**: Sharpe, Sortino, Max Drawdown, Win Rate, Profit Factor, etc.
+- **LLM Strategy Generation**: Create strategies from natural language with validation
+- **WebSocket Updates**: Real-time metrics pushed to connected clients
 
-**Strategy Format** (text files in `strategies/`):
+**Strategy Format** (Python function in `strategies/*.txt`):
 ```python
-# strategies/sma_crossover.txt
-name = "SMA Crossover"
-short_window = 10
-long_window = 20
+# interval: 1h
+# lookback: 3mo
 
-sma_short = sma(close, short_window)
-sma_long = sma(close, long_window)
-
-if cross_above(sma_short, sma_long):
-    signal = BUY
-    size = 1.0
-    stop_loss = 0.02
-    take_profit = 0.05
-
-if cross_below(sma_short, sma_long):
-    signal = SELL
+def strategy(indicators):
+    """
+    MACD + RSI Confluence Strategy
+    
+    Entry: MACD bullish crossover AND RSI between 30-60
+    Exit: MACD bearish OR RSI > 75
+    
+    Risk Management:
+    - Stop Loss: 1.5x ATR
+    - Take Profit: 3x ATR
+    """
+    macd_line = indicators.get('macd_line')
+    macd_signal = indicators.get('macd_signal')
+    rsi = indicators.get('rsi_14')
+    
+    if macd_line > macd_signal and 30 < rsi < 60:
+        return {
+            'action': 'BUY',
+            'size': 0.6,
+            'stop_loss': 0.03,
+            'take_profit': 0.06
+        }
+    
+    if macd_line < macd_signal or rsi > 75:
+        return {'action': 'SELL'}
+    
+    return None
 ```
 
+**Valid Intervals**: `1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 4h, 1d, 5d, 1wk, 1mo`  
+**Valid Lookbacks**: `7d, 14d, 30d, 1mo, 3mo, 6mo, 1y, 2y, max`
+
 **API Endpoints** (`/api/backtesting/`):
-- `GET /strategies` - List all strategies and their metrics
-- `GET /strategy/{name}` - Get specific strategy metrics
-- `POST /strategy` - Create new strategy (supports LLM generation)
-- `GET /embeddings` - Get strategy embeddings for similarity search
-- `POST /query` - Natural language strategy search
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Service status (strategies count, Redis connection) |
+| `/metrics` | GET | All metrics (optional `?symbol=AAPL&interval=1h` filters) |
+| `/metrics/{strategy}` | GET | Metrics for specific strategy |
+| `/strategies` | GET | List all strategies with descriptions and metrics |
+| `/strategies/{name}` | GET | Get strategy code, description, and metrics |
+| `/strategies` | POST | Create strategy from NL description (LLM-powered) |
+| `/strategies/{name}` | DELETE | Delete strategy and its cached metrics |
+| `/strategies/search` | POST | Semantic search using embeddings |
+| `/strategies/compare` | POST | Compare multiple strategies |
+| `/strategies/rank` | GET | Rank strategies by performance |
+
+**Environment Variables** (for candle producer):
+```bash
+STOCKS=AAPL,GOOGL,MSFT,NVDA      # Symbols to stream
+INTERVALS=1m,1h,1d               # Intervals to produce
+KAFKA_BROKER=kafka:29092
+```
 
 **Redis Cache Structure**:
 ```
-backtesting:{STRATEGY_NAME}   → Strategy metrics (JSON)
-backtesting:strategies        → Set of all strategy names
-backtesting:embeddings        → Strategy embeddings for RAG
+backtesting:{strategy}:{symbol}:{interval}  → Metrics JSON
+backtesting:strategies                       → Set of strategy names
+backtesting:symbols                          → Set of symbols being tracked
+backtesting:intervals                        → Set of intervals being tracked
+backtesting:embeddings                       → Strategy embeddings for RAG
 ```
 
 ## 🔄 Pathway Windowing

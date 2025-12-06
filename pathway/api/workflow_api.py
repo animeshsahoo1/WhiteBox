@@ -6,6 +6,7 @@ Provides POST /run_workflow endpoint that:
 3. Runs Bull-Bear debate
 4. Returns status updates throughout
 """
+import os
 import sys
 import json
 import threading
@@ -15,6 +16,8 @@ from typing import Optional, Dict, Any, List
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -97,9 +100,10 @@ def _run_workflow_background(room_id: str, user_id: str, symbol: str, max_rounds
         publish_agent_status(room_id, "workflow", "RUNNING")
         publish_agent_status(room_id, "Analyst Agent", "FETCHING_REPORTS")
         
-        print(f"\n{'='*60}")
-        print(f"🚀 WORKFLOW STARTED - Room: {room_id}, User: {user_id}, Symbol: {symbol}")
-        print(f"{'='*60}\n")
+        if DEBUG:
+            print(f"\n{'='*60}")
+            print(f"🚀 WORKFLOW STARTED - Room: {room_id}, User: {user_id}, Symbol: {symbol}")
+            print(f"{'='*60}\n")
         
         reports = get_reports_for_symbol(symbol)
         
@@ -112,25 +116,18 @@ def _run_workflow_background(room_id: str, user_id: str, symbol: str, max_rounds
             has_content = bool(content and len(str(content)) > 10)
             reports_found[report_type] = has_content
             
-            print(f"\n{'='*60}")
-            print(f"📊 {report_type.upper()} REPORT for {symbol}")
-            print(f"{'='*60}")
+            if DEBUG:
+                print(f"📊 {report_type.upper()}: {'✅' if has_content else '❌'} ({len(str(content))} chars)")
             
             if has_content:
-                # Print first 500 chars of report
-                content_str = str(content)
-                print(content_str[:500])
-                if len(content_str) > 500:
-                    print(f"... [truncated, total {len(content_str)} chars]")
                 publish_agent_status(room_id, "Analyst Agent", f"{report_type}_REPORT RECEIVED")
                 # Publish the actual report content to Redis
                 publish_report(room_id, "Analyst Agent", {
                     "report_type": report_type,
                     "symbol": symbol,
-                    "content": content_str
+                    "content": str(content)
                 })
             else:
-                print(f"❌ No {report_type} report found")
                 publish_agent_status(room_id, "Analyst Agent", f"{report_type}_REPORT NOT_FOUND")
         
         _update_workflow_status(
@@ -143,22 +140,22 @@ def _run_workflow_background(room_id: str, user_id: str, symbol: str, max_rounds
         # Check if we have minimum required reports
         if not any(reports_found.values()):
             error_msg = f"No reports found for {symbol}. Cannot proceed with debate."
-            print(f"\n❌ ERROR: {error_msg}")
+            if DEBUG:
+                print(f"❌ ERROR: {error_msg}")
             _update_workflow_status(room_id, "error", error=error_msg)
             publish_agent_status(room_id, "Analyst Agent", "FAILED")
             return
         
-        print(f"\n✅ Reports Summary: {reports_found}")
+        if DEBUG:
+            print(f"✅ Reports Summary: {reports_found}")
         
         # ============================================================
         # STEP 2: Run Bull-Bear Debate
         # ============================================================
         _update_workflow_status(room_id, "in_progress", current_step="bull_bear_debate")
         
-        print(f"\n{'='*60}")
-        print(f"🐂🐻 STARTING BULL-BEAR DEBATE for {symbol}")
-        print(f"Max Rounds: {max_rounds}")
-        print(f"{'='*60}\n")
+        if DEBUG:
+            print(f"🐂🐻 STARTING DEBATE for {symbol} (max {max_rounds} rounds)")
         
         try:
             # Run debate (blocking)
@@ -176,32 +173,15 @@ def _run_workflow_background(room_id: str, user_id: str, symbol: str, max_rounds
                 debate_status=debate_result.get("status", "completed")
             )
             
-            print(f"\n{'='*60}")
-            print(f"📋 DEBATE COMPLETED")
-            print(f"{'='*60}")
-            print(f"Status: {debate_result.get('status')}")
-            print(f"Rounds: {debate_result.get('rounds_completed')}")
-            print(f"Exchanges: {debate_result.get('total_exchanges')}")
-            
-            # Print Bull History
-            print(f"\n{'='*60}")
-            print(f"🐂 BULL ARGUMENTS:")
-            print(f"{'='*60}")
-            bull_history = debate_result.get("bull_history", "")
-            print(bull_history[:1000] if bull_history else "No bull arguments")
-            
-            # Print Bear History
-            print(f"\n{'='*60}")
-            print(f"🐻 BEAR ARGUMENTS:")
-            print(f"{'='*60}")
-            bear_history = debate_result.get("bear_history", "")
-            print(bear_history[:1000] if bear_history else "No bear arguments")
+            if DEBUG:
+                print(f"📋 DEBATE COMPLETED: {debate_result.get('rounds_completed')} rounds, {debate_result.get('total_exchanges')} exchanges")
             
             publish_agent_status(room_id, "Bull Bear Debate", "COMPLETED")
             
         except ValueError as e:
             error_msg = f"Debate failed: {str(e)}"
-            print(f"\n❌ DEBATE ERROR: {error_msg}")
+            if DEBUG:
+                print(f"❌ DEBATE ERROR: {error_msg}")
             _update_workflow_status(room_id, "error", debate_status="error", error=error_msg)
             return
         
@@ -215,11 +195,8 @@ def _run_workflow_background(room_id: str, user_id: str, symbol: str, max_rounds
         recommendation = debate_result.get("recommendation", "N/A")
         facilitator_report = debate_result.get("facilitator_report", "")
         
-        print(f"\n{'='*60}")
-        print(f"📝 FACILITATOR REPORT")
-        print(f"{'='*60}")
-        print(f"Recommendation: {recommendation}")
-        print(f"\n{facilitator_report[:1500] if facilitator_report else 'No facilitator report'}")
+        if DEBUG:
+            print(f"📝 FACILITATOR: Recommendation={recommendation}")
         
         _update_workflow_status(
             room_id,
@@ -230,14 +207,13 @@ def _run_workflow_background(room_id: str, user_id: str, symbol: str, max_rounds
         
         # Workflow completion - only publish workflow CLOSED status
         
-        print(f"\n{'='*60}")
-        print(f"✅ WORKFLOW COMPLETED - Room: {room_id}")
-        print(f"Final Recommendation: {recommendation}")
-        print(f"{'='*60}\n")
+        if DEBUG:
+            print(f"✅ WORKFLOW COMPLETED - Room: {room_id}, Recommendation: {recommendation}")
         
     except Exception as e:
         error_msg = f"Workflow error: {str(e)}"
-        print(f"\n❌ WORKFLOW ERROR: {error_msg}")
+        if DEBUG:
+            print(f"❌ WORKFLOW ERROR: {error_msg}")
         _update_workflow_status(room_id, "error", error=error_msg)
         publish_agent_status(room_id, "workflow", "FAILED")
 

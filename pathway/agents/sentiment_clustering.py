@@ -41,6 +41,11 @@ load_dotenv()
 # Initialize VADER sentiment analyzer
 vader_analyzer = SentimentIntensityAnalyzer()
 
+# Embedding cache - LRU cache to avoid redundant API calls for similar text
+# Key: hash of text, Value: embedding vector
+_embedding_cache = {}
+_EMBEDDING_CACHE_MAX_SIZE = 1000
+
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
@@ -102,7 +107,20 @@ def trigger_sentiment_alert(symbol: str, overall_sentiment: float):
 
 
 def get_embedding(text: str) -> list:
-    """Generate embedding for text using OpenRouter"""
+    """Generate embedding for text using OpenRouter with caching.
+    
+    Uses LRU cache to avoid redundant API calls for identical/similar text.
+    Cache key is hash of first 500 chars (semantic similarity threshold).
+    """
+    import hashlib
+    
+    # Create cache key from text hash
+    cache_key = hashlib.md5(text[:500].encode()).hexdigest()
+    
+    # Check cache first
+    if cache_key in _embedding_cache:
+        return _embedding_cache[cache_key]
+    
     try:
         response = litellm.embedding(
             model="openai/text-embedding-3-small",
@@ -110,8 +128,19 @@ def get_embedding(text: str) -> list:
             api_key=os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY"),
             api_base="https://openrouter.ai/api/v1"
         )
-        return response.data[0]['embedding']
+        embedding = response.data[0]['embedding']
+        
+        # Add to cache (evict oldest if full)
+        if len(_embedding_cache) >= _EMBEDDING_CACHE_MAX_SIZE:
+            # Remove oldest entry (first key)
+            oldest_key = next(iter(_embedding_cache))
+            del _embedding_cache[oldest_key]
+        
+        _embedding_cache[cache_key] = embedding
+        return embedding
+        
     except Exception as e:
+        print(f"\u26a0\ufe0f Embedding API error: {e}")
         return [0.0] * EMBEDDING_DIMENSIONS
 
 
@@ -197,8 +226,13 @@ def process_sentiment_clustering(
     # =========================================================================
     @pw.reducers.stateful_many
     def centroid_cluster_reducer(state: Optional[dict], batch: list[tuple[list, int]]) -> dict:
-        """Cluster posts using centroid-based cosine similarity with sentiment."""
+        """Cluster posts using centroid-based cosine similarity with sentiment.
+        
+        MEMORY OPTIMIZATION: Uses dedup_cache with timestamps instead of unbounded list.
+        Hashes older than CLUSTER_EXPIRY_HOURS are pruned to prevent infinite memory growth.
+        """
         import hashlib
+        from datetime import timedelta
         
         if state is not None and hasattr(state, 'as_dict'):
             state = state.as_dict()
@@ -206,12 +240,22 @@ def process_sentiment_clustering(
         if state is None:
             state = {
                 'clusters': {},
-                'post_hashes': [],
+                'dedup_cache': {},  # FIXED: hash -> timestamp (was unbounded list)
                 'next_cluster_id': 1,
                 'symbol': None
             }
         
-        post_hashes = set(state.get('post_hashes', []))
+        # Use dict for O(1) lookup with timestamp tracking
+        dedup_cache = state.get('dedup_cache', {})
+        # Migration: convert old post_hashes list to dict if present
+        if 'post_hashes' in state and isinstance(state['post_hashes'], list):
+            old_hashes = state.get('post_hashes', [])
+            now_iso = datetime.now(timezone.utc).isoformat()
+            for h in old_hashes:
+                if h not in dedup_cache:
+                    dedup_cache[h] = now_iso
+            del state['post_hashes']  # Remove old format
+        
         clusters = state.get('clusters', {})
         now_iso = datetime.now(timezone.utc).isoformat()
         symbol = state.get('symbol')
@@ -246,9 +290,10 @@ def process_sentiment_clustering(
             }
             post_hash = hashlib.md5(f"{symbol}:{post_id}:{text[:100]}".encode()).hexdigest()
             
-            if post_hash in post_hashes:
+            # FIXED: Use dedup_cache dict with timestamp instead of unbounded set
+            if post_hash in dedup_cache:
                 continue
-            post_hashes.add(post_hash)
+            dedup_cache[post_hash] = now_iso  # Store timestamp for TTL pruning
             
             # Find best matching cluster
             best_cluster_id = None
@@ -338,8 +383,18 @@ def process_sentiment_clustering(
         for cid in to_remove:
             del clusters[cid]
         
+        # MEMORY OPTIMIZATION: Prune old hashes from dedup_cache
+        # Remove hashes older than CLUSTER_EXPIRY_HOURS to prevent infinite memory growth
+        cleanup_threshold = (now - timedelta(hours=CLUSTER_EXPIRY_HOURS)).isoformat()
+        keys_to_remove = [k for k, v in dedup_cache.items() if v < cleanup_threshold]
+        for k in keys_to_remove:
+            del dedup_cache[k]
+        
+        if keys_to_remove:
+            print(f"🧹 [{symbol}] Pruned {len(keys_to_remove)} old hashes from dedup cache")
+        
         state['clusters'] = clusters
-        state['post_hashes'] = list(post_hashes)
+        state['dedup_cache'] = dedup_cache  # FIXED: was post_hashes
         return state
 
     # Group by symbol and cluster

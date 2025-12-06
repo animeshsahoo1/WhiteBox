@@ -3,7 +3,18 @@ from app.websocket_manager import ws_manager
 from app.event_publisher import publish_agent_status
 from app.redis_util import get_async_redis  # Import the function, not the instance
 
-app = FastAPI()
+app = FastAPI(title="WebSocket Server", version="1.0.0")
+
+
+@app.get("/health")
+async def health():
+    """Health check endpoint for container orchestration."""
+    return {
+        "status": "healthy",
+        "connections": ws_manager.get_connection_count(),
+        "rooms": list(ws_manager.rooms.keys())
+    }
+
 
 @app.get("/ping")
 async def ping():

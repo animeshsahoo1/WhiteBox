@@ -1,0 +1,42 @@
+# interval: 1m
+# lookback: 7d
+
+def strategy(indicators):
+    """
+    EMA Scalping Strategy (1-minute)
+    
+    Classic scalping strategy using fast EMA crossovers.
+    Entry: EMA 9 crosses above EMA 21
+    Exit: EMA 9 crosses below EMA 21
+    Tight stops for quick trades.
+    """
+    import numpy as np
+    
+    ema_9 = indicators.get('ema_9')
+    ema_12 = indicators.get('ema_12')
+    close = indicators.get('close')
+    rsi = indicators.get('rsi_14')
+    position = indicators.get('position')
+    
+    if ema_9 is None or ema_12 is None or close is None:
+        return None
+    
+    if any(np.isnan(x) for x in [ema_9, ema_12, close] if x is not None):
+        return None
+    
+    # Buy: Fast EMA crosses above slow EMA + RSI not overbought
+    if ema_9 > ema_12 and (rsi is None or rsi < 70):
+        if position is None:
+            return {
+                'action': 'BUY',
+                'stop_loss': close * 0.995,    # 0.5% stop (tight for scalping)
+                'take_profit': close * 1.01,   # 1% take profit
+                'size': 1.0
+            }
+    
+    # Sell: Fast EMA crosses below slow EMA
+    if ema_9 < ema_12:
+        if position is not None:
+            return {'action': 'SELL'}
+    
+    return None

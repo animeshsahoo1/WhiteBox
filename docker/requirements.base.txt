@@ -1,0 +1,4 @@
+# Common Python packages used across all services
+python-dotenv>=1.0.0
+requests>=2.31.0
+redis>=5.0.0

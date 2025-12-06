@@ -29,28 +29,28 @@ docker-compose ps
 ### Test Kafka
 
 ```bash
-# Create a test topic
+# Create a test topic (inside kafka container, use port 29092)
 docker exec kafka kafka-topics \
     --create \
     --topic test-topic \
-    --bootstrap-server localhost:9092 \
+    --bootstrap-server localhost:29092 \
     --partitions 1 \
     --replication-factor 1
 
 # List topics
 docker exec kafka kafka-topics \
     --list \
-    --bootstrap-server localhost:9092
+    --bootstrap-server localhost:29092
 
 # Produce messages
 docker exec -it kafka kafka-console-producer \
     --topic test-topic \
-    --bootstrap-server localhost:9092
+    --bootstrap-server localhost:29092
 
 # Consume messages (in another terminal)
 docker exec kafka kafka-console-consumer \
     --topic test-topic \
-    --bootstrap-server localhost:9092 \
+    --bootstrap-server localhost:29092 \
     --from-beginning
 ```
 
@@ -58,7 +58,7 @@ docker exec kafka kafka-console-consumer \
 
 The `docker-compose.yml` in this directory configures:
 - **Zookeeper**: Port 2181
-- **Kafka Broker**: Port 9092
+- **Kafka Broker**: Internal port 29092 (Docker network), External port 9093 (host machine)
 - **Topics**: Auto-create enabled
 - **Retention**: 7 days default
 
@@ -74,7 +74,7 @@ When running the full system, these topics are created:
 
 ### List Topics
 ```bash
-docker exec kafka kafka-topics --list --bootstrap-server localhost:9092
+docker exec kafka kafka-topics --list --bootstrap-server localhost:29092
 ```
 
 ### Describe Topic
@@ -82,7 +82,7 @@ docker exec kafka kafka-topics --list --bootstrap-server localhost:9092
 docker exec kafka kafka-topics \
     --describe \
     --topic market-data \
-    --bootstrap-server localhost:9092
+    --bootstrap-server localhost:29092
 ```
 
 ### Delete Topic
@@ -90,14 +90,14 @@ docker exec kafka kafka-topics \
 docker exec kafka kafka-topics \
     --delete \
     --topic test-topic \
-    --bootstrap-server localhost:9092
+    --bootstrap-server localhost:29092
 ```
 
 ### View Consumer Groups
 ```bash
 docker exec kafka kafka-consumer-groups \
     --list \
-    --bootstrap-server localhost:9092
+    --bootstrap-server localhost:29092
 ```
 
 ### Check Consumer Lag
@@ -105,7 +105,7 @@ docker exec kafka kafka-consumer-groups \
 docker exec kafka kafka-consumer-groups \
     --describe \
     --group pathway-market-consumer \
-    --bootstrap-server localhost:9092
+    --bootstrap-server localhost:29092
 ```
 
 ## 🧪 Testing
@@ -116,7 +116,7 @@ docker exec kafka kafka-consumer-groups \
 echo '{"symbol": "TEST", "price": 100.0}' | \
 docker exec -i kafka kafka-console-producer \
     --topic market-data \
-    --bootstrap-server localhost:9092
+    --bootstrap-server localhost:29092
 ```
 
 ### Test Consumer
@@ -124,26 +124,36 @@ docker exec -i kafka kafka-console-producer \
 # Consume from beginning
 docker exec kafka kafka-console-consumer \
     --topic market-data \
-    --bootstrap-server localhost:9092 \
+    --bootstrap-server localhost:29092 \
     --from-beginning
 ```
 
 ## 🔗 Integration
 
-### Connect from Producers (streaming/)
+### Connect from Producers (streaming/) - Inside Docker
 ```python
 from kafka import KafkaProducer
 
 producer = KafkaProducer(
-    bootstrap_servers=['localhost:9092'],
+    bootstrap_servers=['kafka:29092'],  # Use kafka:29092 inside Docker network
     value_serializer=lambda v: json.dumps(v).encode('utf-8')
 )
 ```
 
-### Connect from Consumers (pathway/)
+### Connect from Host Machine
+```python
+from kafka import KafkaProducer
+
+producer = KafkaProducer(
+    bootstrap_servers=['localhost:9093'],  # Use localhost:9093 from host
+    value_serializer=lambda v: json.dumps(v).encode('utf-8')
+)
+```
+
+### Connect from Consumers (pathway/) - Inside Docker
 ```python
 rdkafka_settings = {
-    "bootstrap.servers": "localhost:9092",
+    "bootstrap.servers": "kafka:29092",  # Use kafka:29092 inside Docker network
     "group.id": "my-consumer-group",
     "auto.offset.reset": "earliest"
 }
