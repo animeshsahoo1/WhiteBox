@@ -1,0 +1,16 @@
+# RAGAS Evaluation Dependencies
+
+# Core evaluation
+ragas>=0.1.0
+datasets>=2.14.0
+
+# LangChain integration for RAGAS
+langchain>=0.1.0
+langchain-openai>=0.0.5
+
+# HTTP client for RAG API
+httpx>=0.25.0
+
+# Environment and data
+python-dotenv>=1.0.0
+pandas>=2.0.0
