@@ -512,32 +512,19 @@ async def retrieve_from_pathway(query: str, k: int = 5, use_rerank: bool = True)
         # Use MCP client to call the tool
         client = await get_mcp_client()
         
-        # The tool name exposed by Pathway DocumentStore is typically 'retrieve'
-        # We need to find the correct tool name if it varies, but 'retrieve' is standard
-        # for DocumentStore.
-        
-        # Note: MultiServerMCPClient.call_tool might need specific arguments structure
-        # We'll use the client to find the tool and invoke it
+        # The tool name exposed by Pathway DocumentStore is 'retrieve_query'
+        # Available tools: ['retrieve_query', 'statistics_query', 'inputs_query']
         tools = await client.get_tools()
         
-        # Debug: Print available tools if retrieve is missing
-        retrieve_tool = next((t for t in tools if t.name == "retrieve"), None)
+        # Find the retrieve_query tool
+        retrieve_tool = next((t for t in tools if t.name == "retrieve_query"), None)
         
         if not retrieve_tool:
-            print(f"⚠️ 'retrieve' tool not found in MCP server. Available tools: {[t.name for t in tools]}")
-            # Fallback: Try to find any tool that looks like retrieval
-            retrieve_tool = next((t for t in tools if "retrieve" in t.name), None)
-            if retrieve_tool:
-                print(f"🔄 Using fallback tool: {retrieve_tool.name}")
-            else:
-                return []
+            print(f"⚠️ 'retrieve_query' tool not found in MCP server. Available tools: {[t.name for t in tools]}")
+            return []
             
-        # Invoke the tool
-        # The tool returns a JSON string or list of docs depending on implementation
-        # Pathway DocumentStore 'retrieve' usually returns a list of dicts or string
-        # Let's assume it returns the standard list of results
-        
-        # Using invoke on the tool object
+        # Invoke the tool with proper arguments
+        # retrieve_query expects: {"query": str, "k": int}
         results_str = await retrieve_tool.ainvoke({"query": query, "k": retrieve_k})
         
         # Parse results if returned as string (common in MCP tools for LLMs)

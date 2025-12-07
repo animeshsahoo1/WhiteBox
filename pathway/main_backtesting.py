@@ -111,7 +111,7 @@ def get_candle_table(topic: str = "candles"):
         pw.Table: Candle data stream table.
     """
     print(f"📡 LIVE MODE: Consuming from Kafka topic '{topic}'")
-    consumer = CandleConsumer(topic=topic)
+    consumer = CandleConsumer(topic_name=topic)
     return consumer.consume()
 
 
