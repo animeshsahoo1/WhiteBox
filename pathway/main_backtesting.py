@@ -23,9 +23,36 @@ import os
 import sys
 import re
 from pathlib import Path
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 import pathway as pw
+
+
+# ============================================================================
+# INTERVAL-BASED FORGET THRESHOLDS (matches producer's yfinance constraints)
+# ============================================================================
+# These thresholds define how long to keep candles in memory per interval.
+# Based on the max historical data the producer sends for each interval.
+
+INTERVAL_FORGET_THRESHOLDS = {
+    "1m": timedelta(days=7),       # 7 days (yfinance limit)
+    "2m": timedelta(days=60),      # 60 days
+    "5m": timedelta(days=60),      # 60 days
+    "15m": timedelta(days=60),     # 60 days
+    "30m": timedelta(days=60),     # 60 days
+    "60m": timedelta(days=730),    # 2 years
+    "90m": timedelta(days=60),     # 60 days
+    "1h": timedelta(days=730),     # 2 years
+    "4h": timedelta(days=730),     # 2 years
+    "1d": timedelta(days=730),     # 2 years (cap for "max")
+    "5d": timedelta(days=730),     # 2 years
+    "1wk": timedelta(days=730),    # 2 years
+    "1mo": timedelta(days=730),    # 2 years
+}
+
+# Default forget threshold for unknown intervals
+DEFAULT_FORGET_THRESHOLD = timedelta(days=365)
 
 # Add backtesting_lib to path
 sys.path.insert(0, str(Path(__file__).parent / 'backtesting_lib'))
