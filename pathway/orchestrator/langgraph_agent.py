@@ -235,14 +235,20 @@ RULES:
 - If tool errors, check if any other tool can be used in place of that, or a satisfiable grounded response can be made, otherwise inform the user for incapability of processing the request due to tool failure.
 
 STRATEGY CREATION RULES (CRITICAL):
-When using create_strategy, ONLY these indicators are supported:
+When using create_strategy, ONLY these EXACT indicators are supported (no custom periods):
 - Moving Averages: sma_5, sma_10, sma_20, sma_50, sma_200, ema_9, ema_12, ema_26
 - MACD: macd_line, macd_signal, macd_histogram
-- Momentum: rsi_14, stoch_k, stoch_d, williams_r, cci_20, adx_14, plus_di, minus_di
+- Momentum: rsi_14, stoch_k, stoch_d, williams_r, cci_20, adx, adx_14, plus_di, minus_di
 - Volatility: bb_upper, bb_middle, bb_lower, atr_14
 - Price: open, high, low, close
+- Position state: position, entry_price
 
-If user requests a strategy with unsupported indicators (e.g., SMA-100, RSI-7, custom periods):
+NOT AVAILABLE (DO NOT USE):
+- Custom periods: sma_100, ema_50, rsi_7, atr_20, etc. - NOT SUPPORTED
+- Performance metrics as indicators: profit_factor, return_pct, total_trades, win_rate, sharpe_ratio, duration - THESE ARE BACKTESTING METRICS, NOT INDICATORS
+- volume - NOT AVAILABLE
+
+If user requests a strategy with unsupported indicators:
 1. DO NOT call create_strategy
 2. Explain which indicators are unsupported
 3. Suggest the closest supported alternative (e.g., "SMA-100 is not supported, but sma_50 or sma_200 are available")
@@ -259,6 +265,7 @@ WORKFLOW: Understand request → Validate indicators → Call 1-2 relevant tools
 
 Date: {date}
 """
+
 
 
 # ============================================================================

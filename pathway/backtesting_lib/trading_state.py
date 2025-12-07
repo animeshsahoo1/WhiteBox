@@ -49,10 +49,10 @@ class TradingState:
     max_timestamps: int = 100  # Reduced - just for immediate dedup
     
     @classmethod
-    def initial(cls, initial_capital: float = 10000.0, commission: float = 0.001) -> 'TradingState':
+    def initial(cls, initial_capital: float = 10000.0, commission: float = 0.001, interval: str = '1d') -> 'TradingState':
         """Create initial trading state"""
         indicator_state = IndicatorState()
-        metrics_state = MetricsState.initial(initial_capital, commission)
+        metrics_state = MetricsState.initial(initial_capital, commission, interval)
         
         return cls(
             indicator_state=asdict(indicator_state),

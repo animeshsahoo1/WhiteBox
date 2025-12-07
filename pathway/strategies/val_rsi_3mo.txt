@@ -1,0 +1,28 @@
+# interval: 1h
+# lookback: 3mo
+
+def strategy(indicators):
+    """
+    Validation: RSI 30/70 Levels (3mo lookback)
+    
+    Entry: RSI < 30 (oversold, not already LONG)
+    Exit: RSI > 70 (overbought, if LONG)
+    
+    Matches backtesting.py crossover semantics.
+    """
+    import numpy as np
+    
+    rsi = indicators.get('rsi_14')
+    
+    if rsi is None or np.isnan(rsi):
+        return None
+    
+    # Buy when RSI crosses below 30 (only enter once)
+    if rsi < 30 and position != 'LONG':
+        return {'action': 'BUY', 'size': 1.0}
+    
+    # Sell when RSI crosses above 70 (only if in position)
+    if rsi > 70 and position == 'LONG':
+        return {'action': 'SELL'}
+    
+    return None

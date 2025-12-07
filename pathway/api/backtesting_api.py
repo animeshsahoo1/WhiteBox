@@ -333,6 +333,8 @@ class StrategyMetrics(BaseModel):
     last_signal: str = "HOLD"
     position: str = "NONE"
     candles_processed: int = 0
+    equity: float = 0.0  # Total portfolio value including unrealized P&L
+    equity_return_pct: float = 0.0  # Return % including unrealized (matches backtesting.py)
 
 
 # Valid intervals and lookback periods
@@ -753,64 +755,96 @@ async def create_strategy(request: StrategyCreateRequest):
     if not OPENROUTER_API_KEY:
         raise HTTPException(500, "OPENAI_API_KEY or OPENROUTER_API_KEY not configured")
     
-    prompt = f"""You are a trading strategy developer. Create a concise Python trading strategy function.
+    prompt = f"""Create a Python trading strategy function for our streaming backtesting system.
 
-User request: "{request.description}"
-Target interval: {request.interval}
-Backtest period: {request.lookback}
+USER REQUEST: "{request.description}"
+INTERVAL: {request.interval} | LOOKBACK: {request.lookback}
 
-IMPORTANT - Follow this exact style (short docstring, minimal code, return None for no action):
+=== AVAILABLE INDICATORS (from indicators dict) ===
+Moving Averages: sma_5, sma_10, sma_20, sma_50, sma_200, ema_9, ema_12, ema_26
+MACD: macd_line, macd_signal, macd_histogram
+RSI: rsi_14 (14-period only - NO custom periods like rsi_7)
+Bollinger: bb_upper, bb_middle, bb_lower
+ATR: atr_14 (14-period only)
+Stochastic: stoch_k, stoch_d
+Other: williams_r, cci_20, adx, adx_14, plus_di, minus_di
+Price: open, high, low, close
 
+=== GLOBAL VARIABLES (NOT in indicators - access directly) ===
+- position: 'LONG', 'SHORT', or 'NONE' (UPPERCASE!)
+- entry_price: Entry price if in position
+- unrealized_pnl: Current unrealized P&L
+
+=== VALID ACTIONS ===
+'BUY' - Enter long (requires position != 'LONG')
+'SELL' - Exit long (requires position == 'LONG')
+'SHORT' - Enter short (requires position != 'SHORT')
+'COVER' - Exit short (requires position == 'SHORT')
+
+=== RISK MANAGEMENT (optional - only if user requests) ===
+NOTE: Stops are calculated from ENTRY PRICE (next bar's open), not current close!
+
+stop_loss: percentage (0.02 = 2%) OR absolute price (150.0)
+  - 0.02 means 2% below entry price
+  - 150.0 means stop at exact price $150
+take_profit: percentage (0.05 = 5%) OR absolute price (160.0)
+trailing_stop: percentage only (0.03 = 3% trailing)
+size: fraction of capital (0.5 = 50%, default 1.0)
+
+Example WITH risk management:
+return {{'action': 'BUY', 'stop_loss': 0.02, 'take_profit': 0.05, 'trailing_stop': 0.03, 'size': 0.8}}
+
+Example WITHOUT risk management (simple crossover):
+return {{'action': 'BUY', 'size': 1.0}}
+
+=== NOT SUPPORTED ===
+- Custom indicator periods (sma_100, rsi_7, atr_20)
+- Volume data
+- Multiple simultaneous positions
+- Limit/stop orders at entry
+
+=== TEMPLATE ===
 ```python
 def strategy(indicators):
     \"\"\"
     Strategy Name
     
-    Entry: condition
-    Exit: condition
-    SL: X%
-    TP: Y%
-    
+    Entry: Buy condition
+    Exit: Sell condition
     Best for: {request.interval} charts
     \"\"\"
     import numpy as np
     
-    # Get only the indicators you need
-    rsi = indicators.get('rsi_14')
-    close = indicators.get('close')
+    sma_20 = indicators.get('sma_20')
+    sma_50 = indicators.get('sma_50')
     
-    # Guard against None/NaN
-    if rsi is None or np.isnan(rsi) or close is None:
+    if sma_20 is None or sma_50 is None:
+        return None
+    if any(np.isnan(v) for v in [sma_20, sma_50]):
         return None
     
-    # Entry signal
-    if rsi < 30:
-        return {{
-            'action': 'BUY',
-            'stop_loss': close * 0.98,
-            'take_profit': close * 1.05,
-            'size': 0.5
-        }}
+    # ALWAYS check position to avoid repeat trades
+    if sma_20 > sma_50 and position != 'LONG':
+        return {{'action': 'BUY', 'size': 1.0}}
     
-    # Exit signal
-    if rsi > 70:
+    if sma_20 < sma_50 and position == 'LONG':
         return {{'action': 'SELL'}}
     
     return None
 ```
 
-Available indicators: sma_5, sma_10, sma_20, sma_50, sma_200, ema_9, ema_12, ema_26, rsi_14, bb_upper, bb_middle, bb_lower, atr_14, close, open, high, low, volume, position, entry_price, adx, plus_di, minus_di, macd_line, macd_signal, macd_histogram, stoch_k, stoch_d, williams_r, cci_20
+RULES:
+1. position is GLOBAL - use directly, NOT indicators.get('position')
+2. Position values are UPPERCASE: 'LONG', 'SHORT', 'NONE'
+3. ALWAYS check position before entry to avoid repeat trades
+4. ONLY add stop_loss/take_profit if user explicitly requests risk management
+5. Keep code under 60 lines
+6. Return None for no action (NOT {{'action': None}})
+7. Do NOT include # interval/lookback headers
+8. Only import numpy if needed for np.isnan()
+9. Guard against None AND NaN values before using indicators
 
-Rules:
-1. Keep docstring SHORT (5-7 lines max) - just strategy name and key parameters
-2. Only import numpy if needed for np.isnan()
-3. Return None for no action (NOT {{'action': None}})
-4. Return dict with 'action' and optionally: stop_loss, take_profit, trailing_stop, size
-5. Keep code under 40 lines total
-6. NO verbose parameter documentation
-7. DO NOT include the # interval: or # lookback: headers - those will be added automatically
-
-Return ONLY the Python code (the def strategy function), no markdown or explanation."""
+Return ONLY the def strategy function, no markdown."""
 
     # LLM call with retry logic (exponential backoff)
     max_retries = 3
