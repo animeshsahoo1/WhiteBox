@@ -373,13 +373,23 @@ Fundamental Report: {state['fundamental_report'][:report_limit]}
                 }
             state["errors"].append(f"LLM error in {party} presentation after {max_retries} retries")
         
-        # Create debate point
+        # Create debate point - handle both new Toulmin format (claim, evidence) and old format (point, supporting_evidence)
         point_id = str(uuid.uuid4())[:8]
+        point_content = response.get("claim") or response.get("point", "")
+        evidence = response.get("evidence") or response.get("supporting_evidence", [])
+        
+        # Store Toulmin components if present
+        toulmin = {
+            "warrant": response.get("warrant", ""),
+            "qualifier": response.get("qualifier", ""),
+            "rebuttal": response.get("rebuttal", "")
+        }
+        
         point = DebatePoint(
             id=point_id,
             party=party_enum,
-            content=response.get("point", ""),
-            supporting_evidence=response.get("supporting_evidence", []),
+            content=point_content,
+            supporting_evidence=evidence,
             counter_to=debate_points[-1].get("id") if opponent_point else None,
             confidence=response.get("confidence", 0.7),
             is_unique=True  # Will be validated in next node

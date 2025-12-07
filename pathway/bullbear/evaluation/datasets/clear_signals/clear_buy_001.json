@@ -1,0 +1,35 @@
+{
+  "dataset_id": "clear_buy_001",
+  "scenario_name": "Quantum Leap AI Announces Breakthrough Quantum Computing Chip",
+  "category": "clear_buy",
+  "difficulty": "easy",
+  "symbol": "QLAI",
+  "company_name": "Quantum Leap AI Inc.",
+  "sector": "Technology",
+  "inputs": {
+    "news_report": "# News Summary for QLAI\n\n## Latest Headlines\n\n1. **Quantum Leap AI Unveils 'Photonix' Chip, Promises 1000x Speed Increase** - TechCrunch, 2024-03-15\n   Quantum Leap AI (QLAI) today announced its revolutionary 'Photonix' quantum computing chip, claiming a performance leap of up to 1000x over current leading solutions in specific complex calculations. Early benchmarks show dramatic improvements in drug discovery simulations and financial modeling.\n\n2. **Major Cloud Provider Signs Multi-Year Deal with QLAI for Photonix Integration** - Bloomberg, 2024-03-16\n   A leading global cloud services provider has signed a significant multi-year contract to integrate QLAI's Photonix chip into its high-performance computing offerings, signaling strong market validation and expected revenue growth.\n\n## Key Events\n- Successful demonstration of Photonix chip capabilities at the Global Tech Summit.\n- Securing patents for novel qubit stabilization technology.\n\n## Analyst Actions\n- JP Morgan upgrades QLAI to 'Overweight' with a price target of $150, citing the Photonix breakthrough.\n\nLast Updated: 2024-03-17T10:00:00Z",
+    "sentiment_report": "# Sentiment Analysis for QLAI\n\n## Overall Sentiment: BULLISH (Score: 9.2/10)\n\n### Social Media Metrics\n- Twitter: 95% Positive mentions, driven by excitement over the 'Photonix' announcement.\n- Reddit (r/technology, r/artificialintelligence): High volume of discussion, largely optimistic about QLAI's technological lead.\n- StockTwits: Trended #1, predominantly bullish comments focusing on market disruption.\n\n### Analyst Sentiment\n- Buy: 8, Hold: 1, Sell: 0\n- Average PT: $145\n\n### Key Themes\n- Technological Superiority\n- Market Disruption Potential\n- Strong Early Customer Adoption",
+    "market_report": "# Technical Analysis for QLAI\n\n## Price Action\n- Current: $125.50\n- 24h Change: +15.2%\n- 52-Week: $45.00 - $130.00\n- Volume: 25M (vs avg 5M)\n\n## Technical Indicators\n- RSI (14): 82 (Overbought, but strong uptrend momentum)\n- MACD: Bullish crossover, significant upward momentum.\n- 50-Day MA: $90.00 (Price is well above, strong support)\n- 200-Day MA: $70.00 (Price is significantly above, indicating a strong long-term uptrend).\n\n## Support/Resistance\n- Support: $110, $95\n- Resistance: $130, $150\n\n## Trend Analysis\nThe stock has experienced a dramatic surge following the news, breaking through previous resistance levels with significant volume. The RSI indicates overbought conditions, but the MACD and moving averages suggest strong, sustained upward momentum. The immediate trend is strongly bullish.",
+    "fundamental_report": "# Fundamental Analysis for QLAI\n\n## Valuation Metrics\n- P/E: 120 (Industry: 80)\n- Forward P/E: 75\n- P/S: 25\n- EV/EBITDA: 95\n\n## Financial Health\n- Revenue: $500M (150% YoY)\n- Net Income: $40M (300% YoY)\n- FCF: $25M\n- Debt/Equity: 0.3\n\n## Growth Metrics\n- Revenue CAGR (3yr): 75%\n- EPS CAGR (3yr): 110%\n\n## Competitive Position\nQLAI has historically been a strong player in specialized AI hardware. The new 'Photonix' chip positions them as a clear leader in the nascent but rapidly growing quantum computing hardware market. While current revenue is driven by specialized AI accelerators, the potential of Photonix represents a massive future growth opportunity. They face competition from established tech giants entering the quantum space, but their early technological lead is significant."
+  },
+  "ground_truth": {
+    "expected_recommendation": "BUY",
+    "expected_confidence": "HIGH",
+    "reasoning": "A groundbreaking product announcement combined with strong early customer adoption and positive analyst upgrades creates a clear bullish signal for QLAI.",
+    "key_bull_points": [
+      "Revolutionary 'Photonix' quantum chip with significant performance gains.",
+      "Major cloud provider deal validates market demand and ensures future revenue.",
+      "Strong revenue and EPS growth trends, indicating rapid expansion.",
+      "Analyst upgrades and positive price target revisions.",
+      "Clear technological leadership in a high-growth market."
+    ],
+    "key_bear_points": [
+      "High valuation metrics (P/E, P/S) suggest future growth is already priced in.",
+      "RSI indicates the stock may be technically overbought in the short term.",
+      "Competition from large, well-funded technology companies entering the quantum space.",
+      "Execution risk associated with scaling quantum chip production and adoption."
+    ]
+  },
+  "_generated_at": "2025-12-07T17:07:02.907120",
+  "_model_used": "google/gemini-2.5-flash-lite"
+}

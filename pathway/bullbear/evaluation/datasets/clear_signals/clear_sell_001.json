@@ -1,0 +1,33 @@
+{
+  "dataset_id": "clear_sell_001",
+  "scenario_name": "Quantum Dynamics Faces Major Product Recall and Earnings Collapse",
+  "category": "clear_sell",
+  "difficulty": "hard",
+  "symbol": "QNTM",
+  "company_name": "Quantum Dynamics Inc.",
+  "sector": "Technology",
+  "inputs": {
+    "news_report": "# News Summary for QNTM\n\n## Latest Headlines\n\n1. **Quantum Dynamics Announces Massive Recall of 'Photon' Chip Due to Overheating Faults** - Reuters, 2023-10-26\n   Quantum Dynamics Inc. (QNTM) is initiating a voluntary recall of its flagship 'Photon' line of AI accelerators due to a critical design flaw causing overheating issues. The recall is expected to cost the company upwards of $500 million in replacement and logistical expenses. The 'Photon' chip represented over 40% of QNTM's projected revenue for the fiscal year.\n\n2. **QNTM Misses Q3 Earnings, Slashes Full-Year Guidance Dramatically** - Bloomberg, 2023-10-27\n   Quantum Dynamics reported third-quarter earnings per share of $0.15, significantly missing analyst expectations of $0.75. Revenue declined 25% year-over-year to $1.2 billion. The company slashed its full-year revenue guidance by 30% and now anticipates a net loss for the fiscal year, citing the 'Photon' chip recall and escalating R&D costs for next-generation products.\n\n## Key Events\n- Q3 Earnings Call: Detailed discussion of recall impact and revised outlook.\n- SEC Filing: Disclosure of recall costs and potential liabilities.\n\n## Analyst Actions\n- Multiple downgrades to 'Sell' and significant price target reductions across Wall Street.\n\nLast Updated: 2023-10-27T15:30:00Z",
+    "sentiment_report": "# Sentiment Analysis for QNTM\n\n## Overall Sentiment: BEARISH (Score: 1.5/10)\n\n### Social Media Metrics\n- Twitter: 95% Negative, widespread discussion of recall, stock plunge, and company mismanagement.\n- Reddit: r/QNTM_investors is overwhelmingly negative, users discussing class-action lawsuits and complete loss of faith.\n- StockTwits: High volume of 'SELL' and 'PANIC' tags, sentiment overwhelmingly negative.\n\n### Analyst Sentiment\n- Buy: 0, Hold: 2, Sell: 15\n- Average PT: $15.00 (down from $75.00 last month)\n\n### Key Themes\n- Product Failure\n- Financial Mismanagement\n- Loss of Investor Confidence",
+    "market_report": "# Technical Analysis for QNTM\n\n## Price Action\n- Current: $12.50\n- 24h Change: -35%\n- 52-Week: $10.50 - $95.00\n- Volume: 50M (vs avg 5M) - Extreme volume spikes on negative news.\n\n## Technical Indicators\n- RSI (14): 18 (Oversold, but strong downward momentum persists)\n- MACD: Deeply negative and trending lower.\n- 50-Day MA: $55.00 (currently trading far below, indicating strong downtrend)\n- 200-Day MA: $62.00 (currently trading far below, indicating long-term bearish trend)\n\n## Support/Resistance\n- Support: $10.50 (Previous 52-week low)\n- Resistance: $20.00, $35.00 (Significant gaps to fill)\n\n## Trend Analysis\nThe stock has experienced a catastrophic decline following the news of the product recall and severe earnings miss. The price is trading well below all major moving averages, and the MACD is deeply in bearish territory. While the RSI is oversold, the overwhelming negative news and lack of any positive catalysts suggest the downtrend is likely to continue, potentially testing previous lows.",
+    "fundamental_report": "# Fundamental Analysis for QNTM\n\n## Valuation Metrics\n- P/E: N/A (due to expected losses)\n- Forward P/E: N/A\n- P/S: 2.1 (down from 5.5, industry average 4.0)\n- EV/EBITDA: 25.0 (historically high and increasing due to falling EBITDA)\n\n## Financial Health\n- Revenue: $1.2B (down 25% YoY)\n- Net Income: -$150M (vs $200M profit YoY)\n- FCF: -$200M\n- Debt/Equity: 0.8 (increasing due to cash burn)\n\n## Growth Metrics\n- Revenue CAGR: -5% (past 3 years)\n- EPS CAGR: -30% (past 3 years)\n\n## Competitive Position\nQuantum Dynamics has historically been a leader in AI accelerator chips. However, the recent 'Photon' chip recall, coupled with increasing competition from established players and nimble startups, severely damages its market position and reputation. The company's ability to fund future R&D and regain market share is now in serious doubt due to the significant financial and operational setbacks."
+  },
+  "ground_truth": {
+    "expected_recommendation": "SELL",
+    "expected_confidence": "HIGH",
+    "reasoning": "Massive product recall, significant earnings miss, slashed guidance, and severe damage to reputation and financials create a clear and unavoidable sell signal.",
+    "key_bull_points": [
+      "Potential for a future turnaround if new product generation is successful.",
+      "Stock is technically oversold, potentially attracting bargain hunters."
+    ],
+    "key_bear_points": [
+      "Critical 'Photon' chip recall incurs massive costs and reputational damage.",
+      "Q3 earnings miss and drastically reduced full-year guidance signal severe operational issues.",
+      "Negative analyst sentiment and widespread downgrades.",
+      "Weakening financial health with increasing debt and negative FCF.",
+      "Technical indicators show a strong, persistent bearish downtrend."
+    ]
+  },
+  "_generated_at": "2025-12-07T17:07:19.260747",
+  "_model_used": "google/gemini-2.5-flash-lite"
+}

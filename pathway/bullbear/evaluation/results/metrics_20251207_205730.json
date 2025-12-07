@@ -1,0 +1,46 @@
+{
+  "total": 15,
+  "correct": 13,
+  "directional_accuracy": 0.8666666666666667,
+  "accuracy_by_category": {
+    "ambiguous": 1.0,
+    "clear_hold": 0.6666666666666666,
+    "clear_sell": 1.0,
+    "clear_buy": 0.6666666666666666,
+    "adversarial": 1.0
+  },
+  "confusion_matrix": {
+    "HOLD": {
+      "HOLD": 7,
+      "BUY": 1
+    },
+    "SELL": {
+      "SELL": 4
+    },
+    "BUY": {
+      "HOLD": 1,
+      "BUY": 2
+    }
+  },
+  "avg_toulmin_bull": 0.896,
+  "avg_toulmin_bear": 0.928,
+  "avg_toulmin_overall": 0.912,
+  "avg_rounds": 2,
+  "bull_wins": 0,
+  "bear_wins": 4,
+  "ties": 11,
+  "bull_elo": 1463.3019997446847,
+  "bear_elo": 1536.6980002553153,
+  "avg_bull_confidence": 0.8733333333333333,
+  "avg_bear_confidence": 0.86,
+  "avg_confidence_gap": 0.013333333333333308,
+  "avg_bull_evidence_count": 3.0,
+  "avg_bear_evidence_count": 3.0,
+  "avg_evidence_per_point": 3.0,
+  "avg_cogency": 0.76,
+  "avg_persuasiveness_bull": 7.466666666666667,
+  "avg_persuasiveness_bear": 7.4,
+  "avg_civility": 4.466666666666667,
+  "avg_convergence": 0.7238095238095237,
+  "avg_evidence_novelty": 0.9944444444444444
+}

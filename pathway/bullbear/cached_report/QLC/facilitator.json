@@ -1,0 +1,11 @@
+{
+  "report_type": "facilitator",
+  "content": "# Investment Memo: QLC\n## Date: 2025-12-07 02:51:08 UTC\n\n### Toulmin Quality Scores\n\n| Criterion            | BULL | BEAR |\n|----------------------|------|------|\n| Claim Clarity        | 4/5  | 4/5  |\n| Evidence Quality      | 4/5  | 4/5  |\n| Warrant Strength     | 4/5  | 4/5  |\n| Qualifier Honesty    | 5/5  | 5/5  |\n| Rebuttal Effectiveness| 3/5  | 4/5  |\n| **TOTAL**            | 20/25| 21/25|\n\n### Winner: BEAR by 1 point\n\n### Recommendation: SELL\n### Conviction: HIGH\n\n**Rationale:** The bear argument presents a compelling case for selling QLC, primarily due to the concerning trends in revenue growth and increasing debt levels. Despite the bulls highlighting potential growth opportunities, the current financial indicators suggest a more immediate risk to profitability.\n\n**Key Evidence That Decided:** The significant decline in revenue growth and the rising debt-to-equity ratio, which indicates financial instability, were critical in favoring the bear argument.\n\n### Risk Triggers\n- Exit if: QLC reports a reversal in revenue trends or a significant improvement in its debt-to-equity ratio.\n- Target: 30% downside target from current levels.",
+  "timestamp": "2025-12-07T02:51:15.564358",
+  "symbol": "QLC",
+  "metadata": {
+    "recommendation": "SELL",
+    "last_speaker": "bear"
+  },
+  "cached_at": "2025-12-07T02:51:15.564399"
+}

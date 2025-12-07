@@ -50,7 +50,6 @@ streaming/sentiment_logs
 pathway/historical_reports
 pathway/bullbear/debate
 rag
-*.json
 ragas_quick_test.py
 ragass.py
 

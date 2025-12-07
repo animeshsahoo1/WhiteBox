@@ -1,0 +1,11 @@
+{
+  "report_type": "facilitator",
+  "content": "# Investment Memo: CLNK\n## Date: 2025-12-07 02:47:50 UTC\n\n### Toulmin Quality Scores\n\n| Criterion              | BULL | BEAR |\n|-----------------------|------|------|\n| Claim Clarity         | 5/5  | 4/5  |\n| Evidence Quality      | 4/5  | 4/5  |\n| Warrant Strength      | 4/5  | 3/5  |\n| Qualifier Honesty     | 5/5  | 5/5  |\n| Rebuttal Effectiveness | 4/5  | 3/5  |\n| **TOTAL**             | 22/25| 19/25|\n\n### Winner: BULL by 3 points\n\n### Recommendation: BUY\n### Conviction: HIGH\n\n**Rationale:** The bullish argument presents a clearer and more actionable recommendation, supported by strong evidence of growth potential and strategic positioning in the renewable energy sector. The improvement in EBITDA margin and projected market share increase are compelling indicators of CLNK's future performance.\n\n**Key Evidence That Decided:** CLNK's reported 30% year-over-year revenue growth in Q2 2023 significantly outpaces the industry average, demonstrating strong operational performance and market demand.\n\n### Risk Triggers\n- Exit if: CLNK's revenue growth falls below 5% year-over-year for two consecutive quarters.\n- Target: $25 (40% upside from current levels).",
+  "timestamp": "2025-12-07T02:47:57.249319",
+  "symbol": "CLNK",
+  "metadata": {
+    "recommendation": "BUY",
+    "last_speaker": "bear"
+  },
+  "cached_at": "2025-12-07T02:47:57.249396"
+}

@@ -1,0 +1,34 @@
+{
+  "dataset_id": "ambiguous_002",
+  "scenario_name": "Turnaround Story with Lingering Doubts",
+  "category": "ambiguous",
+  "difficulty": "hard",
+  "symbol": "GE",
+  "company_name": "General Electric Company",
+  "sector": "Industrial",
+  "inputs": {
+    "news_report": "# News Summary for GE\n\n## Latest Headlines\n\n1. **GE Aerospace Reports Strong Demand for Jet Engines, Exceeding Expectations** - Wall Street Journal, 2024-01-25\n   GE Aerospace, now a standalone entity post-spin-off, announced better-than-expected Q4 results, driven by a surge in commercial flight hours and aftermarket services. The company raised its full-year guidance.\n\n2. **GE Vernova IPO Faces Market Volatility Amidst Renewable Energy Sector Concerns** - Reuters, 2024-02-15\n   The upcoming initial public offering (IPO) for GE's energy division, GE Vernova, is facing headwinds due to broader investor concerns about the profitability and cyclicality of the renewable energy market, despite positive underlying technological advancements.\n\n## Key Events\n- Successful spin-off of GE HealthCare completed.\n- Strategic divestitures of non-core assets continuing.\n\n## Analyst Actions\n- Initiations of 'Buy' ratings for GE Aerospace, while GE Vernova's valuation remains a point of debate.\n\nLast Updated: 2024-02-23T10:05:00Z",
+    "sentiment_report": "# Sentiment Analysis for GE\n\n## Overall Sentiment: NEUTRAL (Score: 5.5/10)\n\n### Social Media Metrics\n- Twitter: Mixed sentiment, with strong positive mentions for GE Aerospace's performance but significant skepticism surrounding GE Vernova's IPO prospects and overall historical debt.\n- Reddit: Discussions are divided. Some see the restructuring as a successful turnaround, while others remain cautious due to past performance and the complexity of the remaining businesses.\n- StockTwits: High volume of messages, with a slight bearish lean due to concerns about the GE Vernova IPO valuation and execution.\n\n### Analyst Sentiment\n- Buy: 15, Hold: 20, Sell: 5\n- Average PT: $130 (for GE Aerospace)\n\n### Key Themes\n- Turnaround Potential vs. Execution Risk\n- Strength in Aerospace vs. Uncertainty in Energy",
+    "market_report": "# Technical Analysis for GE\n\n## Price Action\n- Current: $125.00\n- 24h Change: -0.8%\n- 52-Week: $70.00 - $135.00\n- Volume: 20M (vs avg 25M)\n\n## Technical Indicators\n- RSI (14): 65 (Approaching overbought, but still strong)\n- MACD: Bullish, but momentum appears to be slowing.\n- 50-Day MA: $115.00 (price above)\n- 200-Day MA: $95.00 (price significantly above)\n\n## Support/Resistance\n- Support: $120, $110\n- Resistance: $130, $135\n\n## Trend Analysis\nGE has shown a remarkable recovery from its multi-year lows, driven by restructuring and strong performance in its aerospace division. The stock is in a clear uptrend, but the recent price action suggests some consolidation might be occurring as the market awaits the GE Vernova IPO.",
+    "fundamental_report": "# Fundamental Analysis for GE\n\n## Valuation Metrics\n- P/E: 40 (Industry: 25 - primarily considering Aerospace)\n- Forward P/E: 30\n- P/S: 3.5\n- EV/EBITDA: 25\n\n## Financial Health\n- Revenue: $68B (Combined historical, post-spin-off specifics for GE Aerospace are stronger)\n- Net Income: $12B (Adjusted for spin-offs)\n- FCF: $8B (Projected for Aerospace)\n- Debt/Equity: 1.5 (Reduced significantly post-spin-offs)\n\n## Growth Metrics\n- Revenue CAGR (Aerospace): 10%\n- EPS CAGR (Aerospace): 15%\n\n## Competitive Position\nGE Aerospace is a global leader in jet engines and aircraft systems, benefiting from a duopoly in many segments and strong aftermarket revenue streams. GE Vernova operates in the competitive but growing renewable energy and power grid sectors, facing challenges in profitability and project execution."
+  },
+  "ground_truth": {
+    "expected_recommendation": "HOLD",
+    "expected_confidence": "MEDIUM",
+    "reasoning": "GE Aerospace presents a strong turnaround story with solid fundamentals and a positive outlook, but the uncertainty surrounding the GE Vernova IPO valuation and broader market sentiment towards renewable energy creates significant ambiguity, warranting a cautious 'Hold'.",
+    "key_bull_points": [
+      "GE Aerospace is a market leader with strong revenue and profit growth.",
+      "Successful completion of major spin-offs has simplified the business and reduced debt.",
+      "Positive aftermarket revenue streams in the aerospace division provide stability.",
+      "Improved operational efficiency and cost management across divisions."
+    ],
+    "key_bear_points": [
+      "GE Vernova's IPO faces market volatility and concerns about renewable energy sector profitability.",
+      "Historical baggage and complexity of managing multiple diverse businesses.",
+      "The company's valuation appears stretched if considering the sum of its parts pre-Vernova IPO.",
+      "Execution risk remains for GE Vernova to achieve its projected profitability."
+    ]
+  },
+  "_generated_at": "2025-12-07T17:07:48.241069",
+  "_model_used": "google/gemini-2.5-flash-lite"
+}
