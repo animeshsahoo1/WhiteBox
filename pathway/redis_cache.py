@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 from functools import lru_cache
 from typing import Any, Dict, Optional
+import ssl
 
 import pathway as pw
 import redis
@@ -103,6 +104,26 @@ def save_report_to_postgres(symbol: str, report_type: str, entry: Dict[str, Any]
         get_postgres_connection.cache_clear()
         return False
 
+def get_redis_client() -> redis.Redis:
+    """Return a Redis client with connection pooling for better performance.
+    
+    Uses connection pooling to reuse connections instead of creating new ones.
+    Pool is created lazily on first call and reused for all subsequent calls.
+    """
+    global _redis_pool
+    
+    if _redis_pool is None:
+        url = os.getenv("REDIS_URL")
+        _redis_pool = redis.ConnectionPool.from_url(
+            url,
+            decode_responses=True,
+            max_connections=20,
+            socket_timeout=10.0,  # Increased timeout for Upstash
+            socket_connect_timeout=10.0,
+            retry_on_timeout=True,
+            ssl_cert_reqs=ssl.CERT_NONE if url.startswith("rediss://") else None
+        )
+    return redis.Redis(connection_pool=_redis_pool)
 
 def save_report_to_redis(symbol: str, report_type: str, content: str) -> bool:
     """
@@ -136,32 +157,18 @@ def save_report_to_redis(symbol: str, report_type: str, content: str) -> bool:
             "content": content,
             "last_updated": timestamp,
         })
-        
+
+        print(entry)
         # Save and verify with read-back
         client.hset(symbol_key, report_type, entry)
         client.sadd(REPORT_SYMBOL_SET_KEY, symbol.upper())
         
         # Set TTL if configured
         ttl_env = os.getenv("REDIS_REPORT_TTL")
-        if ttl_env:
-            try:
-                ttl_val = int(ttl_env)
-                client.expire(symbol_key, ttl_val)
-            except ValueError:
-                pass
+        print("debug sentiment", ttl_env)
 
         # Read back to verify it was actually saved
-        saved_data = client.hget(symbol_key, report_type)
-        if not saved_data:
-            raise Exception(f"Verification failed - {report_type} not found after write to {symbol_key}")
-        
-        # Verify content matches
-        if len(saved_data) != len(entry):
-            raise Exception(f"Data mismatch - wrote {len(entry)} bytes but read back {len(saved_data)} bytes")
-        
-        # Double check with HEXISTS
-        exists = client.hexists(symbol_key, report_type)
-        print(f"✅ [REDIS] Cached {report_type} for {symbol} (verified {len(saved_data)} bytes, hexists={exists})")
+
         return True
         
     except Exception as e:
@@ -175,46 +182,6 @@ def save_report_to_redis(symbol: str, report_type: str, content: str) -> bool:
 _redis_pool: redis.ConnectionPool = None
 
 
-def get_redis_client() -> redis.Redis:
-    """Return a Redis client with connection pooling for better performance.
-    
-    Uses connection pooling to reuse connections instead of creating new ones.
-    Pool is created lazily on first call and reused for all subsequent calls.
-    """
-    global _redis_pool
-    
-    if _redis_pool is None:
-        url = os.getenv("REDIS_URL")
-        if url:
-            print("🔌 Creating Redis connection pool from REDIS_URL...")
-            # Handle SSL for Upstash
-            import ssl
-            _redis_pool = redis.ConnectionPool.from_url(
-                url,
-                decode_responses=True,
-                max_connections=20,
-                socket_timeout=10.0,  # Increased timeout for Upstash
-                socket_connect_timeout=10.0,
-                retry_on_timeout=True,
-                ssl_cert_reqs=ssl.CERT_NONE if url.startswith("rediss://") else None
-            )
-        else:
-            host = os.getenv("REDIS_HOST", REDIS_DEFAULT_HOST)
-            port = int(os.getenv("REDIS_PORT", str(REDIS_DEFAULT_PORT)))
-            db = int(os.getenv("REDIS_DB", str(REDIS_DEFAULT_DB)))
-            print(f"🔌 Creating Redis connection pool: {host}:{port}/{db}")
-            _redis_pool = redis.ConnectionPool(
-                host=host,
-                port=port,
-                db=db,
-                decode_responses=True,
-                max_connections=20,
-                socket_timeout=10.0,
-                socket_connect_timeout=10.0,
-                retry_on_timeout=True
-            )
-    
-    return redis.Redis(connection_pool=_redis_pool)
 
 
 def _to_serializable_timestamp(value: Any, fallback_time: int) -> str:
