@@ -1,0 +1,36 @@
+{
+  "updated_at": "2025-12-07T17:08:01.970878",
+  "categories": {
+    "adversarial": {
+      "count": 3,
+      "files": [
+        "adversarial_003.json",
+        "adversarial_002.json",
+        "adversarial_001.json"
+      ]
+    },
+    "ambiguous": {
+      "count": 3,
+      "files": [
+        "ambiguous_003.json",
+        "ambiguous_002.json",
+        "ambiguous_001.json"
+      ]
+    },
+    "clear_signals": {
+      "count": 9,
+      "files": [
+        "clear_sell_003.json",
+        "clear_sell_001.json",
+        "clear_hold_003.json",
+        "clear_hold_002.json",
+        "clear_sell_002.json",
+        "clear_buy_001.json",
+        "clear_buy_002.json",
+        "clear_buy_003.json",
+        "clear_hold_001.json"
+      ]
+    }
+  },
+  "total_scenarios": 15
+}

@@ -1,0 +1,33 @@
+{
+  "dataset_id": "adversarial_002",
+  "scenario_name": "Incomplete Data - PHARMX",
+  "category": "adversarial",
+  "difficulty": "hard",
+  "symbol": "PHARMX",
+  "company_name": "PharmaX Solutions Inc.",
+  "sector": "Healthcare",
+  "inputs": {
+    "news_report": "# News Summary for PHARMX\n\n## Latest Headlines\n\n1. **PharmaX Announces Promising Phase 2 Trial Results for Novel Cancer Drug** - Reuters, 2023-10-25\n   PharmaX (PHARMX) reported positive preliminary results from its Phase 2 clinical trial for its experimental oncology treatment, PX-789. The drug showed a significant reduction in tumor size in a subset of patients.\n\n2. **Regulatory Scrutiny Looms for PHARMX Over Manufacturing Practices** - Associated Press, 2023-10-24\n   Sources suggest that PharmaX is facing increased scrutiny from the FDA regarding its manufacturing facilities and quality control processes. Details remain undisclosed.\n\n## Key Events\n- Phase 2 trial results were released on time.\n- FDA inquiry is ongoing but details are scarce.\n\n## Analyst Actions\n- Several analysts have placed ratings 'Under Review' pending further clarification on the manufacturing issues.\n\nLast Updated: 2023-10-26 10:00 UTC",
+    "sentiment_report": "# Sentiment Analysis for PHARMX\n\n## Overall Sentiment: NEUTRAL (Score: 5.5/10)\n\n### Social Media Metrics\n- Twitter: Mixed sentiment, ~50% positive on trial results, ~30% concerned about regulatory news.\n- Reddit: Discussions are heavily split between optimistic investors focusing on the drug trial and cautious users worried about the FDA probe.\n- StockTwits: Mentions are up, but sentiment is divided, reflecting the conflicting news.\n\n### Analyst Sentiment\n- Buy: 2, Hold: 5, Sell: 1\n- Average PT: $45 (with wide dispersion)\n\n### Key Themes\n- Potential of the new drug.\n- Uncertainty surrounding regulatory approval and manufacturing.",
+    "market_report": "# Technical Analysis for PHARMX\n\n## Price Action\n- Current: $38.20\n- 24h Change: -2%\n- 52-Week: $25.50 - $48.00\n- Volume: 2.1M (vs avg 1.8M)\n\n## Technical Indicators\n- RSI (14): 55 (Neutral)\n- MACD: Near neutral, slight bearish crossover.\n- 50-Day MA: $35.00 (Price is above)\n- 200-Day MA: $32.00 (Price is above)\n\n## Support/Resistance\n- Support: $35, $30\n- Resistance: $40, $45\n\n## Trend Analysis\nThe stock has been in a gradual uptrend, recently consolidating after the trial results. The price action is currently indecisive, reflecting the market's uncertainty about the conflicting news.",
+    "fundamental_report": "# Fundamental Analysis for PHARMX\n\n## Valuation Metrics\n- P/E: N/A (Negative Earnings)\n- Forward P/E: N/A\n- P/S: 8.5 (Industry: 6.0)\n- EV/EBITDA: N/A\n\n## Financial Health\n- Revenue: $150M (10% YoY)\n- Net Income: -$20M\n- FCF: -$15M\n- Debt/Equity: 0.8\n\n## Growth Metrics\n- Revenue CAGR: 8%\n- EPS CAGR: N/A (Negative)\n\n## Competitive Position\nPharmaX operates in the competitive oncology drug market. While the Phase 2 results are encouraging, the drug is still years away from potential market entry. The company's current P/S ratio is elevated compared to the industry average, suggesting the market has priced in future growth that is not yet guaranteed."
+  },
+  "ground_truth": {
+    "expected_recommendation": "HOLD",
+    "expected_confidence": "MEDIUM",
+    "reasoning": "The conflicting news (positive trial results vs. potential regulatory issues) creates significant uncertainty. While the drug trial is a positive long-term prospect, the manufacturing concerns pose an immediate risk that cannot be ignored without more data. A HOLD recommendation reflects this balance.",
+    "key_bull_points": [
+      "Positive Phase 2 clinical trial results for a promising cancer drug.",
+      "Encouraging revenue growth.",
+      "Stock price is above key moving averages."
+    ],
+    "key_bear_points": [
+      "Uncertainty regarding FDA scrutiny over manufacturing practices.",
+      "Negative net income and FCF.",
+      "Elevated P/S ratio relative to industry.",
+      "Lack of clarity on the severity of manufacturing issues."
+    ]
+  },
+  "_generated_at": "2025-12-07T17:08:01.970632",
+  "_model_used": "google/gemini-2.5-flash-lite"
+}

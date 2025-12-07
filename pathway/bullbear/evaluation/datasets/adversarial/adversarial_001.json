@@ -1,0 +1,33 @@
+{
+  "dataset_id": "adversarial_001",
+  "scenario_name": "Meme Stock Mania - QQQX",
+  "category": "adversarial",
+  "difficulty": "medium",
+  "symbol": "QQQX",
+  "company_name": "QuantumQuasar Corp.",
+  "sector": "Technology",
+  "inputs": {
+    "news_report": "# News Summary for QQQX\n\n## Latest Headlines\n\n1. **QQQX Surges 300% Amidst Reddit-Fueled Buying Frenzy** - Wall Street Journal, 2023-10-26\n   QuantumQuasar Corp. (QQQX) shares experienced an unprecedented surge, climbing over 300% in a single trading day, driven by a coordinated effort on social media platforms, particularly Reddit's r/WallStreetBets.\n\n2. **Short Squeeze Intensifies for QQQX as Retail Investors Pile In** - Bloomberg, 2023-10-26\n   The heavily shorted QQQX is now the target of a massive short squeeze, with hedge funds facing significant losses. Trading volume has exploded to over 50 million shares, dwarfing its daily average.\n\n## Key Events\n- Unverified rumors of a 'secret project' gaining traction online.\n- Several high-profile short-sellers have reportedly closed their positions.\n\n## Analyst Actions\n- Most traditional analysts have issued 'Underperform' ratings, but these are being drowned out by online sentiment.\n\nLast Updated: 2023-10-26 17:00 UTC",
+    "sentiment_report": "# Sentiment Analysis for QQQX\n\n## Overall Sentiment: BULLISH (Score: 9.2/10)\n\n### Social Media Metrics\n- Twitter: 95% Positive, #QQQSmeme trending globally.\n- Reddit: r/WallStreetBets is dominated by QQQX discussions, with \"diamond hands\" and \"to the moon\" being common phrases. High engagement.\n- StockTwits: Over 100,000 messages, overwhelmingly positive, with many users encouraging others to buy and hold.\n\n### Analyst Sentiment\n- Buy: 0, Hold: 1, Sell: 15\n- Average PT: $15 (significantly below current trading price)\n\n### Key Themes\n- Retail investor solidarity.\n- Belief in a fundamental undervaluation despite lack of evidence.\n- Targeting institutional short-sellers.",
+    "market_report": "# Technical Analysis for QQQX\n\n## Price Action\n- Current: $150.50\n- 24h Change: +310%\n- 52-Week: $5.20 - $155.00\n- Volume: 55M (vs avg 1.5M)\n\n## Technical Indicators\n- RSI (14): 95 (Extremely Overbought)\n- MACD: Strongly bullish crossover above signal line, but divergence emerging.\n- 50-Day MA: $25.10 (Price is significantly above)\n- 200-Day MA: $18.50 (Price is significantly above)\n\n## Support/Resistance\n- Support: $120, $90\n- Resistance: $160, $180\n\n## Trend Analysis\nThe stock has experienced a parabolic rise, defying traditional technical analysis. Momentum is extremely high, but indicators suggest a potential for a sharp reversal or consolidation.",
+    "fundamental_report": "# Fundamental Analysis for QQQX\n\n## Valuation Metrics\n- P/E: 450 (Industry: 35)\n- Forward P/E: 380\n- P/S: 120 (Industry: 10)\n- EV/EBITDA: 600\n\n## Financial Health\n- Revenue: $50M (0% YoY)\n- Net Income: $1M (5% YoY)\n- FCF: -$5M\n- Debt/Equity: 1.5\n\n## Growth Metrics\n- Revenue CAGR: -2%\n- EPS CAGR: -10%\n\n## Competitive Position\nQuantumQuasar Corp. operates in a highly competitive semiconductor market. Recent product releases have underperformed expectations, and the company faces significant challenges from larger, more established players. There is no discernible fundamental catalyst to justify the current stock price."
+  },
+  "ground_truth": {
+    "expected_recommendation": "SELL",
+    "expected_confidence": "HIGH",
+    "reasoning": "The stock price is detached from fundamental reality, driven solely by speculative social media hype and a short squeeze. Indicators point to an extremely overbought condition and unsustainable valuation, suggesting an imminent and significant price correction.",
+    "key_bull_points": [
+      "Extreme social media sentiment and coordination.",
+      "Significant short squeeze potential.",
+      "High trading volume indicates strong retail participation."
+    ],
+    "key_bear_points": [
+      "Extremely overvalued fundamentals (high P/E, P/S).",
+      "Negative revenue and EPS growth trends.",
+      "Technically overbought indicators (RSI 95).",
+      "Lack of any fundamental catalysts for the price surge."
+    ]
+  },
+  "_generated_at": "2025-12-07T17:08:01.962617",
+  "_model_used": "google/gemini-2.5-flash-lite"
+}

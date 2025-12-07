@@ -1,0 +1,34 @@
+{
+  "dataset_id": "ambiguous_001",
+  "scenario_name": "Growth Stock with Valuation Concerns",
+  "category": "ambiguous",
+  "difficulty": "medium",
+  "symbol": "NVDA",
+  "company_name": "NVIDIA Corporation",
+  "sector": "Technology",
+  "inputs": {
+    "news_report": "# News Summary for NVDA\n\n## Latest Headlines\n\n1. **NVIDIA Announces Record Q4 Revenue Driven by AI Demand** - Reuters, 2024-02-21\n   NVIDIA reported a staggering 265% year-over-year revenue increase to $22.1 billion for its fourth quarter, significantly beating analyst expectations. The company cited robust demand for its AI-powered data center GPUs as the primary driver.\n\n2. **Competitor AMD Unveils New AI Chip, Challenging NVIDIA's Dominance** - Bloomberg, 2024-02-19\n   Advanced Micro Devices (AMD) launched its latest AI accelerator, the MI300X, aiming to capture market share from NVIDIA. Early benchmarks suggest competitive performance in certain AI workloads.\n\n## Key Events\n- Expansion of manufacturing capacity to meet surging demand.\n- Partnership with major cloud providers for AI infrastructure.\n\n## Analyst Actions\n- Several analysts raised price targets, but some maintained 'Hold' ratings due to valuation.\n\nLast Updated: 2024-02-23T10:00:00Z",
+    "sentiment_report": "# Sentiment Analysis for NVDA\n\n## Overall Sentiment: BULLISH (Score: 8.5/10)\n\n### Social Media Metrics\n- Twitter: 88% Positive sentiment, high volume of mentions regarding AI breakthroughs and stock performance.\n- Reddit: r/wallstreetbets and r/stocks show significant bullish sentiment, with many users highlighting AI's transformative potential.\n- StockTwits: Over 90% of messages are bullish, with frequent discussion of NVIDIA's market leadership.\n\n### Analyst Sentiment\n- Buy: 35, Hold: 8, Sell: 2\n- Average PT: $850\n\n### Key Themes\n- AI Revolution and Market Dominance\n- Unprecedented Demand for GPUs",
+    "market_report": "# Technical Analysis for NVDA\n\n## Price Action\n- Current: $785.00\n- 24h Change: +1.5%\n- 52-Week: $207.00 - $808.00\n- Volume: 45M (vs avg 40M)\n\n## Technical Indicators\n- RSI (14): 78 (Overbought)\n- MACD: Bullish crossover, strong upward momentum.\n- 50-Day MA: $650.00 (price significantly above)\n- 200-Day MA: $480.00 (price significantly above)\n\n## Support/Resistance\n- Support: $750, $700\n- Resistance: $800, $850\n\n## Trend Analysis\nThe stock is in a strong uptrend, consistently making new highs. However, the extremely high RSI indicates potential for a short-term pullback or consolidation.",
+    "fundamental_report": "# Fundamental Analysis for NVDA\n\n## Valuation Metrics\n- P/E: 75 (Industry: 35)\n- Forward P/E: 45\n- P/S: 25\n- EV/EBITDA: 60\n\n## Financial Health\n- Revenue: $81.5B (126% YoY)\n- Net Income: $29.8B (586% YoY)\n- FCF: $25.0B\n- Debt/Equity: 0.2\n\n## Growth Metrics\n- Revenue CAGR: 45%\n- EPS CAGR: 70%\n\n## Competitive Position\nNVIDIA holds a dominant position in the AI GPU market, estimated at over 80% share. While competitors are emerging, NVIDIA's ecosystem, CUDA software platform, and continuous innovation provide a significant competitive moat."
+  },
+  "ground_truth": {
+    "expected_recommendation": "HOLD",
+    "expected_confidence": "MEDIUM",
+    "reasoning": "While NVIDIA's AI dominance and strong financial performance are undeniable, its current valuation metrics are significantly stretched, suggesting a high risk of correction despite the bullish sentiment and technical momentum.",
+    "key_bull_points": [
+      "Dominant market share in the rapidly growing AI chip sector.",
+      "Record-breaking revenue and profit growth driven by AI demand.",
+      "Strongest ecosystem (CUDA) giving it a significant competitive advantage.",
+      "Massive investments in R&D and manufacturing capacity."
+    ],
+    "key_bear_points": [
+      "Extremely high P/E and P/S ratios compared to industry averages.",
+      "Overbought RSI indicating potential for a short-term pullback.",
+      "Increasing competition from players like AMD and Intel.",
+      "Concentration risk if AI demand growth slows unexpectedly."
+    ]
+  },
+  "_generated_at": "2025-12-07T17:07:48.240923",
+  "_model_used": "google/gemini-2.5-flash-lite"
+}

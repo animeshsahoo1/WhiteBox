@@ -1,0 +1,34 @@
+{
+  "dataset_id": "ambiguous_003",
+  "scenario_name": "Disruptive Tech Facing Regulatory Hurdles",
+  "category": "ambiguous",
+  "difficulty": "hard",
+  "symbol": "CRSP",
+  "company_name": "CRISPR Therapeutics AG",
+  "sector": "Healthcare",
+  "inputs": {
+    "news_report": "# News Summary for CRSP\n\n## Latest Headlines\n\n1. **FDA Approves First CRISPR-based Gene Therapy for Sickle Cell Disease** - Associated Press, 2023-12-08\n   The FDA granted accelerated approval for 'Casgevy', developed by Vertex Pharmaceuticals and CRISPR Therapeutics, marking a significant milestone for gene editing therapies. Initial patient response data is highly promising.\n\n2. **Lawmakers Introduce Bill to Scrutinize Gene Editing Technology Safety and Ethics** - CNBC, 2024-01-15\n   A bipartisan group of senators has proposed new legislation that could lead to stricter regulatory oversight and ethical guidelines for gene editing technologies, citing potential long-term safety concerns and societal impact.\n\n## Key Events\n- Ongoing clinical trials for other genetic disorders.\n- Discussions with regulatory bodies in Europe regarding market authorization.\n\n## Analyst Actions\n- Price targets raised significantly post-FDA approval, but some analysts express caution regarding the new legislative proposals.\n\nLast Updated: 2024-02-23T10:10:00Z",
+    "sentiment_report": "# Sentiment Analysis for CRSP\n\n## Overall Sentiment: BULLISH (Score: 7.8/10)\n\n### Social Media Metrics\n- Twitter: Overwhelmingly positive sentiment following the FDA approval, with discussions focusing on the revolutionary potential of gene editing in medicine.\n- Reddit: Subreddits like r/CRISPR and r/biotech are buzzing with excitement about the 'cure' potential, though some acknowledge the high cost and accessibility challenges.\n- StockTwits: Predominantly bullish, with users celebrating the approval as a validation of the technology and a catalyst for future growth.\n\n### Analyst Sentiment\n- Buy: 25, Hold: 7, Sell: 1\n- Average PT: $110\n\n### Key Themes\n- Landmark FDA Approval and Medical Breakthrough\n- Future Potential in Treating Genetic Diseases",
+    "market_report": "# Technical Analysis for CRSP\n\n## Price Action\n- Current: $95.00\n- 24h Change: +0.5%\n- 52-Week: $50.00 - $115.00\n- Volume: 5M (vs avg 6M)\n\n## Technical Indicators\n- RSI (14): 70 (Nearing overbought territory)\n- MACD: Strong bullish momentum, but showing signs of plateauing.\n- 50-Day MA: $80.00 (price well above)\n- 200-Day MA: $70.00 (price well above)\n\n## Support/Resistance\n- Support: $90, $85\n- Resistance: $100, $110\n\n## Trend Analysis\nCRSP experienced a significant surge following the FDA approval, establishing a strong uptrend. While the momentum remains positive, the RSI approaching overbought levels and the recent introduction of regulatory scrutiny legislation suggest potential for consolidation or a minor pullback.",
+    "fundamental_report": "# Fundamental Analysis for CRSP\n\n## Valuation Metrics\n- P/E: N/A (Not profitable)\n- Forward P/E: N/A\n- P/S: 15 (Based on projected revenue from Casgevy)\n- EV/EBITDA: N/A\n\n## Financial Health\n- Revenue: $150M (Primarily from collaborations, projected to increase significantly with Casgevy sales)\n- Net Income: -$400M (Ongoing R&D investments)\n- FCF: -$350M\n- Debt/Equity: 0.1\n\n## Growth Metrics\n- Revenue CAGR: Highly variable, but projected to exceed 100% annually for the next 3-5 years if Casgevy adoption is strong.\n- EPS CAGR: N/A (Focus on path to profitability)\n\n## Competitive Position\nCRISPR Therapeutics is a pioneer in CRISPR gene editing therapies. While they have a strong technological foundation and a key partnership with Vertex, the field is highly competitive with other companies exploring similar gene editing approaches. The primary risk lies in regulatory and ethical hurdles, not just competition."
+  },
+  "ground_truth": {
+    "expected_recommendation": "HOLD",
+    "expected_confidence": "MEDIUM",
+    "reasoning": "The landmark FDA approval for Casgevy is a massive fundamental positive, driving strong bullish sentiment and technical momentum. However, the introduction of new legislative scrutiny introduces significant regulatory risk and ambiguity regarding future approvals and market access, warranting a 'Hold' until clarity emerges.",
+    "key_bull_points": [
+      "First-mover advantage with FDA-approved CRISPR-based therapy (Casgevy).",
+      "The technology holds immense potential to treat a wide range of genetic diseases.",
+      "Strong partnership with Vertex Pharmaceuticals for commercialization.",
+      "Positive clinical trial data for other pipeline candidates."
+    ],
+    "key_bear_points": [
+      "High cost and potential accessibility issues for the approved therapy.",
+      "New legislative proposals introducing significant regulatory uncertainty and ethical scrutiny.",
+      "The company is not yet profitable, relying on R&D and partnerships.",
+      "Potential for long-term, unforeseen safety concerns with gene editing."
+    ]
+  },
+  "_generated_at": "2025-12-07T17:07:48.241173",
+  "_model_used": "google/gemini-2.5-flash-lite"
+}

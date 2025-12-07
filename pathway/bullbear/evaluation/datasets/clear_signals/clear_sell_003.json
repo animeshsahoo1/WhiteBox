@@ -1,0 +1,32 @@
+{
+  "dataset_id": "clear_sell_003",
+  "scenario_name": "Apex Global Logistics Files for Chapter 11 Bankruptcy",
+  "category": "clear_sell",
+  "difficulty": "easy",
+  "symbol": "APXL",
+  "company_name": "Apex Global Logistics Corp.",
+  "sector": "Industrial",
+  "inputs": {
+    "news_report": "# News Summary for APXL\n\n## Latest Headlines\n\n1. **Apex Global Logistics Files for Chapter 11 Bankruptcy Protection** - Wall Street Journal, 2023-10-26\n   Apex Global Logistics Corp. (APXL), a major player in international freight forwarding, announced today that it has filed for Chapter 11 bankruptcy protection in the U.S. Bankruptcy Court for the District of Delaware. The company cited insurmountable debt levels, rising operational costs, and a significant downturn in global shipping volumes as primary reasons.\n\n2. **Trading Halted for APXL Stock Amidst Bankruptcy Filing; Creditors Prepare Claims** - Reuters, 2023-10-26\n   Trading in the shares of Apex Global Logistics (APXL) has been halted pending further information from the company and the court. The bankruptcy filing means common stockholders are typically last in line for repayment, often receiving little or nothing in such proceedings. Creditors are expected to file their claims shortly.\n\n## Key Events\n- Chapter 11 Bankruptcy Filing.\n- Stock trading halted.\n- Announcement of asset sales and restructuring plans expected.\n\n## Analyst Actions\n- Analysts have universally downgraded APXL to 'Underperform' or 'Sell', noting the near-certainty of equity value destruction in bankruptcy.\n\nLast Updated: 2023-10-26T11:00:00Z",
+    "sentiment_report": "# Sentiment Analysis for APXL\n\n## Overall Sentiment: BEARISH (Score: 0.5/10)\n\n### Social Media Metrics\n- Twitter: 100% Negative, focus on bankruptcy, worthless stock, and creditor recovery hopes.\n- Reddit: Discussions center on the finality of the bankruptcy filing for shareholders.\n- StockTwits: Overwhelmingly 'SELL', 'BANKRUPT', 'WORTHLESS'. No positive sentiment detected.\n\n### Analyst Sentiment\n- Buy: 0, Hold: 0, Sell: 5\n- Average PT: $0.00 (post-bankruptcy valuation)\n\n### Key Themes\n- Bankruptcy\n- Creditor Claims\n- Shareholder Loss",
+    "market_report": "# Technical Analysis for APXL\n\n## Price Action\n- Current: $0.75 (pre-halt price)\n- 24h Change: -60%\n- 52-Week: $0.50 - $15.00\n- Volume: 15M (vs avg 1M) - Extreme volume spike as news broke.\n\n## Technical Indicators\n- RSI (14): 15 (Extremely oversold, but irrelevant in bankruptcy context)\n- MACD: Deeply negative and trending lower.\n- 50-Day MA: $7.50 (Trading far below)\n- 200-Day MA: $9.00 (Trading far below)\n\n## Support/Resistance\n- Support: $0.50 (Previous 52-week low)\n- Resistance: N/A (Trading halted, relevant levels are post-restructuring)\n\n## Trend Analysis\nPrior to the trading halt, Apex Global Logistics stock was in a steep, undeniable downtrend, reflecting severe financial distress. The bankruptcy filing confirms the worst fears of investors. The stock is effectively worthless in its current form, and any future value will depend entirely on the outcome of the bankruptcy proceedings, where common shareholders are typically last to recover any value.",
+    "fundamental_report": "# Fundamental Analysis for APXL\n\n## Valuation Metrics\n- P/E: N/A\n- Forward P/E: N/A\n- P/S: N/A\n- EV/EBITDA: N/A\n\n## Financial Health\n- Revenue: $2.5B (down 15% YoY)\n- Net Income: -$400M (significant losses)\n- FCF: -$350M\n- Debt/Equity: 3.5 (extremely high leverage)\n\n## Growth Metrics\n- Revenue CAGR: -8% (past 3 years)\n- EPS CAGR: -50% (past 3 years)\n\n## Competitive Position\nApex Global Logistics has been struggling against larger, better-capitalized competitors and challenging macroeconomic conditions in the shipping industry. The company's high debt load and inability to generate positive cash flow ultimately led to its bankruptcy filing. Its competitive position is now non-existent as a going concern, pending potential acquisition of assets out of bankruptcy."
+  },
+  "ground_truth": {
+    "expected_recommendation": "SELL",
+    "expected_confidence": "HIGH",
+    "reasoning": "The filing for Chapter 11 bankruptcy protection signifies severe insolvency, rendering the common stock virtually worthless.",
+    "key_bull_points": [
+      "Potential for recovery of some value if assets are sold at a premium in bankruptcy (highly unlikely for common stock)."
+    ],
+    "key_bear_points": [
+      "Company has filed for Chapter 11 bankruptcy protection.",
+      "Insurmountable debt levels and operational challenges cited.",
+      "Stock trading is halted, and common shareholders are last in line for repayment.",
+      "Analyst sentiment is universally negative, expecting zero recovery for equity holders.",
+      "Fundamental financial health is extremely poor, marked by massive losses and high debt."
+    ]
+  },
+  "_generated_at": "2025-12-07T17:07:19.261011",
+  "_model_used": "google/gemini-2.5-flash-lite"
+}

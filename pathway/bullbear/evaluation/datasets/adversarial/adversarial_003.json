@@ -1,0 +1,34 @@
+{
+  "dataset_id": "adversarial_003",
+  "scenario_name": "Contradictory Reports - ENERGX",
+  "category": "adversarial",
+  "difficulty": "medium",
+  "symbol": "ENERGX",
+  "company_name": "EnerGenix Corp.",
+  "sector": "Energy",
+  "inputs": {
+    "news_report": "# News Summary for ENERGX\n\n## Latest Headlines\n\n1. **EnerGenix Secures Major Offshore Wind Farm Contract** - Financial Times, 2023-10-26\n   EnerGenix Corp. (ENERGX) announced it has won a multi-billion dollar contract to develop a significant offshore wind farm, expected to boost its renewable energy division substantially over the next decade.\n\n2. **ENERGX Facing Delays and Cost Overruns on Existing Oil Projects** - Reuters, 2023-10-25\n   Persistent issues plague EnerGenix's traditional oil and gas operations, with reports indicating significant delays and cost escalations in key exploration projects, impacting short-term profitability.\n\n## Key Events\n- New renewable energy contract announced.\n- Ongoing operational challenges in legacy business segments.\n\n## Analyst Actions\n- Some analysts are upgrading ENERGX based on the renewable contract, while others are downgrading due to oil project woes.\n\nLast Updated: 2023-10-26 16:00 UTC",
+    "sentiment_report": "# Sentiment Analysis for ENERGX\n\n## Overall Sentiment: NEUTRAL (Score: 5.0/10)\n\n### Social Media Metrics\n- Twitter: Highly polarized. Approximately 60% positive on the wind contract news, 40% negative/concerned about oil project issues.\n- Reddit: Discussions reflect the divided sentiment, with some focusing on the green energy future and others emphasizing the current financial strain from oil operations.\n- StockTwits: Moderate volume, with users debating whether the company is transitioning effectively or struggling under legacy burdens.\n\n### Analyst Sentiment\n- Buy: 4, Hold: 6, Sell: 3\n- Average PT: $55\n\n### Key Themes\n- Renewable energy transition potential.\n- Risk associated with legacy fossil fuel assets.\n- Execution risk on both new and existing projects.",
+    "market_report": "# Technical Analysis for ENERGX\n\n## Price Action\n- Current: $52.10\n- 24h Change: +1%\n- 52-Week: $40.00 - $60.00\n- Volume: 3.5M (vs avg 3.0M)\n\n## Technical Indicators\n- RSI (14): 60 (Slightly Bullish)\n- MACD: Bullish crossover.\n- 50-Day MA: $50.00 (Price is above)\n- 200-Day MA: $48.00 (Price is above)\n\n## Support/Resistance\n- Support: $50, $45\n- Resistance: $55, $60\n\n## Trend Analysis\nThe stock has been in a steady uptrend, recently consolidating around the $50-$55 range. The technical indicators are broadly positive, suggesting upward momentum, but the price action lacks strong conviction.",
+    "fundamental_report": "# Fundamental Analysis for ENERGX\n\n## Valuation Metrics\n- P/E: 15 (Industry: 12)\n- Forward P/E: 13\n- P/S: 2.5 (Industry: 2.0)\n- EV/EBITDA: 10 (Industry: 9)\n\n## Financial Health\n- Revenue: $10B (5% YoY)\n- Net Income: $3.5B (15% YoY, boosted by one-off gains)\n- FCF: $2.0B\n- Debt/Equity: 0.9\n\n## Growth Metrics\n- Revenue CAGR: 4%\n- EPS CAGR: 7%\n\n## Competitive Position\nEnerGenix is a diversified energy company attempting a transition towards renewables. Its traditional oil and gas segment faces volatile commodity prices and increasing regulatory pressure. The new wind contract is significant but represents a small fraction of its current revenue base. The company's valuation metrics are slightly above industry averages, suggesting the market is pricing in some growth expectations."
+  },
+  "ground_truth": {
+    "expected_recommendation": "HOLD",
+    "expected_confidence": "MEDIUM",
+    "reasoning": "The company presents a mixed picture. The new renewable contract is a positive long-term signal, but the ongoing issues in the core oil and gas business create near-term headwinds and execution risks. The valuation is slightly stretched, and the conflicting news makes a clear BUY or SELL recommendation difficult.",
+    "key_bull_points": [
+      "Secured a major long-term offshore wind farm contract.",
+      "Positive technical indicators (MACD crossover, RSI > 50).",
+      "Stock price above key moving averages.",
+      "Reported increase in Net Income and FCF year-over-year."
+    ],
+    "key_bear_points": [
+      "Significant delays and cost overruns in existing oil projects.",
+      "Contradictory analyst ratings and mixed social media sentiment.",
+      "Valuation metrics slightly above industry averages.",
+      "Dependence on volatile oil and gas markets for current profitability."
+    ]
+  },
+  "_generated_at": "2025-12-07T17:08:01.970779",
+  "_model_used": "google/gemini-2.5-flash-lite"
+}
