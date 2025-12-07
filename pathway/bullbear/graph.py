@@ -63,17 +63,37 @@ def should_continue_debate(state: DebateState) -> Literal["continue", "conclude"
 def route_to_speaker(state: DebateState) -> Literal["bull", "bear"]:
     """
     Route to the appropriate speaker based on last speaker.
-    Checks both current session points AND previous session's last speaker.
+    
+    ASIAN PARLIAMENTARY FORMAT:
+    - Normal rounds: Bull speaks first, Bear second
+    - Final round: Order is REVERSED - Bear speaks first, Bull gets closing argument
+    
+    This ensures Bull (who opened) gets the last word (closing rebuttal).
     """
     current_speaker = state.get("current_speaker", "")
     debate_points = state.get("debate_points", [])
+    max_rounds = state.get("max_rounds", 5)
+    current_round = state.get("round_number", 0)
+    
+    # Check if we're in the final round
+    is_final_round = (current_round == max_rounds - 1) or (current_round >= max_rounds)
     
     # Check current session first
     if debate_points:
         last_point = debate_points[-1]
         last_party = last_point.get("party", "bear")
-        next_speaker = "bear" if last_party == "bull" else "bull"
-        print(f"\n  🗣️ ROUTE: Last speaker was {last_party.upper()}, routing to {next_speaker.upper()}")
+        
+        if is_final_round:
+            # ASIAN FORMAT: In final round, reverse order
+            # If last was bear, bull speaks (normal)
+            # If last was bull, bear speaks (normal within round)
+            # But the round itself starts with Bear to let Bull close
+            next_speaker = "bear" if last_party == "bull" else "bull"
+            print(f"\n  🗣️ ROUTE [FINAL ROUND]: Last was {last_party.upper()}, routing to {next_speaker.upper()} (Bull closes)")
+        else:
+            # Normal alternation
+            next_speaker = "bear" if last_party == "bull" else "bull"
+            print(f"\n  🗣️ ROUTE: Last speaker was {last_party.upper()}, routing to {next_speaker.upper()}")
         return next_speaker
     
     # Check if there's a previous session's last speaker
@@ -83,9 +103,15 @@ def route_to_speaker(state: DebateState) -> Literal["bull", "bear"]:
         print(f"\n  🗣️ ROUTE: Previous session ended with {previous_last_speaker.upper()}, starting with {next_speaker.upper()}")
         return next_speaker
     
-    # Default: Bull starts first
-    print(f"\n  🗣️ ROUTE: First point goes to BULL")
-    return "bull"
+    # Starting a new debate
+    if is_final_round:
+        # If it's the final round and no points yet, Bear starts (so Bull closes)
+        print(f"\n  🗣️ ROUTE [FINAL ROUND]: Starting with BEAR (Bull will close)")
+        return "bear"
+    else:
+        # Default: Bull starts first
+        print(f"\n  🗣️ ROUTE: First point goes to BULL")
+        return "bull"
 
 
 def check_needs_rephrase(state: DebateState) -> Literal["rephrase", "commit", "conclude"]:

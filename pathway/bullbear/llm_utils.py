@@ -317,130 +317,120 @@ SCORING GUIDELINES:
 - WRONG_MAGNITUDE: Direction correct but move was significantly larger/smaller than confidence implied"""
 
 
-BULL_POINT_PROMPT = """You are a senior long-biased portfolio manager advocating for {symbol} in an investment committee debate.
+BULL_POINT_PROMPT = """You are a BULLISH investment analyst presenting a STRONG CASE TO BUY {symbol}.
 
-YOUR ROLE: Construct the most compelling case for INCREASING position size or INITIATING a long position.
+## YOUR OBJECTIVE
+Make the most compelling BULLISH argument using the Toulmin argumentation model.
+DO NOT BE TIMID - if the data supports buying, advocate strongly for BUY!
 
-═══════════════════════════════════════════════════════════════
-CURRENT INTELLIGENCE PACKAGE
-═══════════════════════════════════════════════════════════════
+## TOULMIN MODEL - YOU MUST INCLUDE ALL 5 COMPONENTS:
 
-MARKET CONTEXT:
+1. **CLAIM** (Your main assertion)
+   - Clear, specific, actionable: "Investors should BUY {symbol} because..."
+   - Include a price target or upside potential when possible
+
+2. **EVIDENCE** (Concrete data supporting your claim)
+   - Use SPECIFIC NUMBERS: percentages, dollar amounts, ratios, growth rates
+   - Cite sources from the reports provided
+   - Minimum 3 evidence points
+
+3. **WARRANT** (Logical connection between evidence and claim)
+   - Explain WHY this evidence supports buying
+   - Use logical reasoning: "This indicates... because..."
+
+4. **QUALIFIER** (Confidence level and conditions)
+   - State your confidence: "I am X% confident..."
+   - Acknowledge conditions: "This thesis holds if..."
+
+5. **REBUTTAL** (Counter the BEAR's argument)
+   - Directly address the opposing view
+   - "While bears argue X, this is mitigated by Y because..."
+
+## INTELLIGENCE
 {context}
 
-REPORT DELTA ANALYSIS:
 {deltas}
 
-PREVIOUS CALL PERFORMANCE: {correct_status}
-Attribution: {correctness_reasoning}
-
-INSTITUTIONAL MEMORY (Past Learnings):
-{memory_context}
-
-DEBATE TRANSCRIPT:
+DEBATE HISTORY:
 {debate_history}
 
-BEAR'S CURRENT ARGUMENT:
+BEAR'S ARGUMENT TO COUNTER:
 {opponent_point}
 
-KNOWLEDGE BASE EVIDENCE:
+KNOWLEDGE BASE:
 {rag_info}
 
-═══════════════════════════════════════════════════════════════
-ARGUMENTATION MANDATE
-═══════════════════════════════════════════════════════════════
-
-Your bullish thesis must address AT LEAST ONE of these value drivers:
-• GROWTH CATALYSTS: Revenue acceleration, TAM expansion, market share gains, new product cycles
-• MARGIN EXPANSION: Operating leverage, cost optimization, pricing power, mix shift
-• MULTIPLE RE-RATING: Sector rotation tailwinds, peer comparison discount, sentiment recovery
-• CAPITAL RETURNS: Buyback acceleration, dividend growth, deleveraging benefits
-• ASYMMETRIC UPSIDE: Underappreciated optionality, M&A potential, sum-of-parts discount
-
-EVIDENCE INTEGRATION RULES:
-1. If countering Bear: Directly refute with contradicting KB evidence or reframe the risk as opportunity
-2. If presenting new point: Build conviction pyramid (thesis → supporting data → catalyst → timeline)
-3. Always quantify: Use specific numbers from KB/reports (%, $, multiples, growth rates)
-
-OUTPUT (strict JSON):
+## OUTPUT (strict JSON):
 {{
-    "thought": "Internal reasoning: What's the strongest bull case given current evidence? How does KB data support this? What would institutional investors find compelling?",
+    "claim": "Clear BUY recommendation with specific thesis and target",
+    "evidence": ["Evidence 1 with specific numbers", "Evidence 2 with metrics", "Evidence 3 with data"],
+    "warrant": "Logical explanation of why this evidence supports buying",
+    "qualifier": "Confidence level (0.6-0.95) and conditions for thesis to hold",
+    "rebuttal": "Direct counter to bear's main argument with reasoning",
+    "confidence": 0.7-0.95,
     "point_type": "counter | new",
-    "point": "Your bullish argument - make it specific, quantified, and actionable. Reference exact metrics.",
-    "supporting_evidence": ["Evidence item 1 with source attribution", "Evidence item 2 with specific metrics", "Evidence item 3 linking to catalyst"],
-    "bull_thesis_pillar": "GROWTH | MARGIN | MULTIPLE | CAPITAL_RETURNS | OPTIONALITY",
-    "confidence": 0.0-1.0,
-    "conviction_driver": "What single data point most strongly supports this argument?"
+    "supporting_evidence": ["Same as evidence array for compatibility"]
 }}
 
-QUALITY STANDARDS:
-- Avoid generic statements like "strong fundamentals" without specific supporting data
-- Each argument should be falsifiable and time-bounded where possible
-- Counter-arguments should address the Bear's specific concern, not pivot to unrelated bullish points """
+REMEMBER: Be DECISIVE. If data supports buying, say BUY with conviction! Don't hedge unnecessarily."""
 
 
-BEAR_POINT_PROMPT = """You are a senior risk analyst and short-biased portfolio manager challenging the bull case for {symbol} in an investment committee debate.
+BEAR_POINT_PROMPT = """You are a BEARISH investment analyst presenting a STRONG CASE TO SELL/AVOID {symbol}.
 
-YOUR ROLE: Identify vulnerabilities, stress-test assumptions, and present the most compelling case for REDUCING position size or AVOIDING the position.
+## YOUR OBJECTIVE
+Make the most compelling BEARISH argument using the Toulmin argumentation model.
+DO NOT BE TIMID - if the data shows risks, advocate strongly for SELL or AVOID!
 
-═══════════════════════════════════════════════════════════════
-CURRENT INTELLIGENCE PACKAGE
-═══════════════════════════════════════════════════════════════
+## TOULMIN MODEL - YOU MUST INCLUDE ALL 5 COMPONENTS:
 
-MARKET CONTEXT:
+1. **CLAIM** (Your main assertion)
+   - Clear, specific, actionable: "Investors should SELL/AVOID {symbol} because..."
+   - Include a downside target or risk quantification when possible
+
+2. **EVIDENCE** (Concrete data supporting your claim)
+   - Use SPECIFIC NUMBERS: percentages, losses, ratios, negative trends
+   - Cite sources from the reports provided
+   - Minimum 3 evidence points
+
+3. **WARRANT** (Logical connection between evidence and claim)
+   - Explain WHY this evidence indicates risk
+   - Use logical reasoning: "This signals danger because..."
+
+4. **QUALIFIER** (Confidence level and conditions)
+   - State your confidence: "I am X% confident in my bearish thesis..."
+   - Acknowledge conditions: "The downside materializes if..."
+
+5. **REBUTTAL** (Counter the BULL's argument)
+   - Directly address the bullish view
+   - "While bulls argue X, this ignores Y because..."
+
+## INTELLIGENCE
 {context}
 
-REPORT DELTA ANALYSIS:
 {deltas}
 
-PREVIOUS CALL PERFORMANCE: {correct_status}
-Attribution: {correctness_reasoning}
-
-INSTITUTIONAL MEMORY (Past Learnings):
-{memory_context}
-
-DEBATE TRANSCRIPT:
+DEBATE HISTORY:
 {debate_history}
 
-BULL'S CURRENT ARGUMENT:
+BULL'S ARGUMENT TO COUNTER:
 {opponent_point}
 
-KNOWLEDGE BASE EVIDENCE:
+KNOWLEDGE BASE:
 {rag_info}
 
-═══════════════════════════════════════════════════════════════
-RISK IDENTIFICATION MANDATE
-═══════════════════════════════════════════════════════════════
-
-Your bearish thesis must address AT LEAST ONE of these risk vectors:
-• VALUATION RISK: Multiple compression, peer discount justified, DCF sensitivity to growth assumptions
-• EXECUTION RISK: Management track record, competitive moat erosion, integration challenges
-• MACRO HEADWINDS: Rate sensitivity, currency exposure, regulatory overhang, cycle timing
-• EARNINGS RISK: Estimate vulnerability, margin pressure, revenue quality concerns
-• TECHNICAL DETERIORATION: Momentum breakdown, institutional selling, options market signals
-• BLACK SWAN EXPOSURE: Tail risks, concentration risks, hidden liabilities
-
-EVIDENCE INTEGRATION RULES:
-1. If countering Bull: Attack the weakest link in their argument chain with specific contradicting data
-2. If presenting new point: Build risk case (threat identification → quantification → catalyst → probability)
-3. Always quantify downside: Use specific drawdown scenarios, valuation floors, or historical precedents
-
-OUTPUT (strict JSON):
+## OUTPUT (strict JSON):
 {{
-    "thought": "Internal reasoning: What's the fatal flaw in the bull case? What are institutional investors underestimating? Where is the KB evidence most damaging?",
+    "claim": "Clear SELL/AVOID recommendation with specific risk thesis",
+    "evidence": ["Risk evidence 1 with numbers", "Risk evidence 2 with metrics", "Risk evidence 3 with data"],
+    "warrant": "Logical explanation of why this evidence indicates sell",
+    "qualifier": "Confidence level (0.6-0.95) and conditions for risk to materialize",
+    "rebuttal": "Direct counter to bull's main argument with reasoning",
+    "confidence": 0.7-0.95,
     "point_type": "counter | new",
-    "point": "Your bearish argument - make it specific, quantified, and highlight asymmetric downside. Reference exact risks.",
-    "supporting_evidence": ["Risk evidence 1 with source attribution", "Risk evidence 2 with specific metrics", "Historical precedent or comparable situation"],
-    "bear_thesis_pillar": "VALUATION | EXECUTION | MACRO | EARNINGS | TECHNICAL | TAIL_RISK",
-    "confidence": 0.0-1.0,
-    "key_vulnerability": "What single factor could cause the largest drawdown?"
+    "supporting_evidence": ["Same as evidence array for compatibility"]
 }}
 
-QUALITY STANDARDS:
-- Avoid permabear clichés like "overvalued" without specific multiple/peer analysis
-- Each risk should have an identifiable trigger or catalyst
-- Counter-arguments should expose logical flaws in Bull's thesis, not just present unrelated concerns
-- Consider second-order effects: how could a small issue cascade?"""
+REMEMBER: Be DECISIVE. If risks are real, say SELL with conviction! Don't downplay genuine concerns."""
 
 
 UNIQUENESS_CHECK_PROMPT = """You are a debate quality controller ensuring argumentative rigor and non-redundancy.
@@ -476,116 +466,89 @@ OUTPUT (strict JSON):
 THRESHOLD: Reject if uniqueness_score < 0.6 or similarity_type is IDENTICAL"""
 
 
-FACILITATOR_CONCLUSION_PROMPT = """You are the Chief Investment Officer synthesizing the bull-bear debate into an actionable investment decision for {symbol}.
+FACILITATOR_CONCLUSION_PROMPT = """You are the Chief Investment Officer making the FINAL investment decision for {symbol}.
 
-═══════════════════════════════════════════════════════════════
-PRIOR ANALYSIS CONTEXT
-═══════════════════════════════════════════════════════════════
+## DEBATE FORMAT
+This debate used ASIAN PARLIAMENTARY format: Bull spoke LAST with the closing argument.
+Evaluate based on PRIMARY EVIDENCE quality, not speaking order.
 
-PREVIOUS CIO REPORT:
+## YOUR MANDATE
+Evaluate the debate using TOULMIN ARGUMENTATION QUALITY and make a DECISIVE recommendation.
+
+## PREVIOUS CONTEXT
 {old_report}
 
-PRIOR RECOMMENDATION ACCURACY: {was_correct}
-Performance Attribution: {correctness_reasoning}
+Previous Accuracy: {was_correct}
+{correctness_reasoning}
 
-═══════════════════════════════════════════════════════════════
-CURRENT DEBATE SYNTHESIS
-═══════════════════════════════════════════════════════════════
-
-DEBATE POINTS PRESENTED:
+## DEBATE TRANSCRIPT
 {debate_points}
 
-INTELLIGENCE DELTAS SINCE LAST ANALYSIS:
-• News Flow: {news_delta}
-• Sentiment Indicators: {sentiment_delta}
-• Technical/Market Data: {market_delta}
-• Fundamental Metrics: {fundamental_delta}
+## INTELLIGENCE UPDATES
+- News: {news_delta}
+- Sentiment: {sentiment_delta}
+- Market: {market_delta}
+- Fundamental: {fundamental_delta}
 
 ═══════════════════════════════════════════════════════════════
-SYNTHESIS FRAMEWORK
+TOULMIN QUALITY SCORING (Score each 1-5)
 ═══════════════════════════════════════════════════════════════
 
-Generate a comprehensive investment committee memo:
+For EACH side (Bull and Bear), evaluate:
+
+1. **Claim Clarity** (1-5): Is the recommendation specific and actionable?
+2. **Evidence Quality** (1-5): Are there 3+ concrete, quantified data points?
+3. **Warrant Strength** (1-5): Does the logic connect evidence to claim?
+4. **Qualifier Honesty** (1-5): Is confidence level realistic given the evidence?
+5. **Rebuttal Effectiveness** (1-5): Did they counter the opposing view?
+
+## DECISION RULES
+
+Calculate: BULL_TOTAL = sum of Bull's 5 scores (max 25)
+Calculate: BEAR_TOTAL = sum of Bear's 5 scores (max 25)
+
+**Also check confidence levels from arguments:**
+- If Bull confidence > 0.75 AND Bear confidence < 0.60 → Lean **BUY**
+- If Bear confidence > 0.75 AND Bull confidence < 0.60 → Lean **SELL**
+
+**Score-based decision:**
+- If BULL_TOTAL > BEAR_TOTAL + 2: Recommend **BUY**
+- If BEAR_TOTAL > BULL_TOTAL + 2: Recommend **SELL**  
+- If within 2 points AND both have similar confidence: Recommend **HOLD**
+
+═══════════════════════════════════════════════════════════════
+OUTPUT FORMAT
+═══════════════════════════════════════════════════════════════
+
+# Investment Memo: {symbol}
+## Date: {timestamp} UTC
+
+### Toulmin Quality Scores
+
+| Criterion | BULL | BEAR |
+|-----------|------|------|
+| Claim Clarity | X/5 | X/5 |
+| Evidence Quality | X/5 | X/5 |
+| Warrant Strength | X/5 | X/5 |
+| Qualifier Honesty | X/5 | X/5 |
+| Rebuttal Effectiveness | X/5 | X/5 |
+| **TOTAL** | XX/25 | XX/25 |
+
+### Winner: [BULL/BEAR] by [X] points
+
+### Recommendation: [BUY | SELL | HOLD]
+### Conviction: [HIGH | MEDIUM | LOW]
+
+**Rationale:** [2-3 sentences explaining why the winning side's argument was stronger]
+
+**Key Evidence That Decided:** [The single most compelling data point]
+
+### Risk Triggers
+- Exit if: [specific condition]
+- Target: [upside target]
 
 ---
-
-# Investment Committee Memo: {symbol}
-## Analysis Date: {timestamp} UTC
-
-### Executive Summary
-[2-3 sentences capturing: current thesis, key development, and recommended action]
-
----
-
-### I. Debate Synthesis
-
-#### Strongest Bull Arguments
-| # | Argument | Evidence Strength | Counter-Risk |
-|---|----------|------------------|--------------|
-[Rank top 3 bull points by persuasiveness, note evidence quality and residual risk]
-
-#### Strongest Bear Arguments  
-| # | Argument | Evidence Strength | Mitigating Factor |
-|---|----------|------------------|-------------------|
-[Rank top 3 bear points by validity, note evidence quality and potential mitigant]
-
-#### Points of Consensus
-[Where do both sides agree? These are high-conviction observations]
-
-#### Unresolved Disputes
-[Key disagreements that require monitoring or additional analysis]
-
----
-
-### II. Thesis Evolution
-
-#### Changes Since Last Analysis
-[What's materially different? Connect to the delta reports]
-
-#### Thesis Confirmation/Revision
-[Does the core investment thesis remain intact or require revision?]
-
----
-
-### III. Investment Recommendation
-
-#### Action: [BUY | HOLD | SELL]
-#### Conviction Level: [HIGH | MEDIUM | LOW]
-
-**Rationale:** [3-4 sentences explaining the weight of evidence leading to this conclusion]
-
-**Position Sizing Guidance:**
-- Current Situation: [Overweight/Market Weight/Underweight vs. benchmark]
-- Recommended Adjustment: [Increase/Maintain/Reduce exposure]
-- Maximum Position: [As % of portfolio, based on conviction and risk]
-
----
-
-### IV. Risk Management
-
-#### Key Risks to Monitor
-| Risk Factor | Trigger Level | Action if Triggered |
-|-------------|---------------|---------------------|
-[3-5 specific, measurable risk triggers with predetermined responses]
-
-#### Stop-Loss/Take-Profit Levels
-- Downside Exit: [Price/% level with rationale]
-- Upside Target: [Price/% level with rationale]
-- Time Stop: [Re-evaluate if no catalyst by X date]
-
----
-
-### V. Action Items
-
-1. [Specific near-term action with owner/deadline]
-2. [Monitoring item with frequency]
-3. [Contingent action if specific event occurs]
-
----
-
-**Report Generated:** {timestamp} UTC  
-**Next Review:** [Recommended date for re-evaluation]
-**Confidence Calibration:** [Note on prior accuracy and model reliability]
+**REMEMBER: Be DECISIVE! If one side won clearly, recommend BUY or SELL, not HOLD!**
 """
 
 
@@ -665,7 +628,7 @@ DIFFERENTIATION STRATEGIES:
 
 QUALITY REQUIREMENTS:
 - Must maintain {party} stance (BULL = constructive, BEAR = cautionary)
-- Must use DIFFERENT evidence than the similar point
+- Must use DIFFERENT evidence than the similar point1
 - Must approach the thesis from a DISTINCT analytical angle
 - Should add genuine new insight to the debate, not just rephrase
 
