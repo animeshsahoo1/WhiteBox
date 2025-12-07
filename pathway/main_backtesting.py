@@ -16,6 +16,7 @@ Usage:
 Environment Variables:
     CANDLE_KAFKA_TOPIC: Topic for candle data (default: candles)
     STRATEGIES_DIR: Path to strategies folder (default: ./strategies)
+    USE_DUMMY: Use demo CSV data instead of Kafka (default: false)
 """
 
 import os
@@ -55,6 +56,43 @@ try:
 except ImportError:
     REDIS_AVAILABLE = False
     print("⚠️ Redis cache not available - metrics will only be logged")
+
+
+# Schema for demo mode CSV replay
+class CandleDataSchema(pw.Schema):
+    """Schema for candle data stream (used in demo mode)."""
+    symbol: str
+    interval: str
+    timestamp: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+
+def get_candle_table(topic: str = "candles"):
+    """
+    Get candle data table from Kafka.
+    
+    Args:
+        topic: Kafka topic name.
+    
+    Returns:
+        pw.Table: Candle data stream table.
+    """
+    print(f"📡 LIVE MODE: Consuming from Kafka topic '{topic}'")
+    consumer = CandleConsumer(topic=topic)
+    return consumer.consume()
+            str(csv_file),
+            schema=CandleDataSchema,
+            mode="streaming",
+            autocommit_duration_ms=int(1000 / input_rate)  # Convert rows/sec to delay in ms
+        )
+    else:
+        print(f"📡 LIVE MODE: Consuming from Kafka topic '{topic}'")
+        candle_consumer = CandleConsumer(topic_name=topic)
+        return candle_consumer.consume()
 
 
 # ============================================================================
@@ -124,9 +162,8 @@ def create_backtesting_pipeline(
     6. Extract metrics per strategy per symbol and push to Redis cache
     """
     
-    # ===== INPUT: Candles from Kafka via CandleConsumer =====
-    candle_consumer = CandleConsumer(topic_name=topic)
-    candles = candle_consumer.consume()
+    # ===== INPUT: Candles from Kafka =====
+    candles = get_candle_table(topic)
     
     # ===== INPUT: Strategies from folder =====
     print(f"📁 Strategies: {strategies_folder}")
@@ -284,7 +321,7 @@ def main():
     print("=" * 70)
     print("🚀 PATHWAY STREAMING BACKTESTER (v2.0)")
     print("=" * 70)
-    print(f"  Topic: {topic}")
+    print(f"📡 MODE: LIVE (using Kafka topic '{topic}')")
     print(f"  Strategies: {strategies_folder}")
     print(f"  Redis: {'Available' if REDIS_AVAILABLE else 'Not available'}")
     print("=" * 70)
@@ -310,7 +347,7 @@ def main():
     pw.run(
         persistence_config=pw.persistence.Config.simple_config(
             pw.persistence.Backend.filesystem(persistence_path),
-            snapshot_interval_ms=60000  # Snapshot every 60 seconds
+            snapshot_interval_ms=60000
         )
     )
 

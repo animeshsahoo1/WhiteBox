@@ -56,14 +56,9 @@ def main():
         reports_directory=reports_directory
     )
     
-    # Stream reports to Redis
-    reports_observer = get_report_observer("sentiment")
-    pw.io.python.write(
-        reports_table,
-        reports_observer,
-        name="sentiment_reports_stream",
-    )
-    print(f"\n📤 Streaming reports to Redis (key: sentiment:{{symbol}})")
+    # NOTE: Sentiment reports are written to Redis directly by sentiment_reports.py via save_report_to_redis()
+    # This also publishes WebSocket events. No observer needed to avoid race conditions.
+    print(f"\n📤 Sentiment reports handled by agent (key: sentiment:{{symbol}})")
     
     # Also write reports to CSV for backup
     reports_csv = os.path.join(reports_directory, "reports_stream.csv")

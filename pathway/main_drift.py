@@ -14,6 +14,7 @@ Environment Variables:
     MARKET_TOPIC: Kafka topic for market data (default: market-data)
     REDIS_HOST: Redis host (default: redis)
     REDIS_PORT: Redis port (default: 6379)
+    USE_DUMMY: Use demo CSV data instead of Kafka (default: false)
     
     # Drift detection thresholds
     DRIFT_SPIKE_THRESHOLD: Z-score threshold for spike detection (default: 3.0)
@@ -24,15 +25,44 @@ Environment Variables:
     DRIFT_ALERT_COOLDOWN: Min updates between alerts (default: 10)
 """
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
+import pathway as pw
 from agents.drift_agent import DriftDetectionAgent
+
+
+# Schema for demo mode CSV replay (matches DriftConsumer output)
+class DriftMarketDataSchema(pw.Schema):
+    """Schema for market data used in drift detection (demo mode)."""
+    symbol: str
+    timestamp: str
+    current_price: float
+    high: float
+    low: float
+    open: float
+    change_percent: float
+    sent_at: str
+
+
+def get_drift_table():
+    """
+    Get market data table for drift detection from Kafka.
+    
+    Returns:
+        pw.Table: Market data stream table for drift detection.
+    """
+    print("📡 LIVE MODE: Consuming from Kafka topic 'market-data'")
+    from consumers.drift_consumer import DriftConsumer
+    consumer = DriftConsumer()
+    return consumer.consume()
 
 
 def main():
     print("=" * 70)
     print("Pathway Drift Detection Pipeline")
     print("=" * 70)
+    print("📡 MODE: LIVE (using Kafka streaming)")
     
     # Configuration from environment
     kafka_broker = os.getenv("KAFKA_BROKER", "kafka:29092")

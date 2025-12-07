@@ -1,26 +1,81 @@
 import pathway as pw
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from consumers.market_data_consumer import MarketDataConsumer
 from agents.market_agent2 import process_market_stream_with_agents
-try:  # Allow running as `python pathway/main_market.py` or as module
-    from .redis_cache import get_report_observer
-except ImportError:  # pragma: no cover - fallback for script execution
-    from redis_cache import get_report_observer
+
+
+# Schema for demo mode CSV replay
+class MarketDataSchema(pw.Schema):
+    """Schema for market data stream (used in demo mode)."""
+    symbol: str
+    timestamp: str
+    sent_at: str
+    open: float
+    high: float
+    low: float
+    current_price: float
+    previous_close: float
+    change: float
+    change_percent: float
+
+
+def get_market_table(use_dummy: bool):
+    """
+    Get market data table from either Kafka or demo CSV.
+    
+    Args:
+        use_dummy: If True, use pw.demo.replay_csv() with demo data.
+                   If False, use MarketDataConsumer (Kafka).
+    
+    Returns:
+        pw.Table: Market data stream table.
+    """
+    if use_dummy:
+        demo_data_dir = os.getenv("DEMO_DATA_DIR", "/app/streaming/data/demo_data")
+        demo_ticker = os.getenv("DEMO_TICKER", "AAPL")
+        demo_interval = os.getenv("DEMO_INTERVAL", "5m")
+        input_rate = float(os.getenv("DEMO_INPUT_RATE", "10.0"))  # rows per second
+        
+        csv_file = Path(demo_data_dir) / f"{demo_ticker}_{demo_interval}.csv"
+        
+        if not csv_file.exists():
+            raise FileNotFoundError(
+                f"Demo data file not found: {csv_file}\n"
+                f"Run: python streaming/producers/demo_market_producer.py"
+            )
+        
+        print(f"🧪 DUMMY MODE: Replaying from {csv_file} at {input_rate} rows/sec")
+        return pw.demo.replay_csv(
+            str(csv_file),
+            schema=MarketDataSchema,
+            input_rate=input_rate
+        )
+    else:
+        print("📡 LIVE MODE: Consuming from Kafka topic 'market-data'")
+        market_consumer = MarketDataConsumer()
+        return market_consumer.consume()
 
 def main():
     print("=" * 70)
     print("Pathway Market Data Consumer System (Multi-Agent + Redis)")
     print("=" * 70)
 
+    # Check for dummy mode
+    use_dummy = os.getenv("USE_DUMMY", "false").lower() == "true"
+    if use_dummy:
+        print("🧪 MODE: DUMMY (using demo CSV data)")
+    else:
+        print("📡 MODE: LIVE (using Kafka streaming)")
+
     # Ensure reports directory exists
     reports_directory = "/app/reports/market"
     os.makedirs(reports_directory, exist_ok=True)
     print(f"📁 Reports directory ready: {reports_directory}")
 
-    # Initialize consumer
-    market_consumer = MarketDataConsumer()
-    market_table = market_consumer.consume()
+    # Get market data table (either from Kafka or demo CSV)
+    market_table = get_market_table(use_dummy)
 
     # Process market data with multi-agent system and generate comprehensive reports
     
@@ -39,33 +94,14 @@ def main():
         reports_directory=reports_directory
     )
 
-    # Format comprehensive reports for Redis caching
-    market_reports = analyzed_table.select(
-        symbol=pw.this.symbol,
-        report=pw.this.agent_results,
-        window_end=pw.this.window_end,
-        images=pw.this.images,
-        indicators=pw.this.indicators,
-        kline_data=pw.this.kline_data
-    ).groupby(pw.this.symbol).reduce(
-        symbol=pw.this.symbol,
-        report=pw.reducers.latest(pw.this.report),
-        last_updated=pw.reducers.latest(pw.this.window_end),
-        images=pw.reducers.latest(pw.this.images),
-        indicators=pw.reducers.latest(pw.this.indicators),
-        kline_data=pw.reducers.latest(pw.this.kline_data)
-    )
-
-    # Stream market reports to Redis cache
-    market_observer = get_report_observer("market")
-    pw.io.python.write(
-        market_reports,
-        market_observer,
-        name="market_reports_stream",
-    )
-    print("📤 Streaming market reports to Redis cache")
+    # NOTE: Market reports are written to Redis directly by market_agent2.py via save_report_to_redis()
+    # This also publishes WebSocket events. No observer needed to avoid race conditions.
 
     # Stream images to Redis cache (separate endpoint)
+    try:
+        from redis_cache import get_report_observer
+    except ImportError:
+        from .redis_cache import get_report_observer
     image_observer = get_report_observer("images")
     pw.io.python.write(
         analyzed_table.select(
@@ -94,27 +130,29 @@ def main():
     )
     print(f"📝 Writing analysis stream to CSV: {output_path}")
 
-    # Enable Pathway persistence for market state
-    persistence_path = os.path.join(os.path.dirname(__file__), "pathway_state")
-    os.makedirs(persistence_path, exist_ok=True)
-    print(f"💾 Persistence enabled at: {persistence_path}")
-
     print("\n✅ Multi-Agent Market Pipeline with Redis initialized")
-    print("   - Market reports cached in Redis (key: reports:{SYMBOL})")
+    print("   - Market reports cached in Redis by agent (key: reports:{SYMBOL})")
     print("   - Indicator images cached in Redis (key: images:{SYMBOL}:{TIMESTAMP})")
     print("   - Endpoint: /api/market/images/{symbol} or /api/market/images/{symbol}/{timestamp}")
     print("\n🚀 Starting stream processing...")
     
-    # Optimized persistence configuration
-    # - snapshot_interval_ms: How often to save state (30s for faster recovery)
-    # - persistence_mode: SPEEDRUN_REPLAY for faster restarts
-    pw.run(
-        persistence_config=pw.persistence.Config.simple_config(
-            pw.persistence.Backend.filesystem(persistence_path),
-            snapshot_interval_ms=30000  # Snapshot every 30 seconds (was 60s)
-        ),
-        monitoring_level=pw.MonitoringLevel.NONE  # Disable monitoring overhead in production
-    )
+    # Run with or without persistence based on mode
+    if use_dummy:
+        # Demo mode: no persistence (replay from scratch each time)
+        print("🔄 Demo mode: Running without persistence")
+        pw.run(monitoring_level=pw.MonitoringLevel.NONE)
+    else:
+        # Live mode: enable persistence for state recovery
+        persistence_path = os.path.join(os.path.dirname(__file__), "pathway_state")
+        os.makedirs(persistence_path, exist_ok=True)
+        print(f"💾 Persistence enabled at: {persistence_path}")
+        pw.run(
+            persistence_config=pw.persistence.Config.simple_config(
+                pw.persistence.Backend.filesystem(persistence_path),
+                snapshot_interval_ms=30000  # Snapshot every 30 seconds
+            ),
+            monitoring_level=pw.MonitoringLevel.NONE
+        )
 
 if __name__ == "__main__":
     load_dotenv()
