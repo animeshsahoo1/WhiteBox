@@ -295,7 +295,7 @@ def process_sentiment_reports(
         mode="streaming",
         with_metadata=True
     )
-    
+
     # =========================================================================
     # Generate reports from cluster data (rate-limited)
     # =========================================================================
@@ -310,22 +310,13 @@ def process_sentiment_reports(
         clusters_json: pw.Json,
         cluster_count: int
     ) -> str:
-        """Generate LLM report from cluster data (rate-limited)."""
-        global _last_report_time
+        """Generate LLM report from cluster data."""
         
         if cluster_count == 0:
             return ""
         
-        # Rate limiting: check if enough time has passed since last report
-        current_time = time.time()
-        last_time = _last_report_time.get(symbol, 0)
-        elapsed = current_time - last_time
-        
-        if elapsed < REPORT_GENERATION_INTERVAL:
-            # Not enough time has passed, skip this update
-            remaining = REPORT_GENERATION_INTERVAL - elapsed
-            print(f"⏳ [{symbol}] Rate limited - next report in {remaining:.0f}s")
-            return ""
+        # Rate limiting DISABLED - generate report on every update
+        print(f"🔄 [{symbol}] Generating report (rate limiting disabled)")
         
         try:
             clusters = clusters_json.as_list() if clusters_json else []
@@ -341,10 +332,6 @@ def process_sentiment_reports(
             publish_agent_status(room_id, "Sentiment Report Agent", "RUNNING")
         except Exception as e:
             print(f"⚠️ [{symbol}] Failed to publish Sentiment Report Agent status: {e}")
-        
-        # Update last report time BEFORE generating (to prevent concurrent calls)
-        _last_report_time[symbol] = current_time
-        print(f"🔄 [{symbol}] Generating report (interval: {REPORT_GENERATION_INTERVAL}s)")
         
         # Prune expired summaries from cache
         _prune_summary_cache()
@@ -465,5 +452,4 @@ def process_sentiment_reports(
             pw.this.cluster_count
         )
     ).filter(pw.this.response != "")
-    
     return reports_table

@@ -17,7 +17,7 @@ def register_risk_tools(mcp):
     @mcp.tool()
     async def assess_risk_all_tiers(
         symbol: str,
-        strategy: dict,
+        strategy: str,
         risk_levels: Optional[List[str]] = None
     ) -> str:
         """
@@ -30,7 +30,14 @@ def register_risk_tools(mcp):
         
         Args:
             symbol: Stock symbol (e.g., "AAPL", "TSLA")
-            strategy: The trading strategy as a dictionary with entry/exit rules
+            strategy: Trading strategy as JSON string or text description. Should include:
+                     - name: Strategy name
+                     - entry_condition: When to enter position
+                     - exit_condition: When to exit position
+                     - stop_loss: Stop loss percentage or condition
+                     - take_profit: Take profit target
+                     - position_size: Position size as decimal (e.g., 0.3 for 30%)
+                     Example: '{"name":"Bollinger Breakout","entry_condition":"price breaks above upper band","exit_condition":"price below middle band","stop_loss":"lower band","take_profit":"2x band width","position_size":0.3}'
             risk_levels: List of risk levels to assess. Options: "no-risk", "neutral", "aggressive"
         
         Returns:
@@ -42,7 +49,8 @@ def register_risk_tools(mcp):
         print(f"[INFO] Assessing risk for {symbol} with levels: {risk_levels}")
 
         reports = await fetch_reports(symbol)
-        strategy_str = json.dumps(strategy) if isinstance(strategy, dict) else str(strategy)
+        # strategy is already a string, no conversion needed
+        strategy_str = strategy
 
         async def process_risk_level(level: str) -> str:
             print(f"[INFO] Processing {level}...")
@@ -64,7 +72,7 @@ def register_risk_tools(mcp):
     @mcp.tool()
     async def assess_single_risk_tier(
         symbol: str,
-        strategy: dict,
+        strategy: str,
         risk_level: str = "neutral"
     ) -> str:
         """
@@ -77,7 +85,14 @@ def register_risk_tools(mcp):
         
         Args:
             symbol: Stock symbol (e.g., "AAPL", "TSLA")
-            strategy: The trading strategy as a dictionary
+            strategy: Trading strategy as JSON string or text description. Should include:
+                     - name: Strategy name
+                     - entry_condition: When to enter position
+                     - exit_condition: When to exit position
+                     - stop_loss: Stop loss percentage or condition
+                     - take_profit: Take profit target
+                     - position_size: Position size as decimal (e.g., 0.3 for 30%)
+                     Example: '{"name":"Bollinger Breakout","entry_condition":"price breaks above upper band","exit_condition":"price below middle band","stop_loss":"lower band","take_profit":"2x band width","position_size":0.3}'
             risk_level: One of "no-risk", "neutral", or "aggressive"
         
         Returns:
@@ -86,7 +101,8 @@ def register_risk_tools(mcp):
         print(f"[INFO] Single tier assessment for {symbol} at {risk_level} level")
 
         reports = await fetch_reports(symbol)
-        strategy_str = json.dumps(strategy) if isinstance(strategy, dict) else str(strategy)
+        # strategy is already a string, no conversion needed
+        strategy_str = strategy
 
         messages = build_prompt(strategy_str, reports, risk_level)
         response = await call_llm(messages)
