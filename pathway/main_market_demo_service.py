@@ -39,7 +39,7 @@ def main():
     lookback_minutes = int(os.getenv("MARKET_LOOKBACK_MINUTES", "10"))
     hop_minutes = int(os.getenv("MARKET_HOP_MINUTES", "5"))
     min_data_points = int(os.getenv("MIN_DATA_POINTS", "30"))
-    data_dir = os.getenv("DEMO_DATA_DIR", "/app/demo_data")
+    data_dir = os.getenv("DEMO_DATA_DIR2", "/app/demo_data")
     
     print("=" * 70)
     print("🚀 DEMO MARKET DATA SERVICE - CSV REPLAY MODE")

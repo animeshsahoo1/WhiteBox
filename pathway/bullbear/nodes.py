@@ -691,9 +691,15 @@ Fundamental Report: {state['fundamental_report'][:report_limit]}
         print(f"📚 NODE: FETCH RAG EVIDENCE")
         print(f"{'='*60}")
         
-        self._publish_event(state, "graph_state", {"symbol": state["symbol"], "current_node": "fetch_rag_evidence", "status": "RUNNING"})
-        
         query = state.get("pending_rag_query")
+        
+        self._publish_event(state, "graph_state", {
+            "symbol": state["symbol"], 
+            "current_node": "fetch_rag_evidence", 
+            "status": "RUNNING",
+            "rag_query": query
+        })
+        
         if not query:
             print(f"  ℹ️ No RAG query to execute")
             state["rag_evidence"] = []

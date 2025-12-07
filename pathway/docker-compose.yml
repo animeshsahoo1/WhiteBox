@@ -33,7 +33,7 @@ x-kafka-redis-consumer: &kafka-redis-consumer
   deploy:
     resources:
       limits:
-        memory: 512M
+        memory: 999M
       reservations:
         memory: 256M
 
@@ -63,7 +63,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 999M
         reservations:
           memory: 256M
 
@@ -116,7 +116,7 @@ services:
         limits:
           memory: 1G
         reservations:
-          memory: 512M
+          memory: 999M
 
   # Pathway Consumers
   fundamental-consumer:
@@ -131,6 +131,7 @@ services:
     volumes:
       - ./reports/fundamental:/app/reports/fundamental
       - ./pathway_state:/app/pathway_state
+      - ../streaming/data/demo_data:/app/streaming/data/demo_data:ro
 
   market-consumer:
     <<: *kafka-redis-consumer
@@ -144,6 +145,7 @@ services:
     volumes:
       - ./reports/market:/app/reports/market
       - ./pathway_state:/app/pathway_state
+      - ../streaming/data/demo_data:/app/streaming/data/demo_data:ro
 
   news-consumer:
     <<: *kafka-redis-consumer
@@ -162,6 +164,7 @@ services:
       - ./reports/news:/app/reports/news
       - ../knowledge_base:/app/knowledge_base
       - ./pathway_state:/app/pathway_state
+      - ../streaming/data/demo_data:/app/streaming/data/demo_data:ro
 
   # Sentiment Phase 1: Fast Clustering & Scoring (no LLM)
   sentiment-clustering:
@@ -178,6 +181,7 @@ services:
     volumes:
       - ./reports/sentiment:/app/reports/sentiment
       - ./pathway_state:/app/pathway_state
+      - ../streaming/data/demo_data:/app/streaming/data/demo_data:ro
     deploy:
       resources:
         limits:
@@ -225,7 +229,7 @@ services:
       - ../.env
     environment:
       <<: *common-env
-      DEMO_DATA_DIR: /app/demo_data
+      DEMO_DATA_DIR2: /app/demo_data
     volumes:
       - ./reports/market_demo:/app/reports/market_demo
       - ../streaming/producers/demo_data:/app/demo_data:ro
@@ -252,6 +256,7 @@ services:
     volumes:
       - ./strategies:/app/strategies
       - ./backtesting_lib:/app/backtesting_lib
+      - ../streaming/data/demo_data:/app/streaming/data/demo_data:ro
 
   # Drift Detection Pipeline - Concept drift monitoring with River
   drift-detection:
@@ -271,6 +276,7 @@ services:
       - ./agents:/app/agents
       - ./consumers:/app/consumers
       - ./pathway_state:/app/pathway_state
+      - ../streaming/data/demo_data:/app/streaming/data/demo_data:ro
 
   # ============================================
   # ORCHESTRATOR SERVICES

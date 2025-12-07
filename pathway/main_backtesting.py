@@ -16,6 +16,7 @@ Usage:
 Environment Variables:
     CANDLE_KAFKA_TOPIC: Topic for candle data (default: candles)
     STRATEGIES_DIR: Path to strategies folder (default: ./strategies)
+    USE_DUMMY: Use demo CSV data instead of Kafka (default: false)
 """
 
 import os
@@ -86,6 +87,34 @@ except ImportError:
     print("⚠️ Redis cache not available - metrics will only be logged")
 
 
+# Schema for demo mode CSV replay
+class CandleDataSchema(pw.Schema):
+    """Schema for candle data stream (used in demo mode)."""
+    symbol: str
+    interval: str
+    timestamp: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+
+def get_candle_table(topic: str = "candles"):
+    """
+    Get candle data table from Kafka.
+    
+    Args:
+        topic: Kafka topic name.
+    
+    Returns:
+        pw.Table: Candle data stream table.
+    """
+    print(f"📡 LIVE MODE: Consuming from Kafka topic '{topic}'")
+    consumer = CandleConsumer(topic=topic)
+    return consumer.consume()
+
+
 # ============================================================================
 # PATHWAY UDFs FOR STRATEGY METADATA EXTRACTION
 # ============================================================================
@@ -153,61 +182,8 @@ def create_backtesting_pipeline(
     6. Extract metrics per strategy per symbol and push to Redis cache
     """
     
-    # ===== INPUT: Candles from Kafka via CandleConsumer =====
-    candle_consumer = CandleConsumer(topic_name=topic)
-    candles = candle_consumer.consume()
-    # candles_raw = candle_consumer.consume()
-    
-    # # ===== MEMORY MANAGEMENT: Apply forget() with per-interval thresholds =====
-    # # Each interval has different forget threshold based on producer's yfinance limits
-    # # Using internal _forget with threshold_column for per-row thresholds
-    
-    # # UDF to parse timestamp string to datetime
-    # @pw.udf
-    # def parse_timestamp(ts_str: str) -> pw.DateTimeUtc:
-    #     """Parse timestamp string to datetime for forget()."""
-    #     from dateutil import parser
-    #     try:
-    #         dt = parser.parse(ts_str)
-    #         # Convert to UTC if timezone-aware
-    #         if dt.tzinfo is not None:
-    #             import pytz
-    #             dt = dt.astimezone(pytz.UTC)
-    #         return dt
-    #     except Exception:
-    #         return datetime.now()
-    
-    # # UDF to get forget threshold based on interval
-    # @pw.udf
-    # def get_forget_threshold(interval: str) -> pw.DateTimeNaive:
-    #     """Get forget threshold timedelta based on interval."""
-    #     threshold = INTERVAL_FORGET_THRESHOLDS.get(
-    #         interval.lower(), 
-    #         DEFAULT_FORGET_THRESHOLD
-    #     )
-    #     # Return as timedelta (will be added to timestamp)
-    #     return threshold
-    
-    # # Add parsed timestamp and compute per-interval threshold column
-    # candles = candles_raw.with_columns(
-    #     _timestamp_dt=parse_timestamp(pw.this.timestamp),
-    #     _forget_threshold=get_forget_threshold(pw.this.interval)
-    # )
-    
-    # # Compute threshold column: timestamp + threshold (when to forget this candle)
-    # # A candle is forgotten when: max(timestamp) > _timestamp_dt + _forget_threshold
-    # candles = candles.with_columns(
-    #     _forget_at=pw.this._timestamp_dt + pw.this._forget_threshold
-    # )
-    
-    # # Apply _forget with per-row threshold column
-    # # Internal API: _forget(threshold_column, time_column, mark_forgetting_records)
-    # candles = candles._forget(
-    #     threshold_column=pw.this._forget_at,
-    #     time_column=pw.this._timestamp_dt,
-    #     mark_forgetting_records=False
-    # )
-    # print(f"🧹 Memory bounded: per-interval forget thresholds (1m→7d, 5m→60d, 1h→2y, 1d→2y)")
+    # ===== INPUT: Candles from Kafka =====
+    candles = get_candle_table(topic)
     
     # ===== INPUT: Strategies from folder =====
     print(f"📁 Strategies: {strategies_folder}")
@@ -367,10 +343,20 @@ def main():
     topic = os.getenv("CANDLE_KAFKA_TOPIC", "candles")
     strategies_folder = os.getenv("STRATEGIES_DIR", "./strategies/")
     
+    # Check for dummy mode (USE_DUMMY_MARKET takes priority over USE_DUMMY)
+    use_dummy_market = os.getenv("USE_DUMMY_MARKET")
+    if use_dummy_market is not None:
+        use_dummy = use_dummy_market.lower() == "true"
+    else:
+        use_dummy = os.getenv("USE_DUMMY", "false").lower() == "true"
+    
     print("=" * 70)
     print("🚀 PATHWAY STREAMING BACKTESTER (v2.0)")
     print("=" * 70)
-    print(f"  Topic: {topic}")
+    if use_dummy:
+        print("🧪 MODE: DUMMY (using demo CSV data)")
+    else:
+        print(f"📡 MODE: LIVE (using Kafka topic '{topic}')")
     print(f"  Strategies: {strategies_folder}")
     print(f"  Redis: {'Available' if REDIS_AVAILABLE else 'Not available'}")
     print("=" * 70)
@@ -396,7 +382,7 @@ def main():
     pw.run(
         persistence_config=pw.persistence.Config.simple_config(
             pw.persistence.Backend.filesystem(persistence_path),
-            snapshot_interval_ms=60000  # Snapshot every 60 seconds
+            snapshot_interval_ms=60000
         )
     )
 
