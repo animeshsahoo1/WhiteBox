@@ -1,637 +1,390 @@
+#!/usr/bin/env python3
 """
-Bull-Bear Dataset Generator
-===========================
+Bull-Bear Evaluation Dataset Generator using OpenRouter API
+============================================================
 
-This script helps you create evaluation datasets for the Bull-Bear debate system.
-You can either:
-1. Manually create scenarios using the template
-2. Use the LLM prompt to bulk-generate scenarios
-3. Run this script to validate your datasets
+This script automatically generates evaluation datasets for the Bull-Bear debate system.
 
 Usage:
-    python generate_dataset.py --create-example
-    python generate_dataset.py --validate datasets/
+    python generate_with_openrouter.py --count 10 --category clear_signals
+    python generate_with_openrouter.py --count 20 --all-categories
+    python generate_with_openrouter.py --count 5 --category ambiguous --model anthropic/claude-3.5-sonnet
+
+Environment:
+    OPENAI_API_KEY: Your OpenRouter API key (required)
 """
 
-import json
 import os
+import sys
+import json
+import argparse
+import time
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import List, Dict, Any, Optional
+
+# Add parent paths for imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not required if env var already set
+
+try:
+    from openai import OpenAI
+except ImportError:
+    print("❌ Error: openai package not installed. Run: pip install openai")
+    sys.exit(1)
+
 
 # ============================================================
-# TEMPLATES - Copy these and fill in the blanks
+# CONFIGURATION
 # ============================================================
 
-NEWS_REPORT_TEMPLATE = """# News Summary for {symbol}
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+DEFAULT_MODEL = "google/gemini-2.5-flash-lite"
 
-## Latest Headlines
-
-1. **{headline_1}** - {source_1}, {date_1}
-   {summary_1}
-
-2. **{headline_2}** - {source_2}, {date_2}
-   {summary_2}
-
-3. **{headline_3}** - {source_3}, {date_3}
-   {summary_3}
-
-## Key Events
-- {event_1}
-- {event_2}
-
-## Analyst Actions
-- {analyst_action_1}
-- {analyst_action_2}
-
-Last Updated: {timestamp}
-"""
-
-SENTIMENT_REPORT_TEMPLATE = """# Sentiment Analysis for {symbol}
-
-## Overall Sentiment: {overall_sentiment} (Score: {sentiment_score}/10)
-
-### Social Media Metrics
-- Twitter: {twitter_positive}% Positive, {twitter_neutral}% Neutral, {twitter_negative}% Negative
-- Reddit: {reddit_sentiment}, {reddit_mentions} mentions
-- StockTwits: {stocktwits_messages} messages, {stocktwits_sentiment}
-
-### Analyst Sentiment
-- Buy ratings: {buy_ratings}
-- Hold ratings: {hold_ratings}
-- Sell ratings: {sell_ratings}
-- Average Price Target: ${avg_price_target}
-
-### Key Themes
-- {theme_1}
-- {theme_2}
-- {theme_3}
-
-Last Updated: {timestamp}
-"""
-
-MARKET_REPORT_TEMPLATE = """# Technical Analysis for {symbol}
-
-## Price Action
-- Current Price: ${current_price}
-- 24h Change: {price_change_24h}%
-- 52-Week Range: ${week_52_low} - ${week_52_high}
-- Volume: {volume} ({volume_vs_avg})
-
-## Technical Indicators
-- RSI (14): {rsi} ({rsi_interpretation})
-- MACD: {macd_status}
-- 50-Day MA: ${ma_50} (price {ma_50_relation})
-- 200-Day MA: ${ma_200} (price {ma_200_relation})
-
-## Support/Resistance
-- Support: ${support_1}, ${support_2}
-- Resistance: ${resistance_1}, ${resistance_2}
-
-## Trend Analysis
-{trend_analysis}
-
-Last Updated: {timestamp}
-"""
-
-FUNDAMENTAL_REPORT_TEMPLATE = """# Fundamental Analysis for {symbol}
-
-## Valuation Metrics
-- P/E Ratio: {pe_ratio} (Industry avg: {industry_pe})
-- Forward P/E: {forward_pe}
-- P/S Ratio: {ps_ratio}
-- EV/EBITDA: {ev_ebitda}
-
-## Financial Health
-- Revenue (TTM): ${revenue} ({revenue_growth} YoY)
-- Net Income: ${net_income} ({income_growth} YoY)
-- Free Cash Flow: ${fcf}
-- Debt/Equity: {debt_equity}
-- Current Ratio: {current_ratio}
-
-## Growth Metrics
-- Revenue Growth (3Y CAGR): {revenue_cagr}%
-- EPS Growth (3Y CAGR): {eps_cagr}%
-
-## Competitive Position
-{competitive_position}
-
-Last Updated: {timestamp}
-"""
-
-# ============================================================
-# SCENARIO TEMPLATE
-# ============================================================
-
-SCENARIO_TEMPLATE = {
-    "dataset_id": "",           # e.g., "strong_buy_001"
-    "scenario_name": "",        # e.g., "Massive Earnings Beat"
-    "category": "",             # e.g., "clear_signals" or "ambiguous" or "adversarial"
-    "difficulty": "",           # "easy", "medium", "hard"
-    
-    "symbol": "",               # e.g., "AAPL"
-    "company_name": "",         # e.g., "Apple Inc."
-    "sector": "",               # e.g., "Technology"
-    
-    "inputs": {
-        "news_report": "",
-        "sentiment_report": "",
-        "market_report": "",
-        "fundamental_report": ""
+CATEGORIES = {
+    "clear_buy": {
+        "description": "Clear BUY signals - obvious bullish scenarios",
+        "count": 5,
+        "examples": ["earnings beat", "analyst upgrades", "acquisition announcement", "product success", "guidance raise"]
     },
-    
-    "ground_truth": {
-        "expected_recommendation": "",  # "BUY", "HOLD", or "SELL"
-        "expected_confidence": "",      # "HIGH", "MEDIUM", "LOW"
-        "reasoning": "",                # Why this is the right answer
-        "key_bull_points": [],          # What Bull SHOULD argue
-        "key_bear_points": []           # What Bear SHOULD argue
-    }
-}
-
-# ============================================================
-# EXAMPLE SCENARIOS (Copy and modify these)
-# ============================================================
-
-EXAMPLE_STRONG_BUY = {
-    "dataset_id": "strong_buy_001",
-    "scenario_name": "Massive Earnings Beat with Guidance Raise",
-    "category": "clear_signals",
-    "difficulty": "easy",
-    
-    "symbol": "TECH",
-    "company_name": "TechCorp Inc.",
-    "sector": "Technology",
-    
-    "inputs": {
-        "news_report": """# News Summary for TECH
-
-## Latest Headlines
-
-1. **TechCorp Crushes Q4 Earnings: EPS $3.50 vs $2.80 Expected** - Bloomberg, Dec 6
-   The company reported earnings 25% above analyst expectations, driven by strong cloud services growth. Management raised full-year guidance by 15%.
-
-2. **Three Major Analysts Upgrade TechCorp to Strong Buy** - Reuters, Dec 6
-   Morgan Stanley, Goldman Sachs, and JP Morgan all upgraded the stock following earnings, with price targets ranging from $220-$250.
-
-3. **TechCorp Announces $10B Buyback Program** - PR Newswire, Dec 6
-   The board approved a new share repurchase authorization, representing 8% of market cap.
-
-## Key Events
-- Dec 6, 8AM: Q4 earnings released, beat on all metrics
-- Dec 6, 10AM: Earnings call with bullish guidance commentary
-
-## Analyst Actions
-- Morgan Stanley: Upgrade to Overweight, PT $250 (from $180)
-- Goldman Sachs: Upgrade to Buy, PT $240 (from $185)
-- JP Morgan: Upgrade to Overweight, PT $220 (from $175)
-
-Last Updated: 2024-12-06T14:00:00Z""",
-
-        "sentiment_report": """# Sentiment Analysis for TECH
-
-## Overall Sentiment: VERY BULLISH (Score: 9.2/10)
-
-### Social Media Metrics
-- Twitter: 88% Positive, 8% Neutral, 4% Negative
-- Reddit: Extremely Bullish, 5,200 mentions in last 24h
-- StockTwits: 3,400 messages, 92% bullish
-
-### Analyst Sentiment
-- Buy ratings: 28 (up from 20 yesterday)
-- Hold ratings: 5
-- Sell ratings: 0
-- Average Price Target: $235 (up from $188)
-
-### Key Themes
-- Earnings beat celebration
-- Cloud growth acceleration
-- Buyback announcement enthusiasm
-
-Last Updated: 2024-12-06T14:00:00Z""",
-
-        "market_report": """# Technical Analysis for TECH
-
-## Price Action
-- Current Price: $195.50
-- 24h Change: +12.5%
-- 52-Week Range: $125.00 - $198.00 (near 52-week high)
-- Volume: 85M (4x average)
-
-## Technical Indicators
-- RSI (14): 72 (Overbought but strong)
-- MACD: Strong bullish crossover, widening
-- 50-Day MA: $168.50 (price 16% above)
-- 200-Day MA: $155.20 (price 26% above)
-
-## Support/Resistance
-- Support: $180, $168
-- Resistance: $198 (52-week high), $210 (target)
-
-## Trend Analysis
-The stock is in a strong uptrend, breaking out to new highs on massive volume. The gap up on earnings creates a new support zone around $180.
-
-Last Updated: 2024-12-06T14:00:00Z""",
-
-        "fundamental_report": """# Fundamental Analysis for TECH
-
-## Valuation Metrics
-- P/E Ratio: 24.5 (Industry avg: 28.0)
-- Forward P/E: 20.2 (below peers)
-- P/S Ratio: 6.8
-- EV/EBITDA: 18.5
-
-## Financial Health
-- Revenue (TTM): $125B (+18% YoY)
-- Net Income: $28B (+25% YoY)
-- Free Cash Flow: $32B
-- Debt/Equity: 0.45
-- Current Ratio: 1.8
-
-## Growth Metrics
-- Revenue Growth (3Y CAGR): 15.5%
-- EPS Growth (3Y CAGR): 22.0%
-
-## Competitive Position
-Market leader in cloud services with 35% market share. Strong moat from enterprise relationships and switching costs. R&D spending of $15B annually maintains technology lead.
-
-Last Updated: 2024-12-06T14:00:00Z"""
+    "clear_sell": {
+        "description": "Clear SELL signals - obvious bearish scenarios", 
+        "count": 5,
+        "examples": ["fraud investigation", "earnings miss", "CEO scandal", "product recall", "bankruptcy risk"]
     },
-    
-    "ground_truth": {
-        "expected_recommendation": "BUY",
-        "expected_confidence": "HIGH",
-        "reasoning": "Massive earnings beat, guidance raise, multiple analyst upgrades, buyback announcement, strong technicals, and reasonable valuation create a clear buy case.",
-        "key_bull_points": [
-            "Earnings beat by 25% shows execution excellence",
-            "Guidance raise signals management confidence",
-            "Triple analyst upgrade is rare consensus",
-            "Buyback provides downside support",
-            "Forward P/E below industry average despite growth"
-        ],
-        "key_bear_points": [
-            "RSI at 72 suggests short-term overbought",
-            "Gap up may see profit-taking",
-            "High expectations now priced in"
-        ]
+    "clear_hold": {
+        "description": "Clear HOLD signals - mixed or neutral scenarios",
+        "count": 5,
+        "examples": ["fair valuation", "no catalysts", "mixed earnings", "sector uncertainty", "transition period"]
+    },
+    "ambiguous": {
+        "description": "Ambiguous cases where reasonable analysts could disagree",
+        "count": 10,
+        "examples": ["sentiment vs fundamentals conflict", "growth vs valuation tension", "turnaround story", "competitive disruption", "macro headwinds vs micro tailwinds"]
+    },
+    "adversarial": {
+        "description": "Adversarial/edge cases to stress test the system",
+        "count": 5,
+        "examples": ["meme stock frenzy", "pump and dump signals", "incomplete data", "contradictory reports", "black swan event"]
     }
 }
 
 
-EXAMPLE_STRONG_SELL = {
-    "dataset_id": "strong_sell_001",
-    "scenario_name": "Fraud Investigation and Earnings Miss",
-    "category": "clear_signals",
-    "difficulty": "easy",
+# ============================================================
+# GENERATION PROMPTS
+# ============================================================
+
+SYSTEM_PROMPT = """You are a financial data generator creating realistic evaluation datasets for an AI investment debate system.
+
+You MUST output ONLY valid JSON. No markdown, no explanation, just the JSON array.
+
+Rules:
+1. All numbers must be realistic (P/E 5-500, RSI 0-100, prices coherent)
+2. Reports must be internally consistent
+3. Use fictional but realistic ticker symbols (3-5 letters)
+4. Each report should be detailed (200-400 words)
+5. Ground truth must logically follow from the data
+6. Include 3-5 bull points and 3-5 bear points"""
+
+GENERATION_PROMPT = """Generate {count} evaluation scenarios for category: {category}
+
+Category description: {description}
+Example scenarios: {examples}
+
+Each scenario must have this EXACT JSON structure:
+
+{{
+  "dataset_id": "{category}_NNN",
+  "scenario_name": "Descriptive name",
+  "category": "{category}",
+  "difficulty": "easy|medium|hard",
+  "symbol": "TICKER",
+  "company_name": "Full Company Name",
+  "sector": "Technology|Healthcare|Finance|Energy|Consumer|Industrial",
+  "inputs": {{
+    "news_report": "# News Summary for TICKER\\n\\n## Latest Headlines\\n\\n1. **Headline** - Source, Date\\n   Summary with specific numbers.\\n\\n2. **Headline 2**...\\n\\n## Key Events\\n- Event 1\\n- Event 2\\n\\n## Analyst Actions\\n- Action 1\\n\\nLast Updated: timestamp",
+    "sentiment_report": "# Sentiment Analysis for TICKER\\n\\n## Overall Sentiment: BULLISH|BEARISH|NEUTRAL (Score: X.X/10)\\n\\n### Social Media Metrics\\n- Twitter: X% Positive...\\n- Reddit: description, mentions\\n- StockTwits: messages, sentiment\\n\\n### Analyst Sentiment\\n- Buy: X, Hold: X, Sell: X\\n- Average PT: $X\\n\\n### Key Themes\\n- Theme 1\\n- Theme 2",
+    "market_report": "# Technical Analysis for TICKER\\n\\n## Price Action\\n- Current: $X\\n- 24h Change: X%\\n- 52-Week: $low - $high\\n- Volume: XM (vs avg)\\n\\n## Technical Indicators\\n- RSI (14): X (interpretation)\\n- MACD: status\\n- 50-Day MA: $X (relation)\\n- 200-Day MA: $X (relation)\\n\\n## Support/Resistance\\n- Support: $X, $Y\\n- Resistance: $X, $Y\\n\\n## Trend Analysis\\nParagraph.",
+    "fundamental_report": "# Fundamental Analysis for TICKER\\n\\n## Valuation Metrics\\n- P/E: X (Industry: Y)\\n- Forward P/E: X\\n- P/S: X\\n- EV/EBITDA: X\\n\\n## Financial Health\\n- Revenue: $XB (X% YoY)\\n- Net Income: $XB (X% YoY)\\n- FCF: $XB\\n- Debt/Equity: X\\n\\n## Growth Metrics\\n- Revenue CAGR: X%\\n- EPS CAGR: X%\\n\\n## Competitive Position\\nParagraph."
+  }},
+  "ground_truth": {{
+    "expected_recommendation": "BUY|HOLD|SELL",
+    "expected_confidence": "HIGH|MEDIUM|LOW",
+    "reasoning": "1-2 sentence explanation",
+    "key_bull_points": ["Point 1", "Point 2", "Point 3"],
+    "key_bear_points": ["Point 1", "Point 2", "Point 3"]
+  }}
+}}
+
+Generate exactly {count} scenarios as a JSON array. Output ONLY the JSON array, nothing else."""
+
+
+# ============================================================
+# GENERATOR CLASS
+# ============================================================
+
+class DatasetGenerator:
+    def __init__(self, api_key: str, model: str = DEFAULT_MODEL):
+        self.client = OpenAI(
+            api_key=api_key,
+            base_url=OPENROUTER_BASE_URL
+        )
+        self.model = model
+        self.output_dir = Path(__file__).parent / "datasets"
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+    def generate_scenarios(self, category: str, count: int) -> List[Dict]:
+        """Generate scenarios for a category using OpenRouter"""
+        
+        if category not in CATEGORIES:
+            raise ValueError(f"Unknown category: {category}. Choose from: {list(CATEGORIES.keys())}")
+        
+        cat_info = CATEGORIES[category]
+        
+        print(f"\n🤖 Generating {count} scenarios for '{category}'...")
+        print(f"   Using model: {self.model}")
+        
+        prompt = GENERATION_PROMPT.format(
+            count=count,
+            category=category,
+            description=cat_info["description"],
+            examples=", ".join(cat_info["examples"])
+        )
+        
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=16000  # Need lots of tokens for detailed reports
+            )
+            
+            content = response.choices[0].message.content
+            
+            # Parse JSON (handle potential markdown wrapping)
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0]
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0]
+            
+            scenarios = json.loads(content.strip())
+            
+            # Ensure it's a list
+            if isinstance(scenarios, dict):
+                scenarios = [scenarios]
+            
+            print(f"   ✅ Generated {len(scenarios)} scenarios")
+            return scenarios
+            
+        except json.JSONDecodeError as e:
+            print(f"   ❌ JSON parsing failed: {e}")
+            print(f"   Raw response: {content[:500]}...")
+            return []
+        except Exception as e:
+            print(f"   ❌ API error: {e}")
+            return []
     
-    "symbol": "FRAUD",
-    "company_name": "FraudCorp Holdings",
-    "sector": "Finance",
+    def save_scenarios(self, scenarios: List[Dict], category: str) -> int:
+        """Save scenarios to individual JSON files"""
+        
+        # Create category directory
+        cat_dir = self.output_dir / category.replace("clear_", "clear_signals/")
+        if "clear_" in category:
+            cat_dir = self.output_dir / "clear_signals"
+        elif category == "ambiguous":
+            cat_dir = self.output_dir / "ambiguous"
+        elif category == "adversarial":
+            cat_dir = self.output_dir / "adversarial"
+        else:
+            cat_dir = self.output_dir / category
+            
+        cat_dir.mkdir(parents=True, exist_ok=True)
+        
+        saved = 0
+        for i, scenario in enumerate(scenarios):
+            # Generate unique ID if missing
+            if "dataset_id" not in scenario or not scenario["dataset_id"]:
+                scenario["dataset_id"] = f"{category}_{str(i+1).zfill(3)}"
+            
+            # Add metadata
+            scenario["_generated_at"] = datetime.now().isoformat()
+            scenario["_model_used"] = self.model
+            
+            # Determine filename
+            filename = f"{scenario['dataset_id']}.json"
+            filepath = cat_dir / filename
+            
+            # Don't overwrite existing
+            counter = 1
+            while filepath.exists():
+                scenario["dataset_id"] = f"{category}_{str(len(list(cat_dir.glob('*.json'))) + counter).zfill(3)}"
+                filename = f"{scenario['dataset_id']}.json"
+                filepath = cat_dir / filename
+                counter += 1
+            
+            try:
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    json.dump(scenario, f, indent=2, ensure_ascii=False)
+                print(f"   📄 Saved: {filepath.name}")
+                saved += 1
+            except Exception as e:
+                print(f"   ❌ Failed to save {filename}: {e}")
+        
+        return saved
     
-    "inputs": {
-        "news_report": """# News Summary for FRAUD
-
-## Latest Headlines
-
-1. **SEC Opens Formal Investigation into FraudCorp Accounting** - WSJ, Dec 6
-   The Securities and Exchange Commission has launched a formal investigation into the company's revenue recognition practices. The CFO resigned effective immediately.
-
-2. **FraudCorp Misses Earnings by 40%, Withdraws Guidance** - Bloomberg, Dec 6
-   The company reported EPS of $0.60 vs $1.00 expected. Management withdrew full-year guidance citing "accounting review."
-
-3. **Short Seller Releases 100-Page Report Alleging Fraud** - CNBC, Dec 5
-   Hindenburg Research published a detailed report alleging systematic revenue fabrication going back 3 years.
-
-## Key Events
-- Dec 6, 6AM: CFO resignation announced
-- Dec 6, 8AM: Earnings miss with no guidance
-- Dec 6, 10AM: SEC investigation confirmed
-
-## Analyst Actions
-- All 15 covering analysts suspended ratings pending review
-- Average PT withdrawn
-
-Last Updated: 2024-12-06T14:00:00Z""",
-
-        "sentiment_report": """# Sentiment Analysis for FRAUD
-
-## Overall Sentiment: EXTREMELY BEARISH (Score: 1.5/10)
-
-### Social Media Metrics
-- Twitter: 5% Positive, 10% Neutral, 85% Negative
-- Reddit: Panic selling discussion, 12,000 mentions
-- StockTwits: 8,500 messages, 95% bearish
-
-### Analyst Sentiment
-- Buy ratings: 0 (all suspended)
-- Hold ratings: 0
-- Sell ratings: 0
-- Average Price Target: Suspended
-
-### Key Themes
-- Fraud allegations dominating discussion
-- CFO resignation seen as admission
-- Comparisons to Enron and Wirecard
-
-Last Updated: 2024-12-06T14:00:00Z""",
-
-        "market_report": """# Technical Analysis for FRAUD
-
-## Price Action
-- Current Price: $12.50
-- 24h Change: -55%
-- 52-Week Range: $8.00 - $45.00
-- Volume: 200M (50x average)
-
-## Technical Indicators
-- RSI (14): 8 (Extremely Oversold)
-- MACD: Crashed through signal line
-- 50-Day MA: $38.50 (price 67% below)
-- 200-Day MA: $35.20 (price 64% below)
-
-## Support/Resistance
-- Support: $8.00 (52-week low), $5.00 (2020 low)
-- Resistance: $20, $25
-
-## Trend Analysis
-Complete technical breakdown. Stock is in freefall with no visible support. The gap down has created a massive overhead supply. Any bounce likely to be sold.
-
-Last Updated: 2024-12-06T14:00:00Z""",
-
-        "fundamental_report": """# Fundamental Analysis for FRAUD
-
-## Valuation Metrics
-- P/E Ratio: N/A (earnings now questionable)
-- Forward P/E: N/A (guidance withdrawn)
-- P/S Ratio: 0.8
-- EV/EBITDA: N/A
-
-## Financial Health
-- Revenue (TTM): $5B (now under investigation)
-- Net Income: Unknown (restating)
-- Free Cash Flow: -$500M
-- Debt/Equity: 4.5 (highly leveraged)
-- Current Ratio: 0.6 (liquidity concerns)
-
-## Growth Metrics
-- Revenue Growth: Under review
-- EPS Growth: Under review
-
-## Competitive Position
-Previously reported market share now being investigated. Multiple lawsuits from customers alleging misrepresentation.
-
-Last Updated: 2024-12-06T14:00:00Z"""
-    },
+    def generate_all_categories(self, counts: Optional[Dict[str, int]] = None):
+        """Generate scenarios for all categories"""
+        
+        if counts is None:
+            counts = {cat: info["count"] for cat, info in CATEGORIES.items()}
+        
+        total_generated = 0
+        total_saved = 0
+        
+        for category, count in counts.items():
+            scenarios = self.generate_scenarios(category, count)
+            saved = self.save_scenarios(scenarios, category)
+            total_generated += len(scenarios)
+            total_saved += saved
+            
+            # Rate limiting - wait between categories
+            if category != list(counts.keys())[-1]:
+                print("   ⏳ Waiting 2 seconds (rate limit)...")
+                time.sleep(2)
+        
+        return total_generated, total_saved
     
-    "ground_truth": {
-        "expected_recommendation": "SELL",
-        "expected_confidence": "HIGH",
-        "reasoning": "SEC investigation, CFO resignation, massive earnings miss, withdrawn guidance, fraud allegations, and complete technical breakdown make this an obvious sell.",
-        "key_bull_points": [
-            "RSI at 8 suggests extremely oversold bounce possible",
-            "If fraud allegations unfounded, stock heavily discounted"
-        ],
-        "key_bear_points": [
-            "SEC investigation rarely ends well for investors",
-            "CFO resignation suggests internal awareness of issues",
-            "40% earnings miss shows real business problems",
-            "Withdrawn guidance means no visibility",
-            "Debt/equity of 4.5 creates bankruptcy risk"
-        ]
-    }
-}
+    def update_manifest(self):
+        """Update the manifest file with all datasets"""
+        manifest = {
+            "updated_at": datetime.now().isoformat(),
+            "categories": {},
+            "total_scenarios": 0
+        }
+        
+        for cat_dir in self.output_dir.iterdir():
+            if cat_dir.is_dir():
+                files = list(cat_dir.glob("*.json"))
+                manifest["categories"][cat_dir.name] = {
+                    "count": len(files),
+                    "files": [f.name for f in files]
+                }
+                manifest["total_scenarios"] += len(files)
+        
+        with open(self.output_dir / "manifest.json", 'w') as f:
+            json.dump(manifest, f, indent=2)
+        
+        print(f"\n📋 Updated manifest: {manifest['total_scenarios']} total scenarios")
 
 
-EXAMPLE_AMBIGUOUS = {
-    "dataset_id": "ambiguous_001",
-    "scenario_name": "Sentiment vs Valuation Conflict",
-    "category": "ambiguous",
-    "difficulty": "hard",
-    
-    "symbol": "HYPE",
-    "company_name": "HypeTech AI",
-    "sector": "Technology",
-    
-    "inputs": {
-        "news_report": """# News Summary for HYPE
-
-## Latest Headlines
-
-1. **HypeTech AI Stock Triples in 2024 on AI Excitement** - Reuters, Dec 6
-   The stock has risen 200% YTD as investors pile into AI-related names. The company's AI assistant product has gained 50M users.
-
-2. **CEO Featured on Magazine Cover as "AI Visionary"** - Forbes, Dec 5
-   Growing media attention has fueled retail investor interest.
-
-3. **No New Product Announcements at Developer Conference** - TechCrunch, Dec 4
-   The company's annual conference focused on existing products, disappointing some who expected new AI features.
-
-## Key Events
-- Stock up 200% YTD
-- 50M users on AI product (up from 20M in Jan)
-
-## Analyst Actions
-- Mixed: 10 Buy, 8 Hold, 5 Sell
-- Price targets range from $50 to $200
-
-Last Updated: 2024-12-06T14:00:00Z""",
-
-        "sentiment_report": """# Sentiment Analysis for HYPE
-
-## Overall Sentiment: BULLISH (Score: 7.8/10)
-
-### Social Media Metrics
-- Twitter: 75% Positive, 15% Neutral, 10% Negative
-- Reddit: Heavily bullish, 8,000 mentions
-- StockTwits: 4,200 messages, 80% bullish
-
-### Analyst Sentiment
-- Buy ratings: 10
-- Hold ratings: 8
-- Sell ratings: 5
-- Average Price Target: $140 (stock at $150)
-
-### Key Themes
-- AI hype driving enthusiasm
-- Comparisons to Nvidia early days
-- Some valuation concerns emerging
-
-Last Updated: 2024-12-06T14:00:00Z""",
-
-        "market_report": """# Technical Analysis for HYPE
-
-## Price Action
-- Current Price: $150.00
-- 24h Change: +2.5%
-- 52-Week Range: $48.00 - $165.00
-- Volume: 25M (1.5x average)
-
-## Technical Indicators
-- RSI (14): 68 (Near Overbought)
-- MACD: Bullish but momentum slowing
-- 50-Day MA: $135.00 (price 11% above)
-- 200-Day MA: $95.00 (price 58% above)
-
-## Support/Resistance
-- Support: $135, $120
-- Resistance: $165 (52-week high)
-
-## Trend Analysis
-Stock is extended from moving averages but holding uptrend. Momentum indicators showing fatigue but no breakdown yet.
-
-Last Updated: 2024-12-06T14:00:00Z""",
-
-        "fundamental_report": """# Fundamental Analysis for HYPE
-
-## Valuation Metrics
-- P/E Ratio: 150 (Industry avg: 35)
-- Forward P/E: 85
-- P/S Ratio: 45
-- EV/EBITDA: 120
-
-## Financial Health
-- Revenue (TTM): $2B (+60% YoY)
-- Net Income: $200M (+40% YoY)
-- Free Cash Flow: $300M
-- Debt/Equity: 0.2
-- Current Ratio: 2.5
-
-## Growth Metrics
-- Revenue Growth (3Y CAGR): 55%
-- EPS Growth (3Y CAGR): 45%
-
-## Competitive Position
-Strong product with 50M users but facing increasing competition from Google, Microsoft, and OpenAI. First mover advantage but moat uncertain.
-
-Last Updated: 2024-12-06T14:00:00Z"""
-    },
-    
-    "ground_truth": {
-        "expected_recommendation": "HOLD",
-        "expected_confidence": "MEDIUM",
-        "reasoning": "Stock is above average analyst PT, extreme valuation (P/E 150), but strong growth (60% revenue) creates genuine debate. Neither strong buy nor sell.",
-        "key_bull_points": [
-            "60% revenue growth is exceptional",
-            "50M users shows product-market fit",
-            "Low debt and strong cash flow",
-            "AI megatrend tailwind"
-        ],
-        "key_bear_points": [
-            "P/E of 150 is extreme even for growth",
-            "Stock above average analyst PT",
-            "No new product announcements disappointing",
-            "Competition intensifying from big tech",
-            "Extended 58% above 200-day MA"
-        ]
-    }
-}
-
-
-def create_example_dataset():
-    """Create example dataset files"""
-    base_dir = Path(__file__).parent / "datasets"
-    
-    # Create directories
-    (base_dir / "clear_signals").mkdir(parents=True, exist_ok=True)
-    (base_dir / "ambiguous").mkdir(parents=True, exist_ok=True)
-    (base_dir / "adversarial").mkdir(parents=True, exist_ok=True)
-    
-    # Save examples
-    examples = [
-        ("clear_signals/strong_buy_001.json", EXAMPLE_STRONG_BUY),
-        ("clear_signals/strong_sell_001.json", EXAMPLE_STRONG_SELL),
-        ("ambiguous/ambiguous_001.json", EXAMPLE_AMBIGUOUS),
-    ]
-    
-    for filename, data in examples:
-        filepath = base_dir / filename
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        print(f"✅ Created: {filepath}")
-    
-    # Create manifest
-    manifest = {
-        "created_at": datetime.now().isoformat(),
-        "total_scenarios": len(examples),
-        "scenarios": [e[0] for e in examples]
-    }
-    with open(base_dir / "manifest.json", 'w') as f:
-        json.dump(manifest, f, indent=2)
-    
-    print(f"\n📁 Dataset structure created at: {base_dir}")
-    print("📝 Modify these examples or use the LLM prompt to generate more!")
-
+# ============================================================
+# VALIDATION
+# ============================================================
 
 def validate_scenario(scenario: Dict) -> List[str]:
-    """Validate a scenario has all required fields"""
+    """Validate a generated scenario"""
     errors = []
     
-    required_fields = ["dataset_id", "scenario_name", "symbol", "inputs", "ground_truth"]
-    for field in required_fields:
+    required = ["dataset_id", "scenario_name", "symbol", "inputs", "ground_truth"]
+    for field in required:
         if field not in scenario:
-            errors.append(f"Missing required field: {field}")
+            errors.append(f"Missing: {field}")
     
     if "inputs" in scenario:
         for report in ["news_report", "sentiment_report", "market_report", "fundamental_report"]:
-            if report not in scenario["inputs"]:
-                errors.append(f"Missing input: {report}")
-            elif len(scenario["inputs"].get(report, "")) < 100:
-                errors.append(f"Input {report} seems too short (< 100 chars)")
+            content = scenario["inputs"].get(report, "")
+            if not content:
+                errors.append(f"Empty: inputs.{report}")
+            elif len(content) < 200:
+                errors.append(f"Too short: inputs.{report} ({len(content)} chars)")
     
     if "ground_truth" in scenario:
-        if "expected_recommendation" not in scenario["ground_truth"]:
-            errors.append("Missing ground_truth.expected_recommendation")
-        elif scenario["ground_truth"]["expected_recommendation"] not in ["BUY", "HOLD", "SELL"]:
-            errors.append("expected_recommendation must be BUY, HOLD, or SELL")
+        rec = scenario["ground_truth"].get("expected_recommendation", "")
+        if rec not in ["BUY", "HOLD", "SELL"]:
+            errors.append(f"Invalid recommendation: {rec}")
     
     return errors
 
 
-def validate_dataset_folder(folder_path: str):
-    """Validate all JSON files in a folder"""
-    folder = Path(folder_path)
-    if not folder.exists():
-        print(f"❌ Folder not found: {folder}")
-        return
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate Bull-Bear evaluation datasets using OpenRouter")
+    parser.add_argument("--count", type=int, default=5, help="Number of scenarios per category")
+    parser.add_argument("--category", type=str, choices=list(CATEGORIES.keys()) + ["all"], 
+                       default="all", help="Category to generate")
+    parser.add_argument("--model", type=str, default=DEFAULT_MODEL, 
+                       help=f"OpenRouter model (default: {DEFAULT_MODEL})")
+    parser.add_argument("--validate-only", action="store_true", 
+                       help="Only validate existing datasets")
     
-    total = 0
-    valid = 0
+    args = parser.parse_args()
     
-    for json_file in folder.rglob("*.json"):
-        if json_file.name == "manifest.json":
-            continue
+    # Get API key
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key and not args.validate_only:
+        print("❌ Error: OPENAI_API_KEY environment variable not set")
+        print("   Set it with: export OPENAI_API_KEY=your_openrouter_key")
+        sys.exit(1)
+    
+    if args.validate_only:
+        # Validate existing datasets
+        datasets_dir = Path(__file__).parent / "datasets"
+        print(f"🔍 Validating datasets in {datasets_dir}...")
         
-        total += 1
-        try:
-            with open(json_file, 'r') as f:
+        total = 0
+        valid = 0
+        for json_file in datasets_dir.rglob("*.json"):
+            if json_file.name == "manifest.json":
+                continue
+            total += 1
+            with open(json_file) as f:
                 scenario = json.load(f)
-            
             errors = validate_scenario(scenario)
             if errors:
-                print(f"❌ {json_file.name}:")
-                for e in errors:
-                    print(f"   - {e}")
+                print(f"❌ {json_file.name}: {', '.join(errors)}")
             else:
-                print(f"✅ {json_file.name}")
                 valid += 1
-        except json.JSONDecodeError as e:
-            print(f"❌ {json_file.name}: Invalid JSON - {e}")
+        
+        print(f"\n✅ Valid: {valid}/{total}")
+        return
     
-    print(f"\n📊 Validated {valid}/{total} scenarios successfully")
+    # Generate datasets
+    generator = DatasetGenerator(api_key, args.model)
+    
+    print("=" * 60)
+    print("🚀 BULL-BEAR DATASET GENERATOR")
+    print("=" * 60)
+    print(f"Model: {args.model}")
+    print(f"Category: {args.category}")
+    print(f"Count per category: {args.count}")
+    
+    if args.category == "all":
+        # Generate all categories
+        counts = {cat: args.count for cat in CATEGORIES.keys()}
+        generated, saved = generator.generate_all_categories(counts)
+    else:
+        # Generate single category
+        scenarios = generator.generate_scenarios(args.category, args.count)
+        saved = generator.save_scenarios(scenarios, args.category)
+        generated = len(scenarios)
+    
+    generator.update_manifest()
+    
+    print("\n" + "=" * 60)
+    print(f"✅ COMPLETE: Generated {generated} scenarios, saved {saved}")
+    print("=" * 60)
 
 
 if __name__ == "__main__":
-    import sys
-    
-    if len(sys.argv) < 2:
-        print("Usage:")
-        print("  python generate_dataset.py --create-example   # Create example datasets")
-        print("  python generate_dataset.py --validate <path>  # Validate datasets")
-        sys.exit(1)
-    
-    if sys.argv[1] == "--create-example":
-        create_example_dataset()
-    elif sys.argv[1] == "--validate" and len(sys.argv) > 2:
-        validate_dataset_folder(sys.argv[2])
-    else:
-        print("Unknown command. Use --create-example or --validate <path>")
+    main()
