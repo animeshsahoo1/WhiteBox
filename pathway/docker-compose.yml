@@ -244,7 +244,7 @@ services:
   backtesting-pipeline:
     <<: *kafka-redis-consumer
     container_name: pathway-backtesting
-    command: python main_backtesting.py
+    command: sleep 30 && python main_backtesting.py
     env_file:
       - ../.env
     environment:
