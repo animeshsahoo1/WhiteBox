@@ -53,3 +53,5 @@ rag
 *.json
 ragas_quick_test.py
 ragass.py
+
+validation

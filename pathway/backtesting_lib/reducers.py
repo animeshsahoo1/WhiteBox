@@ -146,6 +146,10 @@ def trading_reducer(
     for row, count in rows:
         # row = [timestamp, open, high, low, close, volume, strategy_code, lookback]
         
+        # Skip deletions from forget() - we can't reverse executed trades
+        if count <= 0:
+            continue
+        
         # Validate row structure
         if not isinstance(row, (list, tuple)) or len(row) < 7:
             print(f"⚠️ Skipping malformed row (expected 7+ elements): {row}")
