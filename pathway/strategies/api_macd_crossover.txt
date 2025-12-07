@@ -1,0 +1,32 @@
+# interval: 1h
+# lookback: 3mo
+
+def strategy(indicators):
+    """
+    MACD Crossover Strategy
+    
+    Entry: MACD crosses above Signal
+    Exit: MACD crosses below Signal
+    
+    Best for: 1h charts
+    """
+    macd_line = indicators.get('macd_line')
+    macd_signal = indicators.get('macd_signal')
+    position = indicators.get('position')
+    close = indicators.get('close')
+    
+    if macd_line is None or macd_signal is None or close is None:
+        return None
+
+    if macd_line > macd_signal and position != 'long':
+        return {
+            'action': 'BUY',
+            'stop_loss': close * 0.98,
+            'take_profit': close * 1.05,
+            'size': 0.5
+        }
+
+    if macd_line < macd_signal and position == 'long':
+        return {'action': 'SELL'}
+
+    return None

@@ -99,11 +99,11 @@ def filter_candles_by_lookback(candles: List[dict], lookback: str) -> List[dict]
     # Sort and find latest
     sorted_candles = sorted(candles, key=lambda c: str(c['timestamp']))
     latest_ts = parse_ts(sorted_candles[-1]['timestamp'])
-    
+
     # Calculate cutoff
     lookback_delta = parse_lookback_to_timedelta(lookback)
     cutoff_ts = latest_ts - lookback_delta
-    
+
     # Filter candles
     filtered = [c for c in sorted_candles if parse_ts(c['timestamp']) >= cutoff_ts]
     
@@ -125,16 +125,23 @@ def trading_reducer(
     Args:
         state_json: Previous state as JSON string (None if first call)
         rows: List of (row_values, count) tuples
-              - row_values = [timestamp, open, high, low, close, volume, strategy_code, lookback]
+              - row_values = [timestamp, open, high, low, close, volume, strategy_code, lookback, interval]
               - count > 0 for insertions, count < 0 for deletions
     
     Processes candles one at a time, updating state incrementally.
     Lookback filtering is applied to batch processing.
     All indicator and metric calculations are O(1).
     """
+    # Extract interval from first row (same for all rows in group)
+    interval = '1d'  # Default
+    for row, count in rows:
+        if len(row) > 8 and row[8] is not None:
+            interval = str(row[8])
+            break
+    
     # Initialize or restore state
     if state_json is None:
-        trading_state = TradingState.initial()
+        trading_state = TradingState.initial(interval=interval)
     else:
         trading_state = TradingState.from_json(state_json)
     
@@ -339,3 +346,22 @@ def extract_avg_loss(state_json: Optional[str]) -> float:
         return 0.0
     state = TradingState.from_json(state_json)
     return state.get_all_metrics().get('avg_loss', 0.0)
+
+
+@pw.udf
+def extract_equity(state_json: Optional[str]) -> float:
+    """Extract total portfolio value including unrealized P&L."""
+    if state_json is None:
+        return 0.0
+    state = TradingState.from_json(state_json)
+    return state.get_all_metrics().get('equity', 0.0)
+
+
+@pw.udf
+def extract_equity_return_pct(state_json: Optional[str]) -> float:
+    """Extract return % including unrealized P&L (matches backtesting.py)."""
+    if state_json is None:
+        return 0.0
+    state = TradingState.from_json(state_json)
+    return state.get_all_metrics().get('equity_return_pct', 0.0)
+

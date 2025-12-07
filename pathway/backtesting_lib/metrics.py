@@ -91,6 +91,14 @@ class MetricsState:
     # === Candle Count ===
     candles_processed: int = 0
     
+    # === Equity-Curve Welford's Algorithm (for industry-standard Sharpe) ===
+    # Tracks per-bar equity returns rather than per-trade - more accurate measure
+    equity_welford_count: int = 0
+    equity_welford_mean: float = 0.0
+    equity_welford_m2: float = 0.0
+    previous_equity: float = 10000.0
+    interval: str = '1d'  # For correct annualization factor
+    
     def to_json(self) -> str:
         return json.dumps(asdict(self))
     
@@ -100,12 +108,14 @@ class MetricsState:
         return cls(**data)
     
     @classmethod
-    def initial(cls, initial_capital: float = 10000.0, commission: float = 0.001) -> 'MetricsState':
+    def initial(cls, initial_capital: float = 10000.0, commission: float = 0.001, interval: str = '1d') -> 'MetricsState':
         return cls(
             initial_capital=initial_capital,
             current_capital=initial_capital,
             peak_equity=initial_capital,
-            commission=commission
+            previous_equity=initial_capital,
+            commission=commission,
+            interval=interval
         )
 
 
@@ -225,6 +235,19 @@ def update_equity(state: MetricsState, current_price: float, high: float = None,
     state.last_price = current_price
     state.candles_processed += 1
     
+    # Update equity-curve return tracking (Welford's algorithm for per-bar returns)
+    if state.previous_equity > 0:
+        equity_return = (equity - state.previous_equity) / state.previous_equity
+        
+        # Welford's online algorithm for mean and variance
+        state.equity_welford_count += 1
+        delta = equity_return - state.equity_welford_mean
+        state.equity_welford_mean += delta / state.equity_welford_count
+        delta2 = equity_return - state.equity_welford_mean
+        state.equity_welford_m2 += delta * delta2
+    
+    state.previous_equity = equity
+    
     return state
 
 
@@ -245,11 +268,21 @@ def get_metrics(state: MetricsState) -> dict:
         'return_pct': (state.current_capital - state.initial_capital) / state.initial_capital * 100,
     }
     
+    # Calculate unrealized P&L for equity metrics (matches backtesting.py behavior)
+    unrealized_pnl = 0.0
+    if state.position_type == 'LONG':
+        unrealized_pnl = (state.last_price - state.entry_price) * state.position_units
+    elif state.position_type == 'SHORT':
+        unrealized_pnl = (state.entry_price - state.last_price) * state.position_units
+    
+    metrics['equity'] = state.current_capital + unrealized_pnl
+    metrics['equity_return_pct'] = (metrics['equity'] - state.initial_capital) / state.initial_capital * 100
+    
     # Profit Factor
     if state.gross_loss > 0:
         metrics['profit_factor'] = state.gross_profit / state.gross_loss
     else:
-        metrics['profit_factor'] = float('inf') if state.gross_profit > 0 else 0.0
+        metrics['profit_factor'] = 9999.0 if state.gross_profit > 0 else 0.0  # Avoid inf for JSON
     
     # Volatility (std dev of trade PnLs) using Welford's result
     if state.welford_count > 1:
@@ -258,10 +291,29 @@ def get_metrics(state: MetricsState) -> dict:
     else:
         metrics['volatility'] = 0.0
     
-    # Sharpe Ratio (annualized)
-    if metrics['volatility'] > 0 and state.total_trades > 0:
-        avg_return = state.total_pnl / state.total_trades
-        metrics['sharpe_ratio'] = (avg_return / metrics['volatility']) * math.sqrt(252)
+    # Equity-Curve Sharpe Ratio (industry standard - per-bar returns)
+    # Uses proper annualization factor based on interval
+    annualization_factors = {
+        '1m': math.sqrt(252 * 6.5 * 60),   # Minutes per year
+        '5m': math.sqrt(252 * 6.5 * 12),   # 5-min bars per year
+        '15m': math.sqrt(252 * 6.5 * 4),   # 15-min bars per year
+        '30m': math.sqrt(252 * 6.5 * 2),   # 30-min bars per year
+        '1h': math.sqrt(252 * 6.5),        # Hours per year (~1638)
+        '4h': math.sqrt(252 * 1.625),      # 4-hour bars per year
+        '1d': math.sqrt(252),              # Trading days per year
+        '1w': math.sqrt(52),               # Weeks per year
+    }
+    ann_factor = annualization_factors.get(state.interval, math.sqrt(252))
+    
+    if state.equity_welford_count > 1:
+        equity_variance = state.equity_welford_m2 / (state.equity_welford_count - 1)
+        equity_std = math.sqrt(equity_variance) if equity_variance > 0 else 0.0
+        
+        if equity_std > 0:
+            # Sharpe = (mean return / std return) * annualization factor
+            metrics['sharpe_ratio'] = (state.equity_welford_mean / equity_std) * ann_factor
+        else:
+            metrics['sharpe_ratio'] = 0.0
     else:
         metrics['sharpe_ratio'] = 0.0
     

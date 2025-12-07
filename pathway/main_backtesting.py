@@ -73,6 +73,8 @@ from reducers import (
     extract_expectancy,
     extract_avg_win,
     extract_avg_loss,
+    extract_equity,
+    extract_equity_return_pct,
 )
 
 # Import Redis cache for metrics storage
@@ -263,7 +265,8 @@ def create_backtesting_pipeline(
             pw.this.close,
             pw.this.volume,
             pw.this.strategy_code,
-            pw.this.lookback
+            pw.this.lookback,
+            pw.this.interval  # For sharpe ratio annualization
         )
     )
     
@@ -284,6 +287,8 @@ def create_backtesting_pipeline(
         expectancy=extract_expectancy(pw.this.state),
         avg_win=extract_avg_win(pw.this.state),
         avg_loss=extract_avg_loss(pw.this.state),
+        equity=extract_equity(pw.this.state),
+        equity_return_pct=extract_equity_return_pct(pw.this.state),
         last_signal=extract_last_signal(pw.this.state),
         position=extract_position(pw.this.state),
         candles_processed=extract_candles_processed(pw.this.state)
@@ -299,8 +304,8 @@ def create_backtesting_pipeline(
             total_pnl: float, total_trades: int, win_rate: float,
             max_drawdown: float, volatility: float, sharpe_ratio: float,
             profit_factor: float, return_pct: float, expectancy: float,
-            avg_win: float, avg_loss: float, last_signal: str, 
-            position: str, candles_processed: int, lookback: str
+            avg_win: float, avg_loss: float, equity: float, equity_return_pct: float,
+            last_signal: str, position: str, candles_processed: int, lookback: str
         ) -> str:
             """Format all metrics as JSON."""
             return json.dumps({
@@ -315,6 +320,8 @@ def create_backtesting_pipeline(
                 "expectancy": round(expectancy, 2),
                 "avg_win": round(avg_win, 2),
                 "avg_loss": round(avg_loss, 2),
+                "equity": round(equity, 2),
+                "equity_return_pct": round(equity_return_pct, 4),
                 "last_signal": last_signal,
                 "position": position,
                 "candles_processed": candles_processed,
@@ -329,8 +336,8 @@ def create_backtesting_pipeline(
                 pw.this.total_pnl, pw.this.total_trades, pw.this.win_rate,
                 pw.this.max_drawdown, pw.this.volatility, pw.this.sharpe_ratio,
                 pw.this.profit_factor, pw.this.return_pct, pw.this.expectancy,
-                pw.this.avg_win, pw.this.avg_loss, pw.this.last_signal,
-                pw.this.position, pw.this.candles_processed, pw.this.lookback
+                pw.this.avg_win, pw.this.avg_loss, pw.this.equity, pw.this.equity_return_pct,
+                pw.this.last_signal, pw.this.position, pw.this.candles_processed, pw.this.lookback
             ),
             last_updated=pw.this.candles_processed
         ).groupby(pw.this.strategy, pw.this.symbol).reduce(

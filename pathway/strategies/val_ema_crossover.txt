@@ -1,0 +1,30 @@
+# interval: 1h
+# lookback: 3mo
+
+def strategy(indicators):
+    """
+    EMA 9/21 Crossover Strategy
+    
+    Entry: Buy when EMA9 crosses above EMA21
+    Exit: Sell when EMA9 crosses below EMA21
+    """
+    import numpy as np
+    
+    ema9 = indicators.get('ema_9')
+    ema12 = indicators.get('ema_12')  # Using ema_12 instead of ema_21 (not available)
+    close = indicators.get('close')
+    
+    if ema9 is None or ema12 is None or close is None:
+        return None
+    if any(np.isnan(v) for v in [ema9, ema12]):
+        return None
+    
+    # Entry: EMA9 > EMA12 and not already long
+    if ema9 > ema12 and position != 'LONG':
+        return {'action': 'BUY', 'size': 1.0}
+    
+    # Exit: EMA9 < EMA12 and in position
+    if ema9 < ema12 and position == 'LONG':
+        return {'action': 'SELL'}
+    
+    return None
