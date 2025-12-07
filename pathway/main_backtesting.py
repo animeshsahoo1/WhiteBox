@@ -84,15 +84,6 @@ def get_candle_table(topic: str = "candles"):
     print(f"📡 LIVE MODE: Consuming from Kafka topic '{topic}'")
     consumer = CandleConsumer(topic=topic)
     return consumer.consume()
-            str(csv_file),
-            schema=CandleDataSchema,
-            mode="streaming",
-            autocommit_duration_ms=int(1000 / input_rate)  # Convert rows/sec to delay in ms
-        )
-    else:
-        print(f"📡 LIVE MODE: Consuming from Kafka topic '{topic}'")
-        candle_consumer = CandleConsumer(topic_name=topic)
-        return candle_consumer.consume()
 
 
 # ============================================================================
@@ -318,10 +309,20 @@ def main():
     topic = os.getenv("CANDLE_KAFKA_TOPIC", "candles")
     strategies_folder = os.getenv("STRATEGIES_DIR", "./strategies/")
     
+    # Check for dummy mode (USE_DUMMY_MARKET takes priority over USE_DUMMY)
+    use_dummy_market = os.getenv("USE_DUMMY_MARKET")
+    if use_dummy_market is not None:
+        use_dummy = use_dummy_market.lower() == "true"
+    else:
+        use_dummy = os.getenv("USE_DUMMY", "false").lower() == "true"
+    
     print("=" * 70)
     print("🚀 PATHWAY STREAMING BACKTESTER (v2.0)")
     print("=" * 70)
-    print(f"📡 MODE: LIVE (using Kafka topic '{topic}')")
+    if use_dummy:
+        print("🧪 MODE: DUMMY (using demo CSV data)")
+    else:
+        print(f"📡 MODE: LIVE (using Kafka topic '{topic}')")
     print(f"  Strategies: {strategies_folder}")
     print(f"  Redis: {'Available' if REDIS_AVAILABLE else 'Not available'}")
     print("=" * 70)

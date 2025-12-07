@@ -62,8 +62,13 @@ def main():
     print("Pathway Market Data Consumer System (Multi-Agent + Redis)")
     print("=" * 70)
 
-    # Check for dummy mode
-    use_dummy = os.getenv("USE_DUMMY", "false").lower() == "true"
+    # Check for dummy mode (USE_DUMMY_MARKET takes priority over USE_DUMMY)
+    use_dummy_market = os.getenv("USE_DUMMY_MARKET")
+    if use_dummy_market is not None:
+        use_dummy = use_dummy_market.lower() == "true"
+    else:
+        use_dummy = os.getenv("USE_DUMMY", "false").lower() == "true"
+    
     if use_dummy:
         print("🧪 MODE: DUMMY (using demo CSV data)")
     else:

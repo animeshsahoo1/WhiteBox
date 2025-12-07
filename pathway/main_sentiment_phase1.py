@@ -93,8 +93,13 @@ def main():
     print("PHASE 1: Sentiment Clustering Pipeline (FAST)")
     print("=" * 70)
 
-    # Check for dummy mode
-    use_dummy = os.getenv("USE_DUMMY", "false").lower() == "true"
+    # Check for dummy mode (USE_DUMMY_SENTIMENT takes priority over USE_DUMMY)
+    use_dummy_sentiment = os.getenv("USE_DUMMY_SENTIMENT")
+    if use_dummy_sentiment is not None:
+        use_dummy = use_dummy_sentiment.lower() == "true"
+    else:
+        use_dummy = os.getenv("USE_DUMMY", "false").lower() == "true"
+    
     if use_dummy:
         print("🧪 MODE: DUMMY (using demo CSV data)")
         print("Pipeline: CSV → Embedding → Clustering → Sentiment → File + Redis")

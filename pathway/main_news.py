@@ -61,8 +61,13 @@ def main():
     print("Pathway News Analysis System (Story Clustering Architecture)")
     print("=" * 70)
 
-    # Check for dummy mode
-    use_dummy = os.getenv("USE_DUMMY", "false").lower() == "true"
+    # Check for dummy mode (USE_DUMMY_NEWS takes priority over USE_DUMMY)
+    use_dummy_news = os.getenv("USE_DUMMY_NEWS")
+    if use_dummy_news is not None:
+        use_dummy = use_dummy_news.lower() == "true"
+    else:
+        use_dummy = os.getenv("USE_DUMMY", "false").lower() == "true"
+    
     if use_dummy:
         print("🧪 MODE: DUMMY (using demo CSV data)")
     else:

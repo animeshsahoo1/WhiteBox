@@ -62,7 +62,18 @@ def main():
     print("=" * 70)
     print("Pathway Drift Detection Pipeline")
     print("=" * 70)
-    print("📡 MODE: LIVE (using Kafka streaming)")
+    
+    # Check for dummy mode (USE_DUMMY_MARKET takes priority over USE_DUMMY)
+    use_dummy_market = os.getenv("USE_DUMMY_MARKET")
+    if use_dummy_market is not None:
+        use_dummy = use_dummy_market.lower() == "true"
+    else:
+        use_dummy = os.getenv("USE_DUMMY", "false").lower() == "true"
+    
+    if use_dummy:
+        print("🧪 MODE: DUMMY (using demo CSV data)")
+    else:
+        print("📡 MODE: LIVE (using Kafka streaming)")
     
     # Configuration from environment
     kafka_broker = os.getenv("KAFKA_BROKER", "kafka:29092")
