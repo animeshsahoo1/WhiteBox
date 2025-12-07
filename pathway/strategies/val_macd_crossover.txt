@@ -1,0 +1,31 @@
+# interval: 1h
+# lookback: 3mo
+
+def strategy(indicators):
+    """
+    Validation: MACD/Signal Crossover
+    
+    Entry: MACD crosses above Signal (not already LONG)
+    Exit: MACD crosses below Signal (if LONG)
+    
+    Matches backtesting.py crossover() behavior exactly.
+    """
+    import numpy as np
+    
+    macd = indicators.get('macd_line')
+    signal = indicators.get('macd_signal')
+    
+    if any(v is None for v in [macd, signal]):
+        return None
+    if any(np.isnan(v) for v in [macd, signal]):
+        return None
+    
+    # Buy when MACD crosses above Signal (only enter once)
+    if macd > signal and position != 'LONG':
+        return {'action': 'BUY', 'size': 1.0}
+    
+    # Sell when MACD crosses below Signal (only if in position)
+    if macd < signal and position == 'LONG':
+        return {'action': 'SELL'}
+    
+    return None

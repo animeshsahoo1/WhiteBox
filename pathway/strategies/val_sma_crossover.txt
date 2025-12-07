@@ -1,0 +1,31 @@
+# interval: 1d
+# lookback: 2y
+
+def strategy(indicators):
+    """
+    Validation: SMA 20/50 Crossover
+    
+    Entry: SMA_20 crosses above SMA_50 (not already LONG)
+    Exit: SMA_20 crosses below SMA_50 (if LONG)
+    
+    Matches backtesting.py crossover() behavior exactly.
+    """
+    import numpy as np
+    
+    sma_20 = indicators.get('sma_20')
+    sma_50 = indicators.get('sma_50')
+    
+    if any(v is None for v in [sma_20, sma_50]):
+        return None
+    if any(np.isnan(v) for v in [sma_20, sma_50]):
+        return None
+    
+    # Buy ONLY when crossing above (not already in position)
+    if sma_20 > sma_50 and position != 'LONG':
+        return {'action': 'BUY', 'size': 1.0}
+    
+    # Sell when crossing below (only if in position)
+    if sma_20 < sma_50 and position == 'LONG':
+        return {'action': 'SELL'}
+    
+    return None

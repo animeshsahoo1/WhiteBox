@@ -113,19 +113,70 @@ def register_backtesting_tools(mcp):
         The strategy will automatically be picked up by the backtesting pipeline and 
         start generating live metrics as candles arrive.
         
+        CRITICAL: Only use the EXACT indicators listed below. Custom periods are NOT supported.
+        
+        SUPPORTED INDICATORS (use these exact names in your strategy):
+        
+        Moving Averages:
+            - sma_5, sma_10, sma_20, sma_50, sma_200 (Simple Moving Averages)
+            - ema_9, ema_12, ema_26 (Exponential Moving Averages)
+        
+        MACD:
+            - macd_line (EMA_12 - EMA_26)
+            - macd_signal (9-period EMA of MACD line)
+            - macd_histogram (macd_line - macd_signal)
+        
+        Momentum Indicators:
+            - rsi_14 (Relative Strength Index, 14-period ONLY - no rsi_7, rsi_21, etc.)
+            - stoch_k (Stochastic %K, 14-period)
+            - stoch_d (Stochastic %D, 3-period SMA of %K)
+            - williams_r (Williams %R, 14-period)
+            - cci_20 (Commodity Channel Index, 20-period)
+            - adx_14 / adx (Average Directional Index, 14-period)
+            - plus_di, minus_di (Directional Indicators for ADX)
+        
+        Volatility Indicators:
+            - bb_upper, bb_middle, bb_lower (Bollinger Bands, 20-period, 2 std dev)
+            - atr_14 (Average True Range, 14-period ONLY - no atr_20, atr_60, etc.)
+        
+        Price Data:
+            - open, high, low, close (Current candle OHLC)
+        
+        Position State:
+            - position (current position: 'long', 'short', or 'none')
+            - entry_price (entry price if in a position)
+        
+        NOT AVAILABLE (DO NOT USE):
+            - Custom periods: sma_100, ema_50, rsi_7, atr_20, avg_atr_60, etc.
+            - Performance metrics: profit_factor, return_pct, total_trades, win_rate, 
+              sharpe_ratio, duration - THESE ARE BACKTESTING METRICS, NOT INDICATORS
+            - volume - NOT AVAILABLE
+        
+        STRATEGY FORMAT:
+        The generated strategy must be a Python function that:
+        1. Takes 'indicators' dict as parameter
+        2. Returns None (no action), or dict with:
+           - 'action': 'BUY', 'SELL', 'SHORT', or 'COVER'
+           - 'size': Position size 0.0-1.0 (optional, default 1.0)
+           - 'stop_loss': Stop loss percentage (optional, e.g., 0.02 for 2%)
+           - 'take_profit': Take profit percentage (optional)
+           - 'trailing_stop': Trailing stop percentage (optional)
+        
         Args:
             description: Natural language description of the strategy you want.
                         Be specific about:
                         - Entry conditions (when to buy/short)
                         - Exit conditions (when to sell/cover)
+                        - Which indicators to use (from the list above)
                         - Stop loss percentage
                         - Take profit percentage
                         - Position size (0.0-1.0, where 1.0 = 100% of capital)
                         
                         Examples:
-                        - "RSI oversold bounce: buy when RSI < 30, sell when RSI > 70, 2% stop loss"
-                        - "SMA crossover with 10 and 50 periods, trailing stop at 3%"
-                        - "Bollinger band breakout strategy with 20 period and 2 std dev"
+                        - "RSI oversold bounce: buy when rsi_14 < 30, sell when rsi_14 > 70, 2% stop loss"
+                        - "SMA crossover: buy when sma_50 crosses above sma_200, sell on reverse"
+                        - "Bollinger band breakout: buy when close > bb_upper, sell when close < bb_middle"
+                        - "MACD momentum: buy when macd_histogram > 0 and rsi_14 < 70"
             
             name: Optional custom name for the strategy. If not provided, 
                   a name will be generated from the description.

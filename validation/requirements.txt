@@ -1,0 +1,6 @@
+# Validation script dependencies
+backtesting
+yfinance
+pandas
+numpy
+requests

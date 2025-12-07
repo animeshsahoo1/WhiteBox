@@ -1,0 +1,34 @@
+# interval: 1d
+# lookback: 2y
+
+def strategy(indicators):
+    """
+    SMA 20/50 Crossover
+    
+    Entry: SMA20 crosses above SMA50
+    Exit: SMA20 crosses below SMA50
+    
+    Best for: 1d charts
+    """
+    sma_20 = indicators.get('sma_20')
+    sma_50 = indicators.get('sma_50')
+    position = indicators.get('position')
+    close = indicators.get('close')
+    
+    if sma_20 is None or sma_50 is None or close is None:
+        return None
+    
+    # Buy signal
+    if sma_20 > sma_50 and position != 'long':
+        return {
+            'action': 'BUY',
+            'stop_loss': close * 0.98,
+            'take_profit': close * 1.05,
+            'size': 1
+        }
+    
+    # Sell signal
+    if sma_20 < sma_50 and position == 'long':
+        return {'action': 'SELL'}
+    
+    return None
