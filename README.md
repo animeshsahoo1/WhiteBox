@@ -4,6 +4,7 @@
 
 A sophisticated, real-time stock analysis and intelligence system built with microservices architecture, leveraging Pathway for stream processing, LangGraph for multi-agent reasoning, and Kafka for event streaming.A sophisticated, real-time stock analysis and intelligence system built with microservices architecture, leveraging Pathway for stream processing, LangGraph for multi-agent reasoning, and Kafka for event streaming.
 
+Link to Frontend code: https://github.com/animeshsahoo1/WhiteBox-Frontend
 
 
 ## 🎯 Project Overview## 🎯 Project Overview
