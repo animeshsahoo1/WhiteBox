@@ -27,6 +27,16 @@ class DebatePoint:
     is_unique: bool = True
     rag_sources: List[str] = field(default_factory=list)
     
+    def __post_init__(self):
+        """Ensure confidence is always a float."""
+        if self.confidence is None:
+            self.confidence = 0.5
+        else:
+            try:
+                self.confidence = float(self.confidence)
+            except (ValueError, TypeError):
+                self.confidence = 0.5
+    
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
@@ -66,6 +76,16 @@ class FacilitatorConclusion:
     old_recommendation: str  # BUY/HOLD/SELL
     market_validation: str  # What actually happened
     confidence: float = 0.5
+    
+    def __post_init__(self):
+        """Ensure confidence is always a float."""
+        if self.confidence is None:
+            self.confidence = 0.5
+        else:
+            try:
+                self.confidence = float(self.confidence)
+            except (ValueError, TypeError):
+                self.confidence = 0.5
     
     def to_dict(self) -> Dict[str, Any]:
         return {

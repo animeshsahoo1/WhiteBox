@@ -244,7 +244,11 @@ services:
   backtesting-pipeline:
     <<: *kafka-redis-consumer
     container_name: pathway-backtesting
-    command: sleep 30 && python main_backtesting.py
+    command: >
+      sh -c "echo 'Waiting 30s for candle-producer to send historical data...' &&
+             sleep 30 &&
+             python main_backtesting.py"
+
     env_file:
       - ../.env
     environment:

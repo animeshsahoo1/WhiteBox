@@ -1,12 +1,18 @@
-# Core - Install nemoguardrails first with openai extra
-nemoguardrails[openai]==0.18.0
+# LangChain ecosystem - Use 1.x versions for compatibility
+langchain-core>=1.0.0,<2.0.0
+langchain>=1.0.0,<2.0.0
+langchain-community>=0.3.0,<1.0.0
+langchain-openai>=0.2.0
 
-# LangGraph - compatible with langchain 0.2-0.3
-langgraph>=0.2.0,<1.0.0
+# LangGraph - Use 1.x for compatibility with langchain 1.x
+langgraph>=1.0.0,<2.0.0
+
+# MCP Adapters - Requires langchain-core >= 0.3 with content blocks API
+langchain-mcp-adapters>=0.1.11
 
 # Additional deps not in nemoguardrails
 python-dotenv>=1.0.0
-numpy>=1.24.0
+numpy>=1.24.0,<2.0.0
 redis>=5.0.0
 requests>=2.31.0
 matplotlib>=3.7.0
@@ -17,7 +23,7 @@ TA-Lib>=0.4.0
 vaderSentiment>=3.3.2
 
 # PDF/Document Parsing
-landingai-ade  # Primary PDF/image parser
+landingai-ade
 
 # Drift detection with River
 river>=0.21.0
@@ -26,17 +32,20 @@ river>=0.21.0
 psycopg2-binary>=2.9.0
 
 # Bull-Bear Debate dependencies
-chromadb>=0.4.0
+chromadb>=0.4.0,<0.6.0
 sentence-transformers>=2.2.0
 rank-bm25>=0.2.2
 nltk>=3.8.0
-transformers>=4.30.0
+transformers>=4.30.0,<4.50.0
 
-# Orchestrator / MCP Server dependencies
+# MCP Server dependencies
 fastmcp>=2.0.0
-langchain-mcp-adapters>=0.1.0
+
+# Memory system
 mem0ai>=1.0.0
-redisvl>=0.3.0  # Required for mem0 Redis vector store
-google-search-results  # SerpAPI
+redisvl>=0.3.0
+
+# Utilities
+google-search-results
 beautifulsoup4
 lxml

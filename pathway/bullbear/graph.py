@@ -16,6 +16,16 @@ from .config import get_config, BullBearConfig
 logger = logging.getLogger(__name__)
 
 
+def safe_get_confidence(value, default: float = 0.5) -> float:
+    """Safely convert confidence value to float, handling string/None cases."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
 def should_continue_debate(state: DebateState) -> Literal["continue", "conclude"]:
     """
     Determine if the debate should continue or conclude.
@@ -50,7 +60,7 @@ def should_continue_debate(state: DebateState) -> Literal["continue", "conclude"
     # Check if last two points indicate no new arguments
     if len(debate_points) >= 2:
         last_two = debate_points[-2:]
-        low_confidence = all(p.get("confidence", 1.0) < 0.3 for p in last_two)
+        low_confidence = all(safe_get_confidence(p.get("confidence"), 1.0) < 0.3 for p in last_two)
         if low_confidence:
             print(f"  ➡️ CONCLUDE: low confidence in recent points")
             logger.info("Debate concluding: low confidence in recent points")
@@ -81,7 +91,11 @@ def route_to_speaker(state: DebateState) -> Literal["bull", "bear"]:
     # Check current session first
     if debate_points:
         last_point = debate_points[-1]
-        last_party = last_point.get("party", "bear")
+        # Defensive: ensure last_point is a dict
+        if isinstance(last_point, str):
+            last_party = "bear"  # Default fallback
+        else:
+            last_party = last_point.get("party", "bear")
         
         if is_final_round:
             # ASIAN FORMAT: In final round, reverse order
@@ -125,6 +139,11 @@ def check_needs_rephrase(state: DebateState) -> Literal["rephrase", "commit", "c
     current_point = state.get("current_point")
     if not current_point:
         print(f"\n  📝 CHECK REPHRASE: No current point, committing")
+        return "commit"
+    
+    # Defensive: ensure current_point is a dict
+    if not isinstance(current_point, dict):
+        print(f"\n  📝 CHECK REPHRASE: current_point is not a dict, committing anyway")
         return "commit"
     
     is_unique = current_point.get("is_unique", True)
@@ -260,7 +279,12 @@ def create_debate_graph(config: Optional[BullBearConfig] = None, use_dummy: bool
         
         if debate_points:
             # Use last speaker in current session
-            last_party = debate_points[-1].get("party", "bear")
+            last_point = debate_points[-1]
+            # Defensive: ensure last_point is a dict
+            if isinstance(last_point, str):
+                last_party = "bear"  # Default fallback
+            else:
+                last_party = last_point.get("party", "bear")
             return "bear" if last_party == "bull" else "bull"
         
         # No points yet - check previous session's last speaker

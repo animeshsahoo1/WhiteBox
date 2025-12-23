@@ -13,18 +13,27 @@ The streaming layer implements a robust, fault-tolerant data collection system w
 ## 🏗️ Architecture
 
 ```
-External APIs ──────┐
-                    │
-├── Finnhub         │
-├── Alpha Vantage   │      ┌──────────────┐
-├── FMP             ├─────►│  Producers   │──────► Kafka Topics
-├── NewsAPI         │      │  (Priority   │
-├── Reddit          │      │   Fallback)  │
-└── Twitter         │      └──────────────┘
-                    │
-                    ▼
-           Circuit Breakers
-        (Auto-recovery & Retry)
+┌─────────────────────────────────────────────────────────────────┐
+│                      EXTERNAL APIs                               │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐            │
+│  │ Finnhub  │ │   FMP    │ │ AlphaV   │ │ NewsAPI  │            │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘            │
+│       │            │            │            │                   │
+│  ┌────┴────────────┴────────────┴────────────┴────┐             │
+│  │           PRIORITY-BASED FALLBACK              │             │
+│  └───────────────────────┬────────────────────────┘             │
+│                          │                                       │
+│  ┌───────────────────────┴────────────────────────┐             │
+│  │              CIRCUIT BREAKER                    │             │
+│  │  HEALTHY → DEGRADED → RATE_LIMITED → FAILED   │             │
+│  └───────────────────────┬────────────────────────┘             │
+└──────────────────────────┼───────────────────────────────────────┘
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │   KAFKA     │
+                    │   TOPICS    │
+                    └─────────────┘
 ```
 
 ## 📁 Structure
@@ -32,23 +41,27 @@ External APIs ──────┐
 ```
 streaming/
 ├── producers/              # Kafka producers
-│   ├── base_producer.py       # Base class with fallback logic
-│   ├── market_data_producer.py    # Real-time price data
+│   ├── base_producer.py       # Base class with fallback + circuit breaker
+│   ├── market_data_producer.py    # Real-time stock prices
 │   ├── news_producer.py           # News articles
 │   ├── sentiment_producer.py      # Social media sentiment
 │   ├── fundamental_data_producer.py   # Company fundamentals
-│   └── candle_producer.py         # OHLCV candles for backtesting
-│
-├── data/                   # Data files
-│   └── candles.csv            # Historical OHLCV data for backtesting
-│
-├── fundamental_utils/      # Utilities for fundamental data
-│   ├── fmp_api_client.py      # FMP API wrapper
-│   └── web_scraper.py         # Web scraping utilities
+│   ├── candle_producer.py         # OHLCV candles for backtesting
+│   ├── demo_market_producer.py    # Demo market data
+│   ├── fundamental_report.py      # Fundamental report generation
+│   ├── pdf_parser.py              # SEC filing parser
+│   └── pathway_market_source.py   # Pathway market source
 │
 ├── utils/                  # Shared utilities
 │   └── kafka_utils.py         # Kafka connection helpers
 │
+├── data/                   # Data files
+│   └── candles.csv            # Historical OHLCV data
+│
+├── cloudflared/            # Cloudflare tunnel config
+├── sentiment_logs/         # Sentiment logging
+│
+├── webhook_receiver.py     # Twitter webhook endpoint (Flask)
 ├── Dockerfile
 ├── docker-compose.yaml
 └── requirements.txt
@@ -56,58 +69,43 @@ streaming/
 
 ## 🔌 Data Sources
 
-### Market Data Sources (Priority Order)
-1. **Finnhub** (Priority 0) - Real-time quotes, high reliability
-2. **Financial Modeling Prep** (Priority 1) - Comprehensive data
-3. **Alpha Vantage** (Priority 2) - Backup source
+### Market Data (Priority Order)
+| Priority | Source | Rate Limit | Notes |
+|----------|--------|------------|-------|
+| 0 | Finnhub | 60/min | Real-time quotes, high reliability |
+| 1 | FMP | 250/day | Comprehensive data |
+| 2 | Alpha Vantage | 25/day | Backup source |
 
-### News Sources (Priority Order)
-1. **NewsAPI** (Priority 0) - Curated news articles
-2. **Financial Modeling Prep** (Priority 1) - Company-specific news
-3. **Finnhub** (Priority 2) - Market news
+### News (Priority Order)
+| Priority | Source | Rate Limit | Notes |
+|----------|--------|------------|-------|
+| 0 | NewsAPI | 100/day | Curated news articles |
+| 1 | FMP | 250/day | Company-specific news |
+| 2 | Finnhub | 60/min | Market news |
 
-### Sentiment Sources (Priority Order)
-1. **Reddit** (Priority 0) - WallStreetBets, stocks subreddits
-2. **Twitter** (Priority 1) - Financial Twitter
-3. **NewsAPI Sentiment** (Priority 2) - News-based sentiment
+### Sentiment (Priority Order)
+| Priority | Source | Rate Limit | Notes |
+|----------|--------|------------|-------|
+| 0 | Reddit | 60/min | r/wallstreetbets, r/stocks |
+| 1 | Twitter | Webhook | Via TwitterAPI.io webhooks |
+| 2 | NewsAPI | 100/day | News-based sentiment |
 
-### Fundamental Sources
-1. **Financial Modeling Prep** - Primary source
-   - Company profile
-   - Financial statements (Income, Balance Sheet, Cash Flow)
-   - Financial ratios
-   - Growth metrics
-   - Dividend history
-   - SEC filings
-
-2. **Web Scraping** (Fallback)
-   - Yahoo Finance
-   - MarketWatch
-   - Seeking Alpha
+### Fundamental Data
+| Source | Data |
+|--------|------|
+| FMP | Company profile, financial statements, ratios, growth metrics |
 
 ## 🚀 Quick Start
-
-### Prerequisites
-```bash
-# API Keys required
-FINNHUB_API_KEY
-ALPHA_VANTAGE_API_KEY
-FMP_API_KEY
-NEWSAPI_API_KEY
-REDDIT_CLIENT_ID
-REDDIT_CLIENT_SECRET
-TWITTER_BEARER_TOKEN
-```
 
 ### Environment Configuration
 
 Create `streaming/.env`:
 ```bash
-# Kafka Configuration - Use kafka:29092 inside Docker, localhost:9093 from host
+# Kafka
 KAFKA_BROKER=kafka:29092
 
-# Stock Symbols to Track
-STOCKS=AAPL,GOOGL,MSFT,TSLA
+# Stock Symbols
+STOCKS=AAPL,GOOGL,TSLA,NVDA
 
 # Fetch Intervals (seconds)
 MARKET_DATA_INTERVAL=60
@@ -116,441 +114,261 @@ SENTIMENT_FETCH_INTERVAL=300
 FUNDAMENTAL_INTERVAL=3600
 
 # Market Data APIs
-FINNHUB_API_KEY=your_key_here
-ALPHA_VANTAGE_API_KEY=your_key_here
-FMP_API_KEY=your_key_here
+FINNHUB_API_KEY=your_key
+ALPHA_VANTAGE_API_KEY=your_key
+FMP_API_KEY=your_key
 
 # News APIs
-NEWSAPI_API_KEY=your_key_here
+NEWSAPI_API_KEY=your_key
 
 # Social Media APIs
-REDDIT_CLIENT_ID=your_id_here
-REDDIT_CLIENT_SECRET=your_secret_here
+REDDIT_CLIENT_ID=your_id
+REDDIT_CLIENT_SECRET=your_secret
 REDDIT_USER_AGENT=StockSentimentBot/1.0
-TWITTER_BEARER_TOKEN=your_token_here
+TWITTER_BEARER_TOKEN=your_token
 ```
 
 ### Docker Deployment
 
 ```bash
-# Build and start all producers
-docker-compose up -d
+# From streaming directory
+docker compose up -d
 
 # View logs
-docker-compose logs -f market-producer
-docker-compose logs -f news-producer
-
-# Stop producers
-docker-compose down
+docker compose logs -f market-producer
+docker compose logs -f news-producer
 ```
 
 ### Local Development
 
 ```bash
-# Install dependencies
 pip install -r requirements.txt
 
 # Run individual producers
 python producers/market_data_producer.py
 python producers/news_producer.py
 python producers/sentiment_producer.py
-python producers/fundamental_data_producer.py
 ```
 
-## 📊 Producers Details
+## 📊 Producer Implementations
 
-### 1. Market Data Producer
+### Base Producer (`producers/base_producer.py`)
 
-**Purpose**: Fetch real-time stock prices and technical data
-
-**Kafka Topic**: `market-data`
-
-**Data Fields**:
-```python
-{
-    'symbol': str,              # Stock ticker (e.g., 'AAPL')
-    'timestamp': str,           # ISO format timestamp
-    'current_price': float,     # Current trading price
-    'high': float,              # Day high
-    'low': float,               # Day low
-    'open': float,              # Opening price
-    'previous_close': float,    # Previous close
-    'change': float,            # Price change ($)
-    'change_percent': float,    # Price change (%)
-    'data_source': str          # Source name
-}
-```
-
-**Sources**:
-- Finnhub: `quote()` API
-- FMP: `/stable/quote` endpoint
-- Alpha Vantage: `GLOBAL_QUOTE` function
-
-**Fallback Logic**:
-```python
-Finnhub → FMP → Alpha Vantage → Continue with available data
-```
-
-### 2. News Producer
-
-**Purpose**: Collect news articles about stocks
-
-**Kafka Topic**: `news-data`
-
-**Data Fields**:
-```python
-{
-    'symbol': str,              # Stock ticker
-    'timestamp': str,           # ISO format
-    'title': str,               # Article title
-    'description': str,         # Article summary
-    'url': str,                 # Article URL
-    'source': str,              # News source name
-    'published_at': str,        # Publication time
-    'sentiment': str,           # 'positive'/'negative'/'neutral'
-    'data_source': str          # API source
-}
-```
-
-**Sources**:
-- NewsAPI: `everything()` endpoint
-- FMP: `/stable/news` endpoint
-- Finnhub: `company_news()` API
-
-**Features**:
-- Deduplication by URL
-- Sentiment scoring with VADER
-- Time filtering (last 24 hours)
-
-### 3. Sentiment Producer
-
-**Purpose**: Analyze social media sentiment
-
-**Kafka Topic**: `sentiment-data`
-
-**Data Fields**:
-```python
-{
-    'symbol': str,              # Stock ticker
-    'timestamp': str,           # ISO format
-    'platform': str,            # 'reddit' or 'twitter'
-    'post_title': str,          # Post title/tweet text
-    'post_body': str,           # Post content
-    'score': int,               # Upvotes/likes
-    'comments': int,            # Comment count
-    'sentiment_score': float,   # -1 to 1 (VADER)
-    'sentiment_label': str,     # 'positive'/'negative'/'neutral'
-    'url': str,                 # Post URL
-    'data_source': str          # 'Reddit' or 'Twitter'
-}
-```
-
-**Sources**:
-- Reddit: WallStreetBets, stocks, investing subreddits
-- Twitter: Financial Twitter search
-
-**Sentiment Analysis**:
-- VADER (Valence Aware Dictionary)
-- TextBlob (backup)
-- Compound score mapping:
-  - Positive: > 0.05
-  - Negative: < -0.05
-  - Neutral: -0.05 to 0.05
-
-### 4. Fundamental Data Producer
-
-**Purpose**: Collect company fundamental data
-
-**Kafka Topic**: `fundamental-data`
-
-**Data Fields**:
-```python
-{
-    'symbol': str,
-    'timestamp': str,
-    'company_profile': {
-        'name': str,
-        'industry': str,
-        'sector': str,
-        'description': str,
-        'ceo': str,
-        'website': str
-    },
-    'financial_metrics': {
-        'revenue': float,
-        'net_income': float,
-        'total_assets': float,
-        'total_debt': float,
-        'free_cash_flow': float
-    },
-    'ratios': {
-        'pe_ratio': float,
-        'pb_ratio': float,
-        'debt_to_equity': float,
-        'current_ratio': float,
-        'roe': float,
-        'roa': float
-    },
-    'growth_metrics': {
-        'revenue_growth': float,
-        'earnings_growth': float,
-        'ebitda_growth': float
-    },
-    'data_source': str
-}
-```
-
-**FMP Endpoints Used**:
-- `/profile` - Company profile
-- `/income-statement` - Income statements
-- `/balance-sheet-statement` - Balance sheets
-- `/cash-flow-statement` - Cash flows
-- `/ratios-ttm` - Trailing twelve months ratios
-- `/financial-growth` - Growth metrics
-- `/financial-scores` - Piotroski F-Score, etc.
-- `/dividends` - Dividend history
-- `/sec-filings` - SEC documents
-
-## 🔄 Base Producer Architecture
-
-### Circuit Breaker Pattern
+Core features:
+- **Circuit Breaker States**: HEALTHY → DEGRADED → RATE_LIMITED → FAILED
+- **Multi-source Fallback**: Priority-based source selection
+- **Auto-recovery**: Sources automatically reset after cooldown
+- **APScheduler**: Periodic data fetching
 
 ```python
 class DataSource:
-    """Represents a data source with circuit breaker"""
+    """Source with circuit breaker pattern"""
+    name: str
+    fetch_func: Callable
+    priority: int  # 0 = highest priority
     
-    # States
-    HEALTHY → DEGRADED → FAILED
-                ↓
-           (Auto-recovery)
-                ↓
-            HEALTHY
+    # Circuit breaker settings
+    max_failures: int = 3
+    cooldown_period: int = 300  # 5 min for rate limits
+    reset_after: int = 900      # 15 min for failed sources
 ```
 
-**State Transitions**:
-- **HEALTHY**: Normal operation
-- **DEGRADED**: Some failures but still usable
-- **RATE_LIMITED**: Cooldown period (5 min)
-- **FAILED**: Too many failures, disabled (15 min)
+### Market Data Producer
 
-**Error Handling**:
-```python
-# Rate limiting
-if '429' or 'rate limit' in error:
-    → RATE_LIMITED (5 min cooldown)
+**Topic**: `market-data`  
+**Interval**: 60 seconds (configurable)
 
-# Authentication
-if '401' or '403' or 'invalid api key' in error:
-    → FAILED (15 min disabled)
-
-# Circuit breaker
-if failure_count >= 3:
-    → FAILED (15 min disabled)
-```
-
-### Priority Fallback
-
-```python
-# Sources sorted by priority
-sources = [
-    DataSource("Primary", fetch_fn, priority=0),
-    DataSource("Backup", fetch_fn, priority=1),
-    DataSource("Fallback", fetch_fn, priority=2)
-]
-
-# Try each source in order
-for source in sorted_sources:
-    if source.can_use():
-        data = source.fetch()
-        if data:
-            return data  # Success!
-        
-# All sources failed
-return None
-```
-
-## 📈 Monitoring
-
-### Producer Logs
-
-```bash
-# View producer status
-docker-compose logs -f market-producer
-
-# Example output:
-[2025-11-11 10:00:00] Market Producer Started
-[2025-11-11 10:00:00] Registering sources: Finnhub, FMP, AlphaVantage
-[2025-11-11 10:00:15] ✅ Fetched AAPL from Finnhub
-[2025-11-11 10:00:16] ✅ Fetched GOOGL from Finnhub
-[2025-11-11 10:00:17] ⚠️  Finnhub rate limited - cooldown until 10:05:00
-[2025-11-11 10:00:18] ✅ Fetched MSFT from FMP (fallback)
-```
-
-### Source Status Tracking
-
-```python
-# Check source health
-GET /health
-
-# Response
+**Output Schema**:
+```json
 {
-    "market_producer": {
-        "sources": {
-            "Finnhub": {"status": "healthy", "last_success": "2025-11-11T10:00:15Z"},
-            "FMP": {"status": "healthy", "last_success": "2025-11-11T10:00:18Z"},
-            "AlphaVantage": {"status": "failed", "last_failure": "2025-11-11T09:45:00Z"}
-        }
-    }
+  "symbol": "AAPL",
+  "timestamp": "2025-12-07T10:00:00",
+  "current_price": 195.50,
+  "high": 196.20,
+  "low": 194.80,
+  "open": 195.00,
+  "previous_close": 194.00,
+  "change": 1.50,
+  "change_percent": 0.77,
+  "data_source": "Finnhub"
 }
 ```
 
-## 🔧 Configuration
+### News Producer
 
-### Adjust Fetch Intervals
+**Topic**: `news-data`  
+**Interval**: 300 seconds (5 min)
 
-```bash
-# Fast updates (every 30 seconds)
-MARKET_DATA_INTERVAL=30
-
-# Moderate updates (every 5 minutes)
-NEWS_FETCH_INTERVAL=300
-SENTIMENT_FETCH_INTERVAL=300
-
-# Slow updates (every hour)
-FUNDAMENTAL_INTERVAL=3600
+**Output Schema**:
+```json
+{
+  "symbol": "AAPL",
+  "timestamp": "2025-12-07T10:00:00",
+  "title": "Apple announces new product",
+  "description": "...",
+  "source": "Reuters",
+  "url": "https://...",
+  "sentiment": 0.5,
+  "data_source": "NewsAPI"
+}
 ```
 
-### Add/Remove Stocks
+### Sentiment Producer
 
-```bash
-# Edit .env
-STOCKS=AAPL,GOOGL,MSFT,TSLA,AMZN,NVDA,META
+**Topic**: `sentiment-data`  
+**Interval**: 300 seconds (5 min)
 
-# Restart producers
-docker-compose restart
+**Output Schema**:
+```json
+{
+  "symbol": "AAPL",
+  "timestamp": "2025-12-07T10:00:00",
+  "source": "reddit",
+  "subreddit": "wallstreetbets",
+  "title": "AAPL to the moon!",
+  "body": "...",
+  "score": 150,
+  "num_comments": 45,
+  "created_utc": 1733569200,
+  "data_source": "Reddit"
+}
 ```
 
-### Enable/Disable Sources
+### Candle Producer
 
-Comment out API keys in `.env` to disable sources:
-```bash
-# Disable Finnhub
-# FINNHUB_API_KEY=your_key
+**Topic**: `candles`  
+**Interval**: 60 seconds (configurable)  
+**Sources**: yfinance → CSV fallback
 
-# FMP will become primary source
+**Output Schema**:
+```json
+{
+  "symbol": "AAPL",
+  "interval": "1h",
+  "timestamp": "2025-12-07 10:00:00",
+  "open": 195.00,
+  "high": 196.20,
+  "low": 194.80,
+  "close": 195.50,
+  "volume": 45678900,
+  "source": "yfinance"
+}
 ```
 
-## 🧪 Testing
+### Fundamental Data Producer
 
-### Manual Testing
+**Topic**: `fundamental-data`  
+**Interval**: 3600 seconds (1 hour)
 
+**Data Collected**:
+- Company profile
+- Income statement
+- Balance sheet
+- Cash flow statement
+- Financial ratios
+- Growth metrics
+- Dividend history
+
+## 📡 Twitter Webhook Receiver
+
+`webhook_receiver.py` is a Flask server that receives real-time tweets from TwitterAPI.io:
+
+```bash
+# Start webhook receiver
+python webhook_receiver.py
+```
+
+**Endpoint**: `POST /webhook/twitter`
+
+**Features**:
+- In-memory tweet buffer (1000 tweets per stock)
+- Deduplication by tweet ID
+- Rule tag to stock mapping
+- Thread-safe access
+
+## 🔧 Circuit Breaker Details
+
+### States
+| State | Description | Action |
+|-------|-------------|--------|
+| HEALTHY | Normal operation | Use source |
+| DEGRADED | Some failures | Use source with caution |
+| RATE_LIMITED | Hit rate limit | Cooldown 5 min |
+| FAILED | Too many failures | Disabled 15 min |
+
+### Error Handling
 ```python
-# Test individual producer
-cd streaming
-python -c "
-from producers.market_data_producer import MarketDataProducer
-producer = MarketDataProducer()
-producer.setup_sources()
-data = producer.fetch_data('AAPL')
-print(data)
-"
+# Rate limit detected
+if "429" in error or "rate limit" in error:
+    source.status = RATE_LIMITED
+    source.cooldown_until = now + 5 min
+
+# Auth failure
+if "401" in error or "403" in error:
+    source.status = FAILED
+    source.cooldown_until = now + 15 min
+
+# Circuit breaker triggered
+if source.failure_count >= 3:
+    source.status = FAILED
 ```
 
-### Kafka Message Verification
+## 🐳 Docker Services
+
+| Service | Description |
+|---------|-------------|
+| `market-producer` | Real-time stock prices |
+| `news-producer` | News articles |
+| `sentiment-producer` | Social media sentiment |
+| `fundamental-producer` | Company fundamentals |
+| `candle-producer` | OHLCV candles |
+| `webhook-receiver` | Twitter webhook endpoint |
+
+## 📈 Kafka Topics
+
+| Topic | Producer | Data |
+|-------|----------|------|
+| `market-data` | market_data_producer | Stock prices, changes |
+| `news-data` | news_producer | News articles |
+| `sentiment-data` | sentiment_producer | Reddit/Twitter posts |
+| `fundamental-data` | fundamental_data_producer | Financial data |
+| `candles` | candle_producer | OHLCV bars |
+
+## 🔍 Troubleshooting
+
+### Producer Not Sending Data
 
 ```bash
-# View messages in topic (use localhost:29092 inside kafka container)
-docker exec -it kafka kafka-console-consumer \
-    --bootstrap-server localhost:29092 \
-    --topic market-data \
-    --from-beginning
+# Check logs
+docker compose logs -f market-producer
 
-# Expected output:
-{"data": {"symbol": "AAPL", "current_price": 178.50, ...}, "sent_at": "2025-11-11T10:00:00.000"}
+# Verify Kafka connection
+docker exec kafka kafka-topics --list --bootstrap-server localhost:29092
+
+# Check API keys
+echo $FINNHUB_API_KEY
 ```
 
-## 🛡️ Error Handling
+### Rate Limit Issues
 
-### Common Issues
+```bash
+# View producer logs for cooldown messages
+docker compose logs market-producer | grep "cooldown"
 
-**1. API Rate Limits**
-```
-Solution: Circuit breaker automatically switches to backup sources
-Check: Source will auto-recover after cooldown period
-```
-
-**2. Invalid API Keys**
-```
-Solution: Verify .env file has correct keys
-Check: Producer logs show authentication errors
-Fix: Update API keys and restart
+# Increase fetch interval in .env
+MARKET_DATA_INTERVAL=120  # 2 minutes
 ```
 
-**3. Kafka Connection Failed**
-```
-Solution: Ensure Kafka is running
-Check: docker-compose ps | grep kafka
-Fix: docker-compose up kafka
-```
+### Kafka Connection Failed
 
-**4. No Data Returned**
-```
-Solution: All sources might be rate limited
-Check: Producer logs for source status
-Wait: Sources will auto-recover
+```bash
+# Ensure Kafka is running
+docker compose ps kafka
+
+# Check network
+docker network ls | grep stock-network
 ```
 
-## 📊 Performance
+## 📚 Additional Documentation
 
-### Throughput
-- Market Data: ~4 symbols/sec (per source)
-- News: ~10 articles/min
-- Sentiment: ~20 posts/min
-- Fundamentals: ~1 symbol/5min
-
-### Resource Usage
-- CPU: ~5-10% per producer
-- Memory: ~100-200 MB per producer
-- Network: ~1-5 KB/sec per symbol
-
-## 🔗 Integration
-
-Produced messages are consumed by:
-- `pathway/consumers/market_data_consumer.py`
-- `pathway/consumers/news_consumer.py`
-- `pathway/consumers/sentiment_consumer.py`
-- `pathway/consumers/fundamental_data_consumer.py`
-
-See [pathway/README.md](../pathway/README.md) for consumer details.
-
-## 📚 Dependencies
-
-See `requirements.txt`:
-- `kafka-python-ng` - Kafka client
-- `requests` - HTTP requests
-- `finnhub-python` - Finnhub SDK
-- `alpha-vantage` - Alpha Vantage SDK
-- `newsapi-python` - NewsAPI SDK
-- `praw` - Reddit API
-- `tweepy` - Twitter API
-- `vaderSentiment` - Sentiment analysis
-- `apscheduler` - Job scheduling
-- `beautifulsoup4` - Web scraping
-
-## 🤝 Contributing
-
-To add a new data source:
-
-1. Create source in base producer:
-```python
-def _fetch_from_new_source(self, symbol: str) -> Optional[Dict]:
-    # Your fetch logic
-    return data
-
-# Register in setup_sources()
-self.register_source("NewSource", self._fetch_from_new_source, priority=N)
-```
-
-2. Handle errors appropriately
-3. Add to documentation
-4. Test fallback behavior
+- [Producers README](producers/README.md) - Detailed producer documentation

@@ -1,11 +1,11 @@
-# Strategist (MCP Server + LangGraph Agent)
+# Strategist Agent + MCP Server
 
 A production-ready orchestration layer that provides:
-- **MCP Server**: Exposes trading tools via Model Context Protocol
+- **MCP Server**: Exposes trading tools via Model Context Protocol (FastMCP)
 - **Strategist Agent**: LangGraph ReAct agent with Mem0 persistent memory
 - **API Integration**: HTTP endpoints via FastAPI + WebSocket real-time events
 
-## Architecture
+## 🏗️ Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -13,8 +13,8 @@ A production-ready orchestration layer that provides:
 │                                                                  │
 │  ┌─────────────┐    ┌──────────────┐    ┌───────────────────┐  │
 │  │   Mem0      │    │  LangGraph   │    │  MCP Client       │  │
-│  │   Memory    │◄───│  Reasoning   │───►│  (Tool Calls)     │  │
-│  │   (Redis)   │    │  Loop        │    │                   │  │
+│  │   Memory    │◄───│  ReAct Loop  │───►│  (Tool Calls)     │  │
+│  │   (Redis)   │    │              │    │                   │  │
 │  └─────────────┘    └──────────────┘    └─────────┬─────────┘  │
 │                                                    │            │
 └────────────────────────────────────────────────────┼────────────┘
@@ -30,22 +30,103 @@ A production-ready orchestration layer that provides:
 │  │  • Web Search (smart search with query decomposition)       ││
 │  │  • Reports (facilitator/bull-bear debate)                   ││
 │  └─────────────────────────────────────────────────────────────┘│
-│                              │                                   │
-└──────────────────────────────┼───────────────────────────────────┘
-                               │
-           ┌───────────────────┼───────────────────┐
-           │                   │                   │
-           ▼                   ▼                   ▼
-    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-    │  Reports    │    │ Backtesting │    │   Redis     │
-    │    API      │    │   Pipeline  │    │   Cache     │
-    │  (FastAPI)  │    │  (Pathway)  │    │             │
-    └─────────────┘    └─────────────┘    └─────────────┘
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## API Endpoints
+## 📁 Structure
 
-The Strategist is integrated into the main FastAPI server (`unified-api`):
+```
+orchestrator/
+├── server.py              # FastMCP server entry point
+├── langgraph_agent.py     # ReAct agent with Mem0 memory
+├── config.py              # Configuration settings
+├── chat_store.py          # Conversation history management
+├── web_search.py          # DuckDuckGo integration
+├── api_clients.py         # API client utilities
+├── risk_managers_prompt.py # Risk assessment prompts
+└── tools/                 # MCP tool implementations
+    ├── __init__.py        # Tool registration
+    ├── risk_tools.py      # 3-tier risk assessment
+    ├── backtesting_tools.py # Strategy management
+    ├── search_tools.py    # Web search tools
+    ├── report_tools.py    # Report retrieval
+    └── api_tools.py       # API wrapper tools
+```
+
+## 🔧 MCP Tools
+
+### Risk Assessment (`tools/risk_tools.py`)
+
+Three-tier risk analysis:
+| Tier | Perspective | Description |
+|------|-------------|-------------|
+| No-Risk | Conservative | Preserves capital, minimal exposure |
+| Neutral | Balanced | Moderate risk/reward tradeoff |
+| Aggressive | Risk-On | Maximum exposure for potential gains |
+
+### Backtesting (`tools/backtesting_tools.py`)
+
+| Tool | Description |
+|------|-------------|
+| `list_strategies` | Get all strategies with metrics |
+| `get_strategy_metrics` | Metrics for specific strategy |
+| `search_strategies` | Semantic search by description |
+| `create_strategy` | Generate from natural language |
+| `compare_strategies` | Side-by-side comparison |
+
+### Web Search (`tools/search_tools.py`)
+
+| Tool | Description |
+|------|-------------|
+| `web_search` | DuckDuckGo search with query decomposition |
+| `smart_search` | Multi-query search for complex questions |
+
+### Reports (`tools/report_tools.py`)
+
+| Tool | Description |
+|------|-------------|
+| `get_facilitator_report` | Bull-Bear debate conclusion |
+| `get_debate_summary` | Full debate transcript |
+| `get_symbol_reports` | All reports for a symbol |
+
+## 🚀 Quick Start
+
+### Environment Variables
+
+```bash
+# LLM
+OPENAI_API_KEY=your_key
+OPENAI_API_BASE=https://openrouter.ai/api/v1
+OPENAI_MODEL_AGENT=openai/gpt-4o-mini
+
+# MCP Server
+MCP_SERVER_HOST=0.0.0.0
+MCP_SERVER_PORT=9004
+
+# Redis (for Mem0)
+REDIS_URL=rediss://...  # Upstash
+# OR
+MEM0_REDIS_HOST=redis
+MEM0_REDIS_PORT=6379
+```
+
+### Run MCP Server
+
+```bash
+python server.py
+```
+
+Server starts on `http://0.0.0.0:9004/mcp`
+
+### Run Agent (Test Mode)
+
+```bash
+python langgraph_agent.py --test
+```
+
+## 📡 API Endpoints
+
+Integrated into the main FastAPI server (`unified-api`):
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -57,7 +138,7 @@ The Strategist is integrated into the main FastAPI server (`unified-api`):
 | `/strategist/memory/{user_id}` | DELETE | Clear user memories |
 | `/strategist/threads/{user_id}` | GET | Get current thread info |
 
-### Example: Chat Request
+### Chat Request
 
 ```bash
 curl -X POST http://localhost:8000/strategist/chat \
@@ -69,7 +150,7 @@ curl -X POST http://localhost:8000/strategist/chat \
   }'
 ```
 
-### Example: Streaming Response
+### Streaming Response
 
 ```javascript
 const eventSource = new EventSource('/strategist/chat/stream', {
@@ -83,29 +164,101 @@ const eventSource = new EventSource('/strategist/chat/stream', {
 eventSource.onmessage = (event) => {
   const data = JSON.parse(event.data);
   if (data.event === 'chunk') {
-    console.log(data.content);  // Streaming response chunk
+    console.log(data.content);
   } else if (data.event === 'done') {
     console.log('Complete:', data.full_response);
   }
 };
 ```
 
-## WebSocket Integration
+## 🧠 Mem0 Memory
 
-When `room_id` is provided in chat requests, events are published to Redis Pub/Sub:
+Persistent memory for user preferences and past interactions:
+
+```python
+from mem0 import Memory
+
+# Auto-stores user context
+memory.add("User prefers momentum strategies", user_id="user123")
+
+# Retrieved during conversations
+memories = memory.get_all(user_id="user123")
+```
+
+### Memory Storage
+
+Uses Redis as vector store (via RediSearch):
+```python
+config = {
+    "vector_store": {
+        "provider": "redis",
+        "config": {
+            "redis_url": os.getenv("REDIS_URL")
+        }
+    }
+}
+```
+
+## 📡 WebSocket Events
+
+When `room_id` is provided, events are published to Redis Pub/Sub:
 
 | Event Type | Description |
 |------------|-------------|
-| `strategist_thinking` | Agent is processing the request |
+| `strategist_thinking` | Agent is processing |
 | `strategist_chunk` | Streaming response chunk |
-| `strategist_response` | Complete response |
-| `strategist_error` | Error occurred |
+| `strategist_tool_call` | Tool being invoked |
+| `strategist_done` | Response complete |
 
-Frontend can subscribe via the WebSocket server:
-```javascript
-const ws = new WebSocket('ws://localhost:8001/ws/room123');
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  // Handle strategist events
-};
+## 🔄 LangGraph ReAct Loop
+
 ```
+User Input
+    │
+    ▼
+┌─────────────────┐
+│ Load Memories   │◄──── Mem0 Redis
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ Reasoning       │
+│ (LLM decides)   │
+└────────┬────────┘
+         │
+    ┌────┴────┐
+    │         │
+    ▼         ▼
+┌───────┐ ┌───────┐
+│ Tool  │ │ Final │
+│ Call  │ │Answer │
+└───┬───┘ └───────┘
+    │
+    ▼
+┌─────────────────┐
+│ MCP Server      │
+│ (Execute Tool)  │
+└────────┬────────┘
+         │
+         ▼
+    Loop back to Reasoning
+```
+
+## 🧪 Testing
+
+```bash
+# Test MCP server connectivity
+curl http://localhost:9004/mcp
+
+# Test agent (interactive)
+python langgraph_agent.py
+
+# Test with sample queries
+python langgraph_agent.py --test
+```
+
+## 📚 Related
+
+- [Bull-Bear Debate](../bullbear/evaluation/README.md) - Debate system
+- [Backtesting API](../api/backtesting_api.py) - Strategy endpoints
+- [RAG API](../api/rag_api.py) - Document retrieval

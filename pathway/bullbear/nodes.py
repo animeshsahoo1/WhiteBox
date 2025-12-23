@@ -52,6 +52,17 @@ except ImportError as e1:
 
 logger = logging.getLogger(__name__)
 
+
+def safe_get_confidence(value, default: float = 0.5) -> float:
+    """Safely convert confidence value to float, handling string/None cases."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
 # ============================================================
 # MODULE-LEVEL MEMORY MANAGER CACHING
 # ============================================================
@@ -283,9 +294,11 @@ Market conditions: {state.get('market_report', '')[:rag_limit]}
         debate_points = state.get("debate_points", [])
         if debate_points:
             last_point = debate_points[-1]
-            if last_point.get("party") == opponent_party:
-                opponent_point = last_point.get("content", "")
-                print(f"  {opponent_emoji} {opponent_party.capitalize()}'s last point: {opponent_point[:80]}...")
+            # Defensive: ensure last_point is a dict
+            if isinstance(last_point, dict):
+                if last_point.get("party") == opponent_party:
+                    opponent_point = last_point.get("content", "")
+                    print(f"  {opponent_emoji} {opponent_party.capitalize()}'s last point: {opponent_point[:80]}...")
         else:
             print(f"  ℹ️ No previous points - {party_upper} starts the debate")
         
@@ -293,6 +306,7 @@ Market conditions: {state.get('market_report', '')[:rag_limit]}
         debate_history = "\n".join([
             f"[{p.get('party', 'unknown').upper()}]: {p.get('content', '')}"
             for p in debate_points[-6:]  # Last 6 points
+            if isinstance(p, dict)  # Filter out non-dict items
         ])
         
         # Build context with truncation from config to save tokens
@@ -390,8 +404,8 @@ Fundamental Report: {state['fundamental_report'][:report_limit]}
             party=party_enum,
             content=point_content,
             supporting_evidence=evidence,
-            counter_to=debate_points[-1].get("id") if opponent_point else None,
-            confidence=response.get("confidence", 0.7),
+            counter_to=debate_points[-1].get("id") if (opponent_point and debate_points and isinstance(debate_points[-1], dict)) else None,
+            confidence=safe_get_confidence(response.get("confidence"), 0.7),
             is_unique=True  # Will be validated in next node
         )
         
@@ -630,7 +644,14 @@ Fundamental Report: {state['fundamental_report'][:report_limit]}
         symbol = state["symbol"]
         
         # Build query from new points
-        points_text = " ".join([p.get("content", "") for p in state["new_points"][:5]])
+        # Defensive: ensure items are dicts and content is a string
+        points_list = []
+        for p in state["new_points"][:5]:
+            if isinstance(p, dict):
+                content = p.get("content", "")
+                if isinstance(content, str):
+                    points_list.append(content)
+        points_text = " ".join(points_list)
         print(f"  📝 Building query from {len(state['new_points'])} new points")
         
         if points_text:
@@ -749,9 +770,11 @@ Fundamental Report: {state['fundamental_report'][:report_limit]}
                 print(f"    {i}. {content[:80]}...")
         
         state["rag_evidence"] = evidence_texts
+        # Defensive: ensure evidence_texts contains only strings
+        safe_evidence_texts = [str(ev) for ev in evidence_texts if ev]
         state["rag_response"] = "\n\n".join([
-            f"Evidence {i}: {ev}" for i, ev in enumerate(evidence_texts, 1)
-        ]) if evidence_texts else "No relevant evidence found"
+            f"Evidence {i}: {ev}" for i, ev in enumerate(safe_evidence_texts, 1)
+        ]) if safe_evidence_texts else "No relevant evidence found"
         
         # Clear the pending query
         state["pending_rag_query"] = None
@@ -786,6 +809,12 @@ Fundamental Report: {state['fundamental_report'][:report_limit]}
         """
         current_point = state.get("current_point")
         if not current_point:
+            return state
+        
+        # Defensive: ensure current_point is a dict
+        if not isinstance(current_point, dict):
+            logger.error(f"current_point is not a dict: {type(current_point)}")
+            state["errors"].append(f"Invalid current_point type: {type(current_point)}")
             return state
         
         print(f"\n{'='*60}")
@@ -840,6 +869,12 @@ Fundamental Report: {state['fundamental_report'][:report_limit]}
         if not current_point or current_point.get("is_unique", True):
             return state
         
+        # Defensive: ensure current_point is a dict
+        if not isinstance(current_point, dict):
+            logger.error(f"current_point is not a dict: {type(current_point)}")
+            state["errors"].append(f"Invalid current_point type: {type(current_point)}")
+            return state
+        
         print(f"\n{'='*60}")
         print(f"✏️ NODE: REPHRASE POINT")
         print(f"{'='*60}")
@@ -851,9 +886,13 @@ Fundamental Report: {state['fundamental_report'][:report_limit]}
         print(f"  Rephrasing {party.upper()}'s point for uniqueness...")
         
         # Get available new information
-        available_info = "\n".join([
-            p.get("content", "") for p in state.get("new_points", [])[:10]
-        ])
+        available_info_list = []
+        for p in state.get("new_points", [])[:10]:
+            if isinstance(p, dict):
+                content = p.get("content", "")
+                if isinstance(content, str):
+                    available_info_list.append(content)
+        available_info = "\n".join(available_info_list)
         
         prompt = REPHRASE_POINT_PROMPT.format(
             similar_point="Previous point with similar content",
@@ -873,7 +912,7 @@ Fundamental Report: {state['fundamental_report'][:report_limit]}
         old_point = current_point.get("content", "")[:50]
         current_point["content"] = response.get("point", current_point.get("content", ""))
         current_point["supporting_evidence"] = response.get("supporting_evidence", [])
-        current_point["confidence"] = response.get("confidence", 0.6)
+        current_point["confidence"] = safe_get_confidence(response.get("confidence"), 0.6)
         # Note: Don't set is_unique=True here - let check_uniqueness verify it
         # The graph routes back to check_uniqueness after rephrase
         
@@ -895,6 +934,12 @@ Fundamental Report: {state['fundamental_report'][:report_limit]}
         """
         current_point = state.get("current_point")
         if not current_point:
+            return state
+        
+        # Defensive: ensure current_point is a dict
+        if not isinstance(current_point, dict):
+            logger.error(f"current_point is not a dict: {type(current_point)}")
+            state["errors"].append(f"Invalid current_point type: {type(current_point)}")
             return state
         
         print(f"\n{'='*60}")
@@ -980,7 +1025,7 @@ Fundamental Report: {state['fundamental_report'][:report_limit]}
             conclusion_reason = f"Maximum rounds ({max_rounds}) reached"
         elif len(debate_points) >= 2:
             last_two = debate_points[-2:]
-            low_confidence = all(p.get("confidence", 1.0) < 0.3 for p in last_two)
+            low_confidence = all(safe_get_confidence(p.get("confidence"), 1.0) < 0.3 for p in last_two)
             if low_confidence:
                 conclusion_reason = "Low confidence in recent arguments"
             else:
@@ -994,9 +1039,22 @@ Fundamental Report: {state['fundamental_report'][:report_limit]}
         print(f"  📊 Summarizing {len(debate_points)} debate points...")
         
         # Build debate points summary
+        def format_confidence(conf):
+            try:
+                return f"{float(conf):.0%}"
+            except (ValueError, TypeError):
+                return "N/A"
+        
+        def format_evidence(evidence):
+            """Safely format evidence list"""
+            if isinstance(evidence, list):
+                return ', '.join(str(e) for e in evidence if e)
+            return str(evidence) if evidence else ""
+        
         debate_points_text = "\n\n".join([
-            f"**[{p.get('party', 'unknown').upper()}]** (Confidence: {p.get('confidence', 0.5):.0%})\n{p.get('content', '')}\nEvidence: {', '.join(p.get('supporting_evidence', []))}"
+            f"**[{p.get('party', 'unknown').upper()}]** (Confidence: {format_confidence(p.get('confidence', 0.5))})\n{p.get('content', '')}\nEvidence: {format_evidence(p.get('supporting_evidence', []))}"
             for p in state.get("debate_points", [])
+            if isinstance(p, dict)  # Filter out non-dict items
         ])
         
         # Build deltas summary

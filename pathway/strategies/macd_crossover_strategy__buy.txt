@@ -1,0 +1,32 @@
+# interval: 1h
+# lookback: 6mo
+
+def strategy(indicators):
+    """
+    MACD Crossover Strategy
+    
+    Entry: Buy when MACD line crosses above signal line within the important zone
+    Exit: Sell when MACD line crosses below signal line within the important zone
+    Best for: 1h charts
+    """
+    import numpy as np
+    
+    macd_line = indicators.get('macd_line')
+    macd_signal = indicators.get('macd_signal')
+    
+    if macd_line is None or macd_signal is None:
+        return None
+    if any(np.isnan(v) for v in [macd_line, macd_signal]):
+        return None
+    
+    important_zone = (0.5, -0.5)
+    macd_cross_up = macd_line > macd_signal and macd_line <= important_zone[0] and macd_line > important_zone[1]
+    macd_cross_down = macd_line < macd_signal and macd_line >= important_zone[1] and macd_line < important_zone[0]
+    
+    if macd_cross_up and position != 'LONG':
+        return {'action': 'BUY', 'stop_loss': 0.02, 'take_profit': 0.04, 'size': 1.0}
+    
+    if macd_cross_down and position == 'LONG':
+        return {'action': 'SELL'}
+    
+    return None

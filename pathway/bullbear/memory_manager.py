@@ -25,6 +25,25 @@ class MemoryManager:
     Handles both local and cloud-based memory storage.
     """
     
+    @staticmethod
+    def _safe_get_content(item: Any) -> str:
+        """
+        Safely extract content from a memory item.
+        Handles cases where item might be a string or dict.
+        """
+        if isinstance(item, str):
+            return item
+        if isinstance(item, dict):
+            return item.get("content", item.get("memory", ""))
+        return str(item) if item else ""
+    
+    @staticmethod
+    def _safe_get_metadata(item: Any, key: str, default: Any = None) -> Any:
+        """Safely get metadata from a memory item"""
+        if isinstance(item, dict):
+            return item.get("metadata", {}).get(key, default)
+        return default
+    
     def __init__(self, config: Optional[MemoryConfig] = None, user_id: str = "bullbear_system"):
         self.config = config or get_config().memory
         self.user_id = user_id
@@ -149,6 +168,14 @@ class MemoryManager:
                     limit=limit
                 )
                 
+                # Defensive: ensure results are dicts
+                if results and not isinstance(results, list):
+                    logger.warning(f"mem0 search returned non-list: {type(results)}")
+                    results = []
+                else:
+                    # Filter out non-dict items
+                    results = [r for r in results if isinstance(r, dict)]
+                
                 # Filter by metadata if needed
                 if filters:
                     results = [
@@ -170,9 +197,13 @@ class MemoryManager:
             if cat not in self._fallback_memory:
                 continue
             for mem in self._fallback_memory.get(cat, []):
-                if party and mem.get("metadata", {}).get("party") != party:
+                # Defensive: ensure mem is a dict
+                if not isinstance(mem, dict):
                     continue
-                if query_lower in mem.get("content", "").lower():
+                if party and self._safe_get_metadata(mem, "party") != party:
+                    continue
+                content = self._safe_get_content(mem)
+                if query_lower in content.lower():
                     results.append(mem)
                     
         return results[:limit]
@@ -206,8 +237,12 @@ class MemoryManager:
             # Tag each memory with its party for context
             results = []
             for m in memories:
-                content = m.get("content", m.get("memory", ""))
-                mem_party = m.get("metadata", {}).get("party", "unknown")
+                # Defensive: ensure m is a dict
+                if not isinstance(m, dict):
+                    logger.warning(f"Memory item is not a dict: {type(m)}")
+                    continue
+                content = self._safe_get_content(m)
+                mem_party = self._safe_get_metadata(m, "party", "unknown")
                 if content:
                     results.append(f"[{mem_party.upper()}]: {content}")
             return results[:limit]
@@ -218,7 +253,11 @@ class MemoryManager:
                 party=party,
                 limit=limit
             )
-            return [m.get("content", m.get("memory", "")) for m in memories if m]
+            return [
+                self._safe_get_content(m)
+                for m in memories 
+                if m and isinstance(m, dict)
+            ]
     
     def is_point_repeated(
         self,
@@ -249,6 +288,10 @@ class MemoryManager:
             
         # Check similarity (using mem0's built-in similarity if available)
         for mem in existing:
+            # Defensive: ensure mem is a dict
+            if not isinstance(mem, dict):
+                logger.warning(f"Memory item is not a dict in is_point_repeated: {type(mem)}")
+                continue
             # If mem0 returns a score, use it
             score = mem.get("score", mem.get("similarity", 0))
             if score >= threshold:
@@ -256,7 +299,7 @@ class MemoryManager:
             
             # Fallback: if no score returned, do simple word overlap check
             if score == 0:
-                mem_content = mem.get("content", mem.get("memory", "")).lower()
+                mem_content = self._safe_get_content(mem).lower()
                 point_lower = point.lower()
                 # Use word overlap as fallback similarity
                 words_mem = set(mem_content.split())
@@ -360,7 +403,11 @@ Reasoning: {reasoning}"""
             party="facilitator",
             limit=limit
         )
-        return [m.get("content", m.get("memory", "")) for m in memories if m]
+        return [
+            self._safe_get_content(m)
+            for m in memories 
+            if m and isinstance(m, dict)
+        ]
     
     def clear_session(self):
         """Clear all memories for this session"""

@@ -344,6 +344,16 @@ class DebatePointsManager:
             raise
 
 
+def _safe_get_confidence(value, default: float = 0.5) -> float:
+    """Safely convert confidence value to float, handling string/None cases."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
 def convert_dict_to_debate_point(data: Dict[str, Any]) -> DebatePoint:
     """Convert a dictionary to a DebatePoint object"""
     return DebatePoint(
@@ -352,7 +362,7 @@ def convert_dict_to_debate_point(data: Dict[str, Any]) -> DebatePoint:
         content=data.get("content", ""),
         supporting_evidence=data.get("supporting_evidence", []),
         counter_to=data.get("counter_to"),
-        confidence=data.get("confidence", 0.8),
+        confidence=_safe_get_confidence(data.get("confidence"), 0.8),
         timestamp=data.get("timestamp", datetime.utcnow().isoformat()),
         is_unique=data.get("is_unique", True),
         rag_sources=data.get("rag_sources", [])

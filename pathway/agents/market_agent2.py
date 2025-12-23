@@ -16,8 +16,8 @@ import pathway as pw
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
-from langchain.globals import set_llm_cache
-from langchain.cache import InMemoryCache
+from langchain_core.globals import set_llm_cache
+from langchain_core.cache import InMemoryCache
 from openai import RateLimitError
 from dotenv import load_dotenv
 
