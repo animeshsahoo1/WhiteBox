@@ -7,7 +7,7 @@ A sophisticated, real-time stock analysis and intelligence system built with mic
 Link to Frontend code: https://github.com/animeshsahoo1/WhiteBox-Frontend
 
 
-## 🎯 Project Overview## 🎯 Project Overview
+## 🎯 Project Overview
 
 
 
@@ -25,93 +25,53 @@ This system combines real-time data streaming, AI-powered analysis, and multi-ag
 
 
 
-## 🏗️ Architecture## 🏗️ Architecture
+## 🏗️ Architecture
 
 
-
-``````
-
-┌─────────────────────────────────────────────────────────────────┐┌─────────────────────────────────────────────────────────────────┐
-
-│                    STREAMING PRODUCERS                           ││                    STREAMING PRODUCERS                           │
-
-│  (Market, News, Sentiment, Fundamental, Candles)                 ││  (Market, News, Sentiment, Fundamental, Candles)                 │
-
-└──────────────────────┬──────────────────────────────────────────┘└──────────────────────┬──────────────────────────────────────────┘
-
-                       │                       │
-
-                       ▼                       ▼
-
-                  ┌─────────┐                  ┌─────────┐
-
-                  │  KAFKA  │                  │  KAFKA  │
-
-                  └────┬────┘                  └────┬────┘
-
-                       │                       │
-
-        ┌──────────────┼──────────────┐        ┌──────────────┼──────────────┐
-
-        │              │              │        │              │              │
-
-        ▼              ▼              ▼        ▼              ▼              ▼
-
-┌───────────────┐ ┌─────────────┐ ┌─────────────────┐┌───────────────┐ ┌─────────────┐ ┌─────────────────┐
-
-│   PATHWAY     │ │  PATHWAY    │ │   PATHWAY       ││   PATHWAY     │ │  PATHWAY    │ │   PATHWAY       │
-
-│  AI AGENTS    │ │ BACKTESTER  │ │   UNIFIED API   ││  CONSUMERS    │ │ BACKTESTER  │ │   REPORTS API   │
-
-│  (Reports)    │ │  O(1)       │ │   (FastAPI)     ││  (AI Reports) │ │  O(1)       │ │   (FastAPI)     │
-
-└───────┬───────┘ └──────┬──────┘ └────────┬────────┘└───────┬───────┘ └──────┬──────┘ └────────┬────────┘
-
-        │                │                  │        │                │                  │
-
-        └────────────────┼──────────────────┘        └────────────────┼──────────────────┘
-
-                         │                         │
-
-                         ▼                         ▼
-
-                    ┌─────────┐                    ┌─────────┐
-
-                    │  REDIS  │                    │  REDIS  │
-
-                    │ (Cache) │                    │ (Cache) │
-
-                    └────┬────┘                    └────┬────┘
-
-                         │                         │
-
-        ┌────────────────┼────────────────┐                         ▼
-
-        ▼                                 ▼┌─────────────────────────────────────────────────────────────────┐
-
-┌─────────────────────────┐    ┌─────────────────────────┐│       INTELLIGENCE AGENTS (LangGraph Multi-Agent)                │
-
-│     BULL-BEAR DEBATE    │    │   STRATEGIST AGENT      ││  (Bull/Bear Debate → Hypothesis Generation → Risk Assessment)    │
-
-│  (LangGraph + Mem0)     │    │  (MCP Server + Tools)   │└─────────────────────────────────────────────────────────────────┘
-
-│  Asian Parliamentary    │    │  Backtesting, RAG,      │```
-
-│  Toulmin Argumentation  │    │  Risk Assessment        │
-
-└─────────────────────────┘    └─────────────────────────┘## 📊 Key Features
-
-                         │
-
-                         ▼### Real-Time Data Collection
-
-                  ┌─────────────┐- **Multi-source fallback**: Finnhub, Alpha Vantage, FMP, NewsAPI, Reddit, Twitter
-
-                  │  WEBSOCKET  │- **Circuit breaker pattern**: Automatic failover on API failures
-
-                  │   SERVER    │- **Rate limit handling**: Smart cooldown and retry mechanisms
-
-                  └─────────────┘- **4 data streams**: Market prices, news articles, social sentiment, fundamental data
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      STREAMING PRODUCERS                        │
+│        (Market, News, Sentiment, Fundamental, Candles)          │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │
+                                ▼
+                          ┌─────────┐
+                          │  KAFKA  │
+                          └────┬────┘
+                               │
+         ┌─────────────────────┼─────────────────────┐
+         │                     │                     │
+         ▼                     ▼                     ▼
+ ┌───────────────┐     ┌───────────────┐     ┌───────────────┐
+ │    PATHWAY    │     │    PATHWAY    │     │    PATHWAY    │
+ │   AI AGENTS   │     │  BACKTESTER   │     │  UNIFIED API  │
+ │   (Reports)   │     │     O(1)      │     │   (FastAPI)   │
+ └───────┬───────┘     └───────┬───────┘     └───────┬───────┘
+         │                     │                     │
+         └─────────────────────┼─────────────────────┘
+                               │
+                               ▼
+                          ┌─────────┐
+                          │  REDIS  │
+                          │ (Cache) │
+                          └────┬────┘
+                               │
+           ┌───────────────────┴───────────────────┐
+           ▼                                       ▼
+┌─────────────────────────┐             ┌─────────────────────────┐
+│    BULL-BEAR DEBATE     │             │    STRATEGIST AGENT     │
+│   (LangGraph + Mem0)    │             │  (MCP Server + Tools)   │
+│   Asian Parliamentary   │             │    Backtesting, RAG,    │
+│  Toulmin Argumentation  │             │    Risk Assessment      │
+└──────────┬──────────────┘             └──────────┬──────────────┘
+           │                                       │
+           └───────────────────┬───────────────────┘
+                               │
+                               ▼
+                        ┌─────────────┐
+                        │  WEBSOCKET  │
+                        │   SERVER    │
+                        └─────────────┘
 
 ```
 
@@ -207,95 +167,93 @@ This system combines real-time data streaming, AI-powered analysis, and multi-ag
 
 # Market Data
 
-## 🚀 Quick StartFINNHUB_API_KEY=your_finnhub_key
+Here is the properly formatted and detangled "Quick Start" section for your documentation. I separated the markdown text from the `.env` file contents so it is easy for users to copy and paste.
 
-ALPHA_VANTAGE_API_KEY=your_av_key
+## 🚀 Quick Start
 
-### PrerequisitesFMP_API_KEY=your_fmp_key
+### Prerequisites
 
-- Docker & Docker Compose
-
-- API Keys:# News
-
-  - OpenRouter API Key (for LLM analysis) - or OpenAI API KeyNEWSAPI_API_KEY=your_newsapi_key
-
-  - Finnhub, Alpha Vantage, or FMP (market data)
-
-  - NewsAPI (news data)# Social Media
-
-  - Reddit/Twitter APIs (optional, for social sentiment)REDDIT_CLIENT_ID=your_reddit_id
-
-REDDIT_CLIENT_SECRET=your_reddit_secret
-
-### Environment SetupTWITTER_BEARER_TOKEN=your_twitter_token
+* Docker & Docker Compose
+* **API Keys:**
+* OpenRouter API Key (for LLM analysis) *or* OpenAI API Key
+* Finnhub, Alpha Vantage, or FMP (for market data)
+* NewsAPI (for news data)
+* Reddit/Twitter APIs (optional, for social sentiment)
 
 
 
-Create `.env` in the backend root directory:# Configuration
+### Environment Setup
 
-STOCKS=AAPL,GOOGL,MSFT,TSLA
+Create the required `.env` files in your project directories.
 
-```bashMARKET_DATA_INTERVAL=60
+**1. Root Directory (`.env`)**
 
-# LLM APINEWS_FETCH_INTERVAL=300
-
-OPENROUTER_API_KEY=your_openrouter_key```
-
+```env
+# LLM API
+OPENROUTER_API_KEY=your_openrouter_key
 # OR
+OPENAI_API_KEY=your_openai_key
 
-OPENAI_API_KEY=your_openai_key**pathway/.env**
+# Market Data (at least one)
+FINNHUB_API_KEY=your_finnhub_key
+ALPHA_VANTAGE_API_KEY=your_av_key
+FMP_API_KEY=your_fmp_key
 
-```bash
-
-# Market Data (at least one)OPENAI_API_KEY=your_openai_key
-
-FINNHUB_API_KEY=your_finnhub_keyKAFKA_BROKER=kafka:29092
-
-ALPHA_VANTAGE_API_KEY=your_av_keyREDIS_HOST=redis
-
-FMP_API_KEY=your_fmp_keyREDIS_PORT=6379
-
-REDIS_DB=0
-
-# News```
-
+# News
 NEWSAPI_API_KEY=your_newsapi_key
 
-**trading_agents/.env**
+# Social Media (optional)
+REDDIT_CLIENT_ID=your_reddit_id
+REDDIT_CLIENT_SECRET=your_reddit_secret
+TWITTER_BEARER_TOKEN=your_twitter_token
 
-# Social Media (optional)```bash
+# Configuration
+STOCKS=AAPL,GOOGL,MSFT,TSLA,NVDA
+MARKET_DATA_INTERVAL=60
+NEWS_FETCH_INTERVAL=300
 
-REDDIT_CLIENT_ID=your_reddit_idOPENAI_API_KEY=your_openai_key
-
-REDDIT_CLIENT_SECRET=your_reddit_secretPATHWAY_API_URL=http://pathway-unified-api:8000
-
-TWITTER_BEARER_TOKEN=your_twitter_tokenREDIS_HOST=redis
-
-REDIS_PORT=6379
-
-# ConfigurationREDIS_DB=1
-
-STOCKS=AAPL,GOOGL,TSLA,NVDAMONGODB_URI=mongodb://mongo:27017
-
-MARKET_DATA_INTERVAL=60DATABASE_URL=postgresql://user:pass@postgres:5432/intelligence_db
-
-NEWS_FETCH_INTERVAL=300```
-
-
-
-# Redis (optional - uses local if not set)### Launch the System
-
+# Redis (optional - uses local if not set)
 REDIS_URL=rediss://...  # Upstash Redis URL
 
-```bash
-
-# Pathway License (optional)# Start all services
-
-PATHWAY_LICENSE_KEY=your_license_keydocker-compose up -d
+# Pathway License (optional)
+PATHWAY_LICENSE_KEY=your_license_key
 
 ```
 
-# View logs
+**2. Pathway Directory (`pathway/.env`)**
+
+```env
+OPENAI_API_KEY=your_openai_key
+KAFKA_BROKER=kafka:29092
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_DB=0
+
+```
+
+**3. Trading Agents Directory (`trading_agents/.env`)**
+
+```env
+OPENAI_API_KEY=your_openai_key
+PATHWAY_API_URL=http://pathway-unified-api:8000
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_DB=1
+MONGODB_URI=mongodb://mongo:27017
+DATABASE_URL=postgresql://user:pass@postgres:5432/intelligence_db
+
+```
+
+### Launch the System
+
+```bash
+# Start all services
+docker-compose up -d
+
+```
+
+---
+
 
 ### Launch the Systemdocker-compose logs -f
 
@@ -309,209 +267,184 @@ docker compose up -dcurl http://localhost:8001/health  # Trading Agents API
 
 ```
 
+### Services & Ports
+
+```bash
 # View logs
-
-docker compose logs -f### Services & Ports
-
-
-
-# Check service health| Service | Port | Description |
-
-curl http://localhost:8000/health  # Unified API|---------|------|-------------|
-
-curl http://localhost:8080/health  # WebSocket Server| Pathway Reports API | 8000 | AI-generated analysis reports + Backtesting API |
-
-```| Intelligence Agents API | 8001 | Investment analysis workflow execution |
-
-| Kafka | 9092 | Message streaming |
-
-### Services & Ports| Redis | 6379 | Caching & job queue |
-
-| Zookeeper | 2181 | Kafka coordination |
-
-| Service | Port | Description |
-
-|---------|------|-------------|## 📁 Project Structure
-
-| Unified API | 8000 | Reports, RAG, Backtesting, Bull-Bear, Strategist |
-
-| WebSocket Server | 8080 | Real-time event streaming to frontend |```
-
-| MCP Server | 9004 | Model Context Protocol tools server |.
-
-| Kafka | 9092 | Message streaming (internal: 29092) |├── streaming/              # Data collection producers
-
-| Redis | 6379 | Caching, pub/sub, vector store |│   ├── producers/          # Kafka producers for each data type
-
-| Zookeeper | 2181 | Kafka coordination |│   │   ├── candle_producer.py  # OHLCV candle data for backtesting
-
-│   │   └── ...
-
-## 📁 Project Structure│   ├── data/              # CSV data files (candles.csv)
-
-│   ├── fundamental_utils/  # FMP API client & web scraping
-
-```│   └── utils/             # Kafka utilities
-
-backend/│
-
-├── streaming/              # Data collection producers├── pathway/               # Stream processing & AI analysis
-
-│   ├── producers/          # Kafka producers for each data type│   ├── consumers/         # Kafka consumers (Pathway tables)
-
-│   │   ├── base_producer.py       # Circuit breaker + multi-source fallback│   │   ├── candle_consumer.py  # Candle data consumer for backtesting
-
-│   │   ├── market_data_producer.py│   │   └── ...
-
-│   │   ├── news_producer.py│   ├── agents/            # LLM analysis agents
-
-│   │   ├── sentiment_producer.py│   ├── backtesting_lib/   # O(1) Incremental Backtesting Engine
-
-│   │   ├── fundamental_data_producer.py│   │   ├── trading_state.py    # Core trading logic (T+1 execution)
-
-│   │   └── candle_producer.py     # OHLCV for backtesting│   │   ├── indicators.py       # Technical indicators
-
-│   ├── webhook_receiver.py        # Twitter webhook endpoint│   │   ├── metrics.py          # Performance metrics
-
-│   └── data/                      # CSV data files│   │   └── reducers.py         # Pathway reducers
-
-││   ├── strategies/        # Trading strategy files (.txt)
-
-├── pathway/                # Stream processing & AI analysis│   ├── api/               # FastAPI server for reports
-
-│   ├── consumers/          # Kafka consumers (Pathway tables)│   │   ├── backtesting_api.py  # Backtesting endpoints
-
-│   │   ├── base_consumer.py│   │   └── ...
-
-│   │   ├── market_data_consumer.py│   └── reports/           # Generated analysis reports
-
-│   │   ├── news_consumer.py│
-
-│   │   ├── sentiment_consumer.py├── trading_agents/        # Multi-agent intelligence system
-
-│   │   └── candle_consumer.py│   ├── all_agents/        # Agent implementations
-
-│   ││   │   ├── researchers/   # Bull/Bear researchers
-
-│   ├── agents/             # LLM analysis agents│   │   ├── risk_mngt/     # Risk analysis agents
-
-│   │   ├── market_agent2.py       # LangGraph + TA-Lib technical analysis│   │   ├── managers/      # Risk & Hypothesis managers
-
-│   │   ├── news_agent.py          # Story clustering + synthesis│   │   └── trader/        # Synthesis agent
-
-│   │   ├── sentiment_clustering.py # Phase 1: Fast VADER clustering│   ├── graph/             # LangGraph workflow setup
-
-│   │   ├── sentiment_reports.py   # Phase 2: LLM report generation│   ├── redis_queue/       # Job queue system
-
-│   │   └── fundamental_agent.py   # Agentic RAG reports│   ├── api/               # Intelligence API endpoints
-
-│   ││   └── utils/             # Helper utilities
-
-│   ├── bullbear/           # Bull-Bear Debate System│
-
-│   │   ├── graph.py               # LangGraph workflow└── kafka/                 # Kafka standalone config (optional)
-
-│   │   ├── nodes.py               # Debate nodes (Bull, Bear, Facilitator)```
-
-│   │   ├── state.py               # DebateState, DebatePoint types
-
-│   │   ├── debate_runner.py       # Orchestrates debate execution## 🔄 Data Flow
-
-│   │   ├── cache_manager.py       # Delta detection for reports
-
-│   │   ├── memory_manager.py      # Mem0 integration### 1. Data Collection (Streaming)
-
-│   │   └── llm_utils.py           # Prompts and LLM client```
-
-│   │External APIs → Producers → Kafka Topics
-
-│   ├── orchestrator/       # Strategist Agent + MCP Server```
-
-│   │   ├── server.py              # FastMCP server entry point- Producers fetch data every N seconds (configurable)
-
-│   │   ├── langgraph_agent.py     # ReAct agent with Mem0- Multi-source fallback ensures reliability
-
-│   │   ├── tools/                 # MCP tool implementations- Data published to topic-specific Kafka queues
-
-│   │   │   ├── risk_tools.py      # 3-tier risk assessment
-
-│   │   │   ├── backtesting_tools.py### 2. Real-Time Analysis (Pathway)
-
-│   │   │   ├── search_tools.py    # Web search```
-
-│   │   │   └── report_tools.pyKafka → Pathway Consumers → LLM Analysis → Redis Cache
-
-│   │   └── web_search.py          # DuckDuckGo integration```
-
-│   │- Pathway subscribes to Kafka topics
-
-│   ├── backtesting_lib/    # O(1) Incremental Backtesting- Applies windowing (1-minute tumbling windows)
-
-│   │   ├── trading_state.py       # Core trading logic (T+1 execution)- LLM generates comprehensive reports
-
-│   │   ├── indicators.py          # Incremental indicator calculations- Results cached in Redis with pub/sub
-
-│   │   ├── metrics.py             # Performance metrics
-
-│   │   └── reducers.py            # Pathway reducers### 3. Report Distribution (Pathway API)
-
-│   │```
-
-│   ├── api/                # FastAPI endpointsRedis Cache → FastAPI → HTTP Endpoints
-
-│   │   ├── fastapi_server.py      # Main server```
-
-│   │   ├── rag_api.py             # RAG + MCP endpoints- FastAPI serves cached reports on-demand
-
-│   │   ├── bullbear_api.py        # Debate endpoints- Eliminates need to re-run analysis
-
-│   │   ├── backtesting_api.py     # Strategy management- Sub-millisecond response times
-
-│   │   ├── sentiment_api.py       # Sentiment clusters
-
-│   │   └── chat_api.py            # Strategist chat### 4. Investment Intelligence (Intelligence Agents)
-
-│   │```
-
-│   ├── strategies/         # Trading strategy files (.txt)User Request → Fetch Reports → Multi-Agent Workflow → Ranked Hypotheses
-
-│   ├── reports/            # Generated AI reports```
-
-│   ├── knowledge_base/     # SEC 10-K documents for RAG- Retrieves latest reports from Pathway API
-
-│   └── main_*.py           # Pipeline entry points- LangGraph orchestrates multi-agent debate and analysis
-
-│- MongoDB stores conversation checkpoints
-
-├── websocket/              # Real-time event server- Outputs ranked investment hypotheses with risk assessments
-
-│   ├── main.py             # FastAPI WebSocket server
-
-│   └── app/### 5. Backtesting (O(1) Incremental)
-
-│       ├── websocket_manager.py```
-
-│       ├── event_publisher.pyCandle Producer → Kafka → Pathway Backtester → Redis Metrics
-
-│       └── redis_util.py```
-
-│- Stream candles in real-time from CSV or live data
-
-├── kafka/                  # Kafka standalone config- O(1) per-candle processing (no batch recomputation)
-
-├── validation/             # Evaluation frameworks- Multiple strategies evaluated simultaneously
-
-│   ├── RAGAS/              # RAG evaluation with FinQABench- Metrics cached in Redis for instant retrieval
-
-│   ├── galileo_eval/       # Agent tool selection evaluation
-
-│   └── backtesting_validation/  # Strategy validation vs backtesting.py## 🎛️ API Usage
-
-│
-
-└── docker-compose.yml      # Root orchestration (includes all services)### Get Stock Reports (Pathway API)
+docker compose logs -f
+
+# Check service health
+curl http://localhost:8000/health  # Unified API
+curl http://localhost:8080/health  # WebSocket Server
 
 ```
+
+| Service | Port | Description |
+| --- | --- | --- |
+| Unified API (Pathway Reports) | 8000 | AI-generated analysis reports, Backtesting API, RAG, Bull-Bear, Strategist |
+| Intelligence Agents API | 8001 | Investment analysis workflow execution |
+| WebSocket Server | 8080 | Real-time event streaming to frontend |
+| MCP Server | 9004 | Model Context Protocol tools server |
+| Kafka | 9092 | Message streaming (internal: 29092) |
+| Redis | 6379 | Caching, pub/sub, vector store & job queue |
+| Zookeeper | 2181 | Kafka coordination |
+
+---
+
+## 📁 Project Structure
+
+```text
+backend/
+│
+├── streaming/               # Data collection producers
+│   ├── producers/           # Kafka producers for each data type
+│   │   ├── base_producer.py           # Circuit breaker + multi-source fallback
+│   │   ├── market_data_producer.py
+│   │   ├── news_producer.py
+│   │   ├── sentiment_producer.py
+│   │   ├── fundamental_data_producer.py
+│   │   └── candle_producer.py         # OHLCV candle data for backtesting
+│   ├── webhook_receiver.py            # Twitter webhook endpoint
+│   ├── data/                          # CSV data files (candles.csv)
+│   ├── fundamental_utils/             # FMP API client & web scraping
+│   └── utils/                         # Kafka utilities
+│
+├── pathway/                 # Stream processing & AI analysis
+│   ├── consumers/           # Kafka consumers (Pathway tables)
+│   │   ├── base_consumer.py
+│   │   ├── market_data_consumer.py
+│   │   ├── news_consumer.py
+│   │   ├── sentiment_consumer.py
+│   │   └── candle_consumer.py
+│   ├── agents/              # LLM analysis agents
+│   │   ├── market_agent2.py           # LangGraph + TA-Lib technical analysis
+│   │   ├── news_agent.py              # Story clustering + synthesis
+│   │   ├── sentiment_clustering.py    # Phase 1: Fast VADER clustering
+│   │   ├── sentiment_reports.py       # Phase 2: LLM report generation
+│   │   └── fundamental_agent.py       # Agentic RAG reports
+│   ├── backtesting_lib/     # O(1) Incremental Backtesting Engine
+│   │   ├── trading_state.py           # Core trading logic (T+1 execution)
+│   │   ├── indicators.py              # Technical indicators
+│   │   ├── metrics.py                 # Performance metrics
+│   │   └── reducers.py                # Pathway reducers
+│   ├── api/                 # FastAPI server for reports
+│   │   ├── fastapi_server.py          # Main server
+│   │   ├── rag_api.py                 # RAG + MCP endpoints
+│   │   ├── bullbear_api.py            # Debate endpoints
+│   │   ├── backtesting_api.py         # Strategy management
+│   │   ├── sentiment_api.py           # Sentiment clusters
+│   │   └── chat_api.py                # Strategist chat
+│   ├── bullbear/            # Bull-Bear Debate System
+│   │   ├── graph.py                   # LangGraph workflow
+│   │   ├── nodes.py                   # Debate nodes (Bull, Bear, Facilitator)
+│   │   ├── state.py                   # DebateState, DebatePoint types
+│   │   ├── debate_runner.py           # Orchestrates debate execution
+│   │   ├── cache_manager.py           # Delta detection for reports
+│   │   ├── memory_manager.py          # Mem0 integration
+│   │   └── llm_utils.py               # Prompts and LLM client
+│   ├── orchestrator/        # Strategist Agent + MCP Server
+│   │   ├── server.py                  # FastMCP server entry point
+│   │   ├── langgraph_agent.py         # ReAct agent with Mem0
+│   │   ├── tools/                     # MCP tool implementations
+│   │   │   ├── risk_tools.py          # 3-tier risk assessment
+│   │   │   ├── backtesting_tools.py
+│   │   │   ├── search_tools.py        # Web search
+│   │   │   └── report_tools.py
+│   │   └── web_search.py              # DuckDuckGo integration
+│   ├── strategies/          # Trading strategy files (.txt)
+│   ├── reports/             # Generated AI reports
+│   ├── knowledge_base/      # SEC 10-K documents for RAG
+│   └── main_*.py            # Pipeline entry points
+│
+├── trading_agents/          # Multi-agent intelligence system
+│   ├── all_agents/          # Agent implementations
+│   │   ├── researchers/     # Bull/Bear researchers
+│   │   ├── risk_mngt/       # Risk analysis agents
+│   │   ├── managers/        # Risk & Hypothesis managers
+│   │   └── trader/          # Synthesis agent
+│   ├── graph/               # LangGraph workflow setup
+│   ├── redis_queue/         # Job queue system
+│   ├── api/                 # Intelligence API endpoints
+│   └── utils/               # Helper utilities
+│
+├── websocket/               # Real-time event server
+│   ├── main.py              # FastAPI WebSocket server
+│   └── app/
+│       ├── websocket_manager.py
+│       ├── event_publisher.py
+│       └── redis_util.py
+│
+├── validation/              # Evaluation frameworks
+│   ├── RAGAS/               # RAG evaluation with FinQABench
+│   ├── galileo_eval/        # Agent tool selection evaluation
+│   └── backtesting_validation/ # Strategy validation vs backtesting.py
+│
+├── kafka/                   # Kafka standalone config (optional)
+└── docker-compose.yml       # Root orchestration (includes all services)
+
+```
+
+## 🔄 Data Flow
+
+### 1. Data Collection (Streaming)
+
+```text
+External APIs → Producers → Kafka Topics
+
+```
+
+* Producers fetch data every N seconds (configurable)
+* Multi-source fallback ensures reliability
+* Data published to topic-specific Kafka queues
+
+### 2. Real-Time Analysis (Pathway)
+
+```text
+Kafka → Pathway Consumers → LLM Analysis → Redis Cache
+
+```
+
+* Pathway subscribes to Kafka topics
+* Applies windowing (1-minute tumbling windows)
+* LLM generates comprehensive reports
+* Results cached in Redis with pub/sub
+
+### 3. Report Distribution (Pathway API)
+
+```text
+Redis Cache → FastAPI → HTTP Endpoints
+
+```
+
+* FastAPI serves cached reports on-demand
+* Eliminates need to re-run analysis
+* Sub-millisecond response times
+
+### 4. Investment Intelligence (Intelligence Agents)
+
+```text
+User Request → Fetch Reports → Multi-Agent Workflow → Ranked Hypotheses
+
+```
+
+* Retrieves latest reports from Pathway API
+* LangGraph orchestrates multi-agent debate and analysis
+* MongoDB stores conversation checkpoints
+* Outputs ranked investment hypotheses with risk assessments
+
+### 5. Backtesting (O(1) Incremental)
+
+```text
+Candle Producer → Kafka → Pathway Backtester → Redis Metrics
+
+```
+
+* Stream candles in real-time from CSV or live data
+* O(1) per-candle processing (no batch recomputation)
+* Multiple strategies evaluated simultaneously
+* Metrics cached in Redis for instant retrieval
+
+---
 
 ```bash
 
@@ -535,7 +468,8 @@ curl http://localhost:8000/reports/AAPL/news
 
 Kafka → Pathway Consumers → Windowing → AI Agents → Redis Cache# List available symbols
 
-```curl http://localhost:8000/symbols
+```
+curl http://localhost:8000/symbols
 
 ```
 
@@ -683,227 +617,241 @@ curl -X POST http://localhost:8000/backtesting/strategies/search \python pathway
 
 ```
 
-## 📈 Monitoring & Logs
+## 🎛️ API Usage
 
 ### RAG Queries
 
-### View Service Logs
+Query the knowledge base using the RAG pipeline.
 
-```bash```bash
-
-# Query the knowledge base# All services
-
-curl -X POST http://localhost:8000/rag/query \docker-compose logs -f
-
+```bash
+curl -X POST http://localhost:8000/rag/query \
   -H "Content-Type: application/json" \
-
-  -d '{"question": "What is Apple revenue for 2024?", "symbol": "AAPL"}'# Specific service
-
-```docker-compose logs -f market-consumer
-
-docker-compose logs -f intelligence-agents-worker
-
-## 🧪 Development```
-
-
-
-### Running Individual Services### Check Reports
-
-```bash
-
-```bash# View generated reports
-
-# Start Kafka first (creates network)ls -la pathway/reports/market/
-
-cd kafka && docker compose up -dls -la pathway/reports/news/
-
-ls -la pathway/reports/sentiment/
-
-# Start streaming producersls -la pathway/reports/fundamental/
-
-cd streaming && docker compose up -d```
-
-
-
-# Start pathway consumers & API### Redis Monitoring
-
-cd pathway && docker compose up -d```bash
-
-# Connect to Redis CLI
-
-# Start websocket serverdocker exec -it redis redis-cli
-
-cd websocket && docker compose up -d
-
-```# View cached symbols
-
-SMEMBERS reports:symbols
-
-### Local Development (without Docker)
-
-# View report for symbol
-
-```bashHGETALL reports:AAPL
-
-# Install dependencies```
-
-pip install -r pathway/requirements.txt
-
-pip install -r streaming/requirements.txt## 🔧 Configuration
-
-
-
-# Start Kafka & Redis via Docker### Stock Symbols
-
-docker compose up kafka redis zookeeper -dConfigure which stocks to track in `streaming/.env`:
-
-```bash
-
-# Run services locallySTOCKS=AAPL,GOOGL,MSFT,TSLA,AMZN,NVDA
-
-python streaming/producers/market_data_producer.py```
-
-python pathway/main_market.py
-
-uvicorn pathway.api.fastapi_server:app --reload --port 8000### Fetch Intervals
-
-``````bash
-
-MARKET_DATA_INTERVAL=60        # Market data every 60 seconds
-
-## 📈 MonitoringNEWS_FETCH_INTERVAL=300        # News every 5 minutes
-
-SENTIMENT_FETCH_INTERVAL=300   # Sentiment every 5 minutes
-
-### View LogsFUNDAMENTAL_INTERVAL=3600      # Fundamentals every hour
-
-```bash```
-
-docker compose logs -f unified-api
-
-docker compose logs -f market-consumer### LLM Models
-
-```Edit in respective agent files:
-
-```python
-
-### Redis Monitoring# pathway/agents/market_agent.py
-
-```bashchat = llms.OpenAIChat(model="gpt-4o-mini", temperature=0.0)
-
-docker exec -it pathway-redis redis-cli
-
-# trading_agents/all_agents/utils/llm.py
-
-# View cached symbolschat_model = llms.OpenAIChat(model="gpt-4o-mini", temperature=0.7)
-
-SMEMBERS reports:symbols```
-
-
-
-# View sentiment clusters## 🛡️ Error Handling
-
-GET sentiment_clusters:AAPL
-
-```The system includes comprehensive error handling:
-
-- **Circuit breakers** for API failures
-
-### Health Checks- **Graceful degradation** with fallback data sources
-
-```bash- **Automatic retries** with exponential backoff
-
-curl http://localhost:8000/health- **Rate limit detection** and cooldown periods
-
-curl http://localhost:8080/health- **Health checks** for all services
+  -d '{"question": "What is Apple revenue for 2024?", "symbol": "AAPL"}'
 
 ```
 
-## 📝 Output Format
+### Get Stock Reports (Pathway API)
+
+```bash
+curl http://localhost:8000/reports/AAPL/market
+
+```
+
+---
+
+## 📈 Monitoring & Logs
+
+### View Service Logs
+
+```bash
+# All services
+docker-compose logs -f
+
+# Specific services
+docker-compose logs -f unified-api
+docker-compose logs -f market-consumer
+docker-compose logs -f intelligence-agents-worker
+
+```
+
+### Health Checks
+
+```bash
+curl http://localhost:8000/health
+curl http://localhost:8080/health
+
+```
+
+### Check Reports
+
+```bash
+# View generated reports
+ls -la pathway/reports/market/
+ls -la pathway/reports/news/
+ls -la pathway/reports/sentiment/
+ls -la pathway/reports/fundamental/
+
+```
+
+### Redis Monitoring
+
+```bash
+# Connect to Redis CLI
+docker exec -it pathway-redis redis-cli
+
+# View cached symbols
+SMEMBERS reports:symbols
+
+# View report for symbol
+HGETALL reports:AAPL
+
+# View sentiment clusters
+GET sentiment_clusters:AAPL
+
+```
+
+---
+
+## 🧪 Development
+
+### Running Individual Services
+
+```bash
+# Start Kafka first (creates network)
+cd kafka && docker compose up -d
+
+# Start streaming producers
+cd streaming && docker compose up -d
+
+# Start pathway consumers & API
+cd pathway && docker compose up -d
+
+# Start websocket server
+cd websocket && docker compose up -d
+
+```
+
+### Local Development (without Docker)
+
+```bash
+# Install dependencies
+pip install -r pathway/requirements.txt
+pip install -r streaming/requirements.txt
+
+# Start Kafka & Redis via Docker
+docker compose up kafka redis zookeeper -d
+
+# Run services locally
+python streaming/producers/market_data_producer.py
+python pathway/main_market.py
+uvicorn pathway.api.fastapi_server:app --reload --port 8000
+
+```
+
+---
 
 ## 🔧 Configuration
 
+### Stock Symbols
+
+Configure which stocks to track in `streaming/.env`:
+
+```bash
+STOCKS=AAPL,GOOGL,MSFT,TSLA,AMZN,NVDA
+
+```
+
+### Fetch Intervals
+
+```bash
+MARKET_DATA_INTERVAL=60        # Market data every 60 seconds
+NEWS_FETCH_INTERVAL=300        # News every 5 minutes
+SENTIMENT_FETCH_INTERVAL=300   # Sentiment every 5 minutes
+FUNDAMENTAL_INTERVAL=3600      # Fundamentals every hour
+
+```
+
+### LLM Models
+
+```bash
+OPENAI_MODEL=openai/gpt-4o-mini  # Model for OpenRouter
+OPENAI_MODEL_AGENT=openai/gpt-4o-mini  # Model for Strategist
+
+```
+
+*To edit directly in the agent files:*
+
+```python
+# pathway/agents/market_agent.py
+chat = llms.OpenAIChat(model="gpt-4o-mini", temperature=0.0)
+
+# trading_agents/all_agents/utils/llm.py
+chat_model = llms.OpenAIChat(model="gpt-4o-mini", temperature=0.7)
+
+```
+
+The system includes comprehensive error handling:
+
+* **Circuit breakers** for API failures
+* **Graceful degradation** with fallback data sources
+* **Automatic retries** with exponential backoff
+* **Rate limit detection** and cooldown periods
+* **Health checks** for all services
+
+---
+
+## 📝 Output Format
+
 ### Investment Hypothesis Example
 
-### Stock Symbols```json
-
-```bash{
-
-STOCKS=AAPL,GOOGL,MSFT,TSLA,NVDA  "symbol": "AAPL",
-
-```  "hypothesis": "Strong bullish case based on positive earnings and technical strength",
-
+```json
+{
+  "symbol": "AAPL",
+  "hypothesis": "Strong bullish case based on positive earnings and technical strength",
   "evidence": {
-
-### Fetch Intervals    "bull_points": ["Revenue growth exceeds expectations", "Positive market sentiment"],
-
-```bash    "bear_points": ["High valuation concerns", "Competitive pressure"],
-
-MARKET_DATA_INTERVAL=60        # Market data every 60 seconds    "synthesis": "Balance of evidence suggests growth potential despite risks"
-
-NEWS_FETCH_INTERVAL=300        # News every 5 minutes  },
-
-SENTIMENT_FETCH_INTERVAL=300   # Sentiment every 5 minutes  "risk_assessment": {
-
-FUNDAMENTAL_INTERVAL=3600      # Fundamentals every hour    "aggressive": "High conviction entry opportunity",
-
-```    "neutral": "Moderate position with defined risk",
-
+    "bull_points": ["Revenue growth exceeds expectations", "Positive market sentiment"],
+    "bear_points": ["High valuation concerns", "Competitive pressure"],
+    "synthesis": "Balance of evidence suggests growth potential despite risks"
+  },
+  "risk_assessment": {
+    "aggressive": "High conviction entry opportunity",
+    "neutral": "Moderate position with defined risk",
     "conservative": "Wait for better entry or reduced position"
+  },
+  "confidence": 0.78,
+  "timestamp": "2025-11-11T10:30:00Z"
+}
 
-### LLM Configuration  },
+```
 
-```bash  "confidence": 0.78,
+---
 
-OPENAI_MODEL=openai/gpt-4o-mini  # Model for OpenRouter  "timestamp": "2025-11-11T10:30:00Z"
+## 📝 Validation Results
 
-OPENAI_MODEL_AGENT=openai/gpt-4o-mini  # Model for Strategist}
+### RAGAS Evaluation (RAG System)
 
-``````
+| Method | Precision | Recall | Faithfulness | Relevancy | Factuality |
+| --- | --- | --- | --- | --- | --- |
+| Baseline | 0.722 | 0.827 | 0.777 | 0.791 | 0.399 |
+| **Ours (Reranking + Context)** | **0.875** | **0.896** | **0.846** | **0.844** | **0.455** |
+| <br>Source: WhiteBox Pathway End Report 
 
-
-
-## 📝 Validation Results## 🤝 Contributing
-
-
-
-### RAGAS Evaluation (RAG System)Each subdirectory contains its own detailed README:
-
-| Method | Precision | Recall | Faithfulness | Relevancy |- [streaming/README.md](streaming/README.md) - Data collection layer
-
-|--------|-----------|--------|--------------|-----------|- [pathway/README.md](pathway/README.md) - Stream processing layer
-
-| Baseline | 0.722 | 0.827 | 0.777 | 0.791 |- [trading_agents/README.md](trading_agents/README.md) - Intelligence and analysis layer
-
-| **Ours (Reranking + Context)** | **0.875** | **0.896** | **0.846** | **0.844** |
-
-## 📄 License
+ |  |  |  |  |  |
 
 ### Backtesting Validation
 
-- ✅ 7/7 metrics match for SMA Crossover strategyThis project is part of the Pathway InterIIT initiative.
-
-- ✅ Equity-curve based Sharpe ratio (industry standard)
-
-- ✅ Proper T+1 execution timing## 🙏 Acknowledgments
+* ✅ 7/7 metrics match for SMA Crossover strategy 
 
 
+* ✅ Equity-curve based Sharpe ratio (industry standard)
+* ✅ Proper T+1 execution timing
 
-### Agent Evaluation (Galileo)- **Pathway** - Real-time data processing framework
+### Agent Evaluation (Galileo)
 
-- 64 test queries across 27 MCP tools- **LangGraph** - Multi-agent orchestration
+* 64 test queries across 27 MCP tools 
 
-- Tool selection accuracy: 88%- **OpenAI** - Language model APIs
 
-- **Kafka** - Distributed streaming platform
+* Tool selection accuracy: 88.3% 
+
+
+
+---
+
+## 🤝 Contributing
+
+Each subdirectory contains its own detailed README:
+
+* [streaming/README.md](https://www.google.com/search?q=streaming/README.md) - Data collection layer
+* [pathway/README.md](https://www.google.com/search?q=pathway/README.md) - Stream processing layer
+* [trading_agents/README.md](https://www.google.com/search?q=trading_agents/README.md) - Intelligence and analysis layer
 
 ## 📚 Documentation
 
-- [Streaming Layer](streaming/README.md) - Data collection producers
-- [Pathway Layer](pathway/README.md) - Stream processing & AI agents
-- [WebSocket Server](websocket/readme.md) - Real-time event distribution
-- [WebSocket Event Schemas](WEBSOCKET_EVENT_SCHEMAS.md) - Event type reference
-- [Quick Start Guide](QUICKSTART.md) - Detailed setup instructions
+* [Streaming Layer](https://www.google.com/search?q=streaming/README.md) - Data collection producers
+* [Pathway Layer](https://www.google.com/search?q=pathway/README.md) - Stream processing & AI agents
+* [WebSocket Server](https://www.google.com/search?q=websocket/readme.md) - Real-time event distribution
+* [WebSocket Event Schemas](https://www.google.com/search?q=WEBSOCKET_EVENT_SCHEMAS.md) - Event type reference
+* [Quick Start Guide](QUICKSTART.md) - Detailed setup instructions
 
 ## 📄 License
 
@@ -911,8 +859,13 @@ This project is part of the Pathway InterIIT initiative.
 
 ## 🙏 Acknowledgments
 
-- **Pathway** - Real-time data processing framework
-- **LangGraph** - Multi-agent orchestration
-- **FastMCP** - Model Context Protocol server
-- **Mem0** - Persistent memory for AI agents
-- **OpenRouter** - LLM API gateway
+* **Pathway** - Real-time data processing framework
+* **LangGraph** - Multi-agent orchestration
+* **FastMCP** - Model Context Protocol server
+* **Mem0** - Persistent memory for AI agents
+* **OpenRouter** - LLM API gateway
+* **Kafka** - Distributed streaming platform
+* **OpenAI** - Language model APIs
+
+---
+
